@@ -1,0 +1,101 @@
+name: CI
+
+# Every push to any branch compiles and tests (FR-006). Only pushes to the default branch and
+# v* tags additionally build and publish the image to GHCR (FR-007). Branch pushes are what
+# surface the status check on a pull request, so no separate pull_request trigger is needed.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  # docker/metadata-action lowercases the image name, so the mixed-case owner is fine here.
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  compile-and-test:
+    name: Compile and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # `mvn verify` runs Surefire unit tests and the Failsafe *IT integration tests.
+      # ActuatorHealthIT starts a real postgres:18.6-alpine via Testcontainers, which works
+      # on GitHub-hosted runners because they ship a running Docker daemon.
+      - name: Compile and test
+        run: mvn -B verify
+
+      # Publishing the exact JAR that the tests ran against, rather than rebuilding it in the
+      # next job, is what makes the local build and the CI build byte-identical (SC-005).
+      - name: Upload application JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/*.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  build-and-push:
+    name: Build and push image
+    needs: compile-and-test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # The Dockerfile is single-stage and copies target/*.jar, so the JAR must be restored
+      # into the build context before `docker build` runs.
+      - name: Download application JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # type=ref,event=tag keeps the raw git tag (v1.0.0); type=semver additionally
+          # publishes the bare semver (1.0.0). Both are emitted so either form resolves.
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

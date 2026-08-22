@@ -1,0 +1,26 @@
+# Keep the build context small so image layer caching is not invalidated by unrelated edits
+# (supports SC-002 CI < 10 min, SC-003 image available < 5 min).
+
+# Maven output: exclude everything except the fat JAR the Dockerfile copies in.
+target/*
+!target/*.jar
+target/*.jar.original
+
+.devcontainer/
+.github/
+specs/
+.specify/
+.claude/
+
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+*.log
+.env
+.env.*
+.idea/
+.vscode/
+__pycache__/

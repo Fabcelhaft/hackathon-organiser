@@ -1,0 +1,23 @@
+# R2DBC connection settings are supplied by the environment, not hard-coded here.
+# Spring Boot's relaxed binding maps the environment variables
+#   SPRING_R2DBC_URL / SPRING_R2DBC_USERNAME / SPRING_R2DBC_PASSWORD
+# onto spring.r2dbc.url / .username / .password automatically (see docker-compose.yml).
+#
+# They are deliberately NOT declared as ${...} placeholders: an unresolvable placeholder is
+# evaluated eagerly by the R2DBC auto-configuration conditions, which breaks integration tests
+# that supply the connection via Testcontainers @ServiceConnection. With no declaration, an
+# environment that provides neither still fails fast with a descriptive
+# "Failed to configure a ConnectionFactory" error.
+spring:
+  sql:
+    init:
+      mode: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always

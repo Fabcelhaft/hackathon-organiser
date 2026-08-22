@@ -1,0 +1,8 @@
+schema_version: "1.0"
+
+hooks:
+  before_specify:
+    - extension: "speckit-git"
+      command: "speckit.git.branch"
+      optional: false
+      description: "Create a git feature branch before spec generation"
