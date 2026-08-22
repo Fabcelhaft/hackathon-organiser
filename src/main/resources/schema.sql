@@ -1,0 +1,4 @@
+-- Schema initialisation for Hackathon Organiser
+-- Convention: all DDL statements MUST use CREATE TABLE IF NOT EXISTS
+-- to ensure idempotent re-execution on every application startup
+-- (spring.sql.init.mode=always reruns this file on each restart).

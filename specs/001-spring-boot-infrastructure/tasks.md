@@ -29,8 +29,8 @@ Standard Maven single-project layout as defined in `plan.md`:
 
 **Purpose**: Establish the Maven project skeleton and main application class. All subsequent phases depend on this foundation.
 
-- [ ] T001 Create `pom.xml` at the repository root with: Spring Boot parent `4.1.1`, Java version `25`, coordinates `groupId: net.fabcelhaft` / `artifactId: hackathon-organiser`, and dependencies: `spring-boot-starter-webflux`, `spring-boot-starter-data-r2dbc`, `spring-boot-starter-actuator`, `org.postgresql:r2dbc-postgresql` (runtime), `spring-boot-starter-test` (test), `io.projectreactor:reactor-test` (test), `org.testcontainers:testcontainers` (test), `org.testcontainers:postgresql` (test), `org.springframework.boot:spring-boot-testcontainers` (test — provides `@ServiceConnection` wiring for Spring Boot 4.x)
-- [ ] T002 Create `src/main/java/net/fabcelhaft/hackathonorganiser/HackathonOrganiserApplication.java` — standard `@SpringBootApplication` main class; confirm `mvn compile` passes
+- [X] T001 Create `pom.xml` at the repository root with: Spring Boot parent `4.1.1`, Java version `25`, coordinates `groupId: net.fabcelhaft` / `artifactId: hackathon-organiser`, and dependencies: `spring-boot-starter-webflux`, `spring-boot-starter-data-r2dbc`, `spring-boot-starter-actuator`, `org.postgresql:r2dbc-postgresql` (runtime), `spring-boot-starter-test` (test), `io.projectreactor:reactor-test` (test), `org.testcontainers:testcontainers` (test), `org.testcontainers:postgresql` (test), `org.springframework.boot:spring-boot-testcontainers` (test — provides `@ServiceConnection` wiring for Spring Boot 4.x)
+- [X] T002 Create `src/main/java/net/fabcelhaft/hackathonorganiser/HackathonOrganiserApplication.java` — standard `@SpringBootApplication` main class; confirm `mvn compile` passes
 
 **Checkpoint**: `mvn compile` succeeds with zero source files other than the main class.
 
@@ -42,10 +42,10 @@ Standard Maven single-project layout as defined in `plan.md`:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Create `src/main/resources/application.yml` with R2DBC connection properties from environment variables (`SPRING_R2DBC_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`), `spring.sql.init.mode: always`, and Actuator configuration (`management.endpoints.web.exposure.include: health`, `management.endpoint.health.show-details: always`)
-- [ ] T004 Create `src/main/resources/schema.sql` — empty placeholder file with a comment block explaining the `CREATE TABLE IF NOT EXISTS` convention required for idempotent schema initialisation
-- [ ] T005 [P] Create `docker-compose.yml` at the repository root with two services: `app` (built from Dockerfile, port `8080:8080`, env vars for R2DBC URL/user/password pointing to the `db` service, `depends_on: db: condition: service_healthy`) and `db` (`postgres:18.6-alpine`, named volume `postgres-data`, env vars `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `pg_isready` healthcheck)
-- [ ] T006 [P] Create `.devcontainer/devcontainer.json` with: `image: mcr.microsoft.com/devcontainers/java:25`, features `ghcr.io/devcontainers/features/java:1` (version 25, Maven enabled) and `ghcr.io/devcontainers/features/docker-outside-of-docker:1`, `forwardPorts: [8080]`, and VS Code extensions `vscjava.vscode-java-pack`, `vmware.vscode-spring-boot`, `cweijan.vscode-postgresql-client2`
+- [X] T003 Create `src/main/resources/application.yml` with R2DBC connection properties from environment variables (`SPRING_R2DBC_URL`, `SPRING_R2DBC_USERNAME`, `SPRING_R2DBC_PASSWORD`), `spring.sql.init.mode: always`, and Actuator configuration (`management.endpoints.web.exposure.include: health`, `management.endpoint.health.show-details: always`)
+- [X] T004 Create `src/main/resources/schema.sql` — empty placeholder file with a comment block explaining the `CREATE TABLE IF NOT EXISTS` convention required for idempotent schema initialisation
+- [X] T005 [P] Create `docker-compose.yml` at the repository root with two services: `app` (built from Dockerfile, port `8080:8080`, env vars for R2DBC URL/user/password pointing to the `db` service, `depends_on: db: condition: service_healthy`) and `db` (`postgres:18.6-alpine`, named volume `postgres-data`, env vars `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `pg_isready` healthcheck)
+- [X] T006 [P] Create `.devcontainer/devcontainer.json` with: `image: mcr.microsoft.com/devcontainers/java:25`, features `ghcr.io/devcontainers/features/java:1` (version 25, Maven enabled) and `ghcr.io/devcontainers/features/docker-outside-of-docker:1`, `forwardPorts: [8080]`, and VS Code extensions `vscjava.vscode-java-pack`, `vmware.vscode-spring-boot`, `cweijan.vscode-postgresql-client2`
 
 **Checkpoint**: Foundation ready — open repo in devcontainer, confirm Java 25 + Maven + `docker` CLI are all available inside the container.
 
@@ -59,12 +59,12 @@ Standard Maven single-project layout as defined in `plan.md`:
 
 ### Tests for User Story 1 (Constitution §V — write FIRST, ensure they FAIL before implementation)
 
-- [ ] T007 [US1] Write failing `WebTestClient` integration test `src/test/java/net/fabcelhaft/hackathonorganiser/ActuatorHealthIT.java` — annotate with `@SpringBootTest(webEnvironment = RANDOM_PORT)`, `@Testcontainers`; declare `@Container @ServiceConnection static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18.6-alpine")`; inject `WebTestClient`; write test method `healthEndpointReturnsUpWithR2dbcIndicator()` that calls `GET /actuator/health` and asserts HTTP 200, `$.status == "UP"`, `$.components.r2dbc.status == "UP"`
-- [ ] T008 [US1] Run `mvn test -Dtest=ActuatorHealthIT` and **confirm the test fails** (no Actuator endpoint wired yet); commit the failing test to the repository before proceeding
+- [X] T007 [US1] Write failing `WebTestClient` integration test `src/test/java/net/fabcelhaft/hackathonorganiser/ActuatorHealthIT.java` — annotate with `@SpringBootTest(webEnvironment = RANDOM_PORT)`, `@Testcontainers`; declare `@Container @ServiceConnection static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18.6-alpine")`; inject `WebTestClient`; write test method `healthEndpointReturnsUpWithR2dbcIndicator()` that calls `GET /actuator/health` and asserts HTTP 200, `$.status == "UP"`, `$.components.r2dbc.status == "UP"`
+- [X] T008 [US1] Run `mvn test -Dtest=ActuatorHealthIT` and **confirm the test fails** (no Actuator endpoint wired yet); commit the failing test to the repository before proceeding
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Verify that `spring-boot-starter-actuator` (already in `pom.xml` from T001) auto-configures `/actuator/health` with `r2dbcHealthIndicator` — run `mvn test -Dtest=ActuatorHealthIT` and confirm the test now **passes** with a running Testcontainers PostgreSQL; fix any configuration issues in `application.yml` (T003) until the test is green
+- [X] T009 [US1] Verify that `spring-boot-starter-actuator` (already in `pom.xml` from T001) auto-configures `/actuator/health` with `r2dbcHealthIndicator` — run `mvn test -Dtest=ActuatorHealthIT` and confirm the test now **passes** with a running Testcontainers PostgreSQL; fix any configuration issues in `application.yml` (T003) until the test is green
 - [ ] T010 [US1] Smoke-test the full compose stack: run `docker compose up --build`, wait for both services to be healthy, then `curl http://localhost:8080/actuator/health` from the host — verify HTTP 200, `status: UP`, `components.r2dbc.status: UP`
 - [ ] T011 [US1] Validate edge case — database unavailable: stop only the `db` service (`docker compose stop db`), wait for the `app` service to fail its health check, verify `GET /actuator/health` returns HTTP 503 with `components.r2dbc.status: DOWN`
 
