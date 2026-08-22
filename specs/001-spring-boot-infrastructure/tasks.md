@@ -65,8 +65,8 @@ Standard Maven single-project layout as defined in `plan.md`:
 ### Implementation for User Story 1
 
 - [X] T009 [US1] Verify that `spring-boot-starter-actuator` (already in `pom.xml` from T001) auto-configures `/actuator/health` with `r2dbcHealthIndicator` — run `mvn test -Dtest=ActuatorHealthIT` and confirm the test now **passes** with a running Testcontainers PostgreSQL; fix any configuration issues in `application.yml` (T003) until the test is green
-- [ ] T010 [US1] Smoke-test the full compose stack: run `docker compose up --build`, wait for both services to be healthy, then `curl http://localhost:8080/actuator/health` from the host — verify HTTP 200, `status: UP`, `components.r2dbc.status: UP`
-- [ ] T011 [US1] Validate edge case — database unavailable: stop only the `db` service (`docker compose stop db`), wait for the `app` service to fail its health check, verify `GET /actuator/health` returns HTTP 503 with `components.r2dbc.status: DOWN`
+- [X] T010 [US1] Smoke-test the full compose stack: run `docker compose up --build`, wait for both services to be healthy, then `curl http://localhost:8080/actuator/health` from the host — verify HTTP 200, `status: UP`, `components.r2dbc.status: UP`
+- [X] T011 [US1] Validate edge case — database unavailable: stop only the `db` service (`docker compose stop db`), wait for the `app` service to fail its health check, verify `GET /actuator/health` returns HTTP 503 with `components.r2dbc.status: DOWN`
 
 **Checkpoint**: User Story 1 is fully functional. A developer can open the repo in a devcontainer, run `docker compose up db -d`, start the app with `mvn spring-boot:run`, and reach a healthy health endpoint from the host browser.
 
@@ -80,15 +80,15 @@ Standard Maven single-project layout as defined in `plan.md`:
 
 ### Tests for User Story 2 (Constitution §V)
 
-- [ ] T012 [US2] Pre-implementation gate for Dockerfile (Constitution §V infrastructure exemption): run `docker build .` from the repository root and confirm it fails with "no such file: Dockerfile" — infrastructure artefacts have no JUnit equivalent, so the absent-file failure IS the failing state. Note this in the commit message before proceeding to T013.
+- [X] T012 [US2] Pre-implementation gate for Dockerfile (Constitution §V infrastructure exemption): run `docker build .` from the repository root and confirm it fails with "no such file: Dockerfile" — infrastructure artefacts have no JUnit equivalent, so the absent-file failure IS the failing state. Note this in the commit message before proceeding to T013.
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Create `Dockerfile` at the repository root — single-stage build: `FROM eclipse-temurin:25-jre-alpine`, `WORKDIR /app`, `ARG JAR_FILE=target/*.jar`, `COPY ${JAR_FILE} app.jar`, `ENTRYPOINT ["java", "-jar", "app.jar"]`
-- [ ] T014 [US2] Create `.github/workflows/ci.yml` with two jobs:
+- [X] T013 [US2] Create `Dockerfile` at the repository root — single-stage build: `FROM eclipse-temurin:25-jre-alpine`, `WORKDIR /app`, `ARG JAR_FILE=target/*.jar`, `COPY ${JAR_FILE} app.jar`, `ENTRYPOINT ["java", "-jar", "app.jar"]`
+- [X] T014 [US2] Create `.github/workflows/ci.yml` with two jobs:
   - **Job `compile-and-test`** (trigger: push to any branch): checkout → setup Java 25 with Temurin + Maven cache → `mvn verify` (compiles + runs tests including `ActuatorHealthIT` via Testcontainers)
   - **Job `build-and-push`** (trigger: push to `main` or `v*` tags; `needs: compile-and-test`): checkout → setup Buildx → login to GHCR with `GITHUB_TOKEN` → `docker/metadata-action@v5` (tags: `type=sha`, `type=raw,value=latest,enable={{is_default_branch}}`, `type=ref,event=tag` — preserves raw git tag name including `v` prefix, e.g. `v1.0.0`) → `docker/build-push-action@v6` (push: true, tags from metadata step, GHA cache)
-- [ ] T015 [US2] Build the fat JAR locally (`mvn package -DskipTests`) then build the Docker image (`docker build -t hackathon-organiser:local .`) and run it against the compose `db` service — confirm the container starts and `/actuator/health` returns UP (validates the Dockerfile produces a working image)
+- [X] T015 [US2] Build the fat JAR locally (`mvn package -DskipTests`) then build the Docker image (`docker build -t hackathon-organiser:local .`) and run it against the compose `db` service — confirm the container starts and `/actuator/health` returns UP (validates the Dockerfile produces a working image)
 
 **Checkpoint**: Push `main` to GitHub, wait for CI to complete, confirm image appears in Packages tab tagged with the commit SHA and `latest`.
 
@@ -112,10 +112,10 @@ Standard Maven single-project layout as defined in `plan.md`:
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T019 [P] Add `.dockerignore` at repository root to exclude `target/`, `.devcontainer/`, `.github/`, `specs/`, and `.specify/` from the Docker build context — reduces build time and image layer cache invalidation (supports SC-002 CI < 10 min, SC-003 image available < 5 min)
+- [X] T019 [P] Add `.dockerignore` at repository root to exclude `target/`, `.devcontainer/`, `.github/`, `specs/`, and `.specify/` from the Docker build context — reduces build time and image layer cache invalidation (supports SC-002 CI < 10 min, SC-003 image available < 5 min)
 - [ ] T020 Run all quickstart validation scenarios from `specs/001-spring-boot-infrastructure/quickstart.md` (scenarios 1–7) and confirm each passes or is documented as a known limitation
-- [ ] T021 [P] Create `README.md` at the repository root documenting: prerequisites (container runtime only), devcontainer quickstart (open in VS Code → Reopen in Container → `docker compose up db -d` → `mvn spring-boot:run`), compose quickstart (`docker compose up --build`), health check URL (`http://localhost:8080/actuator/health`), and CI/publishing overview — satisfies SC-001 (10-minute setup following only README steps)
-- [ ] T022 [P] Validate Constitution §II (Reactive-First): run `mvn dependency:tree -Dincludes=org.springframework:spring-webmvc` from the repository root and assert the output contains no matches — confirms `spring-webmvc` is not on the classpath as a transitive dependency; fail the task and investigate if any match is found
+- [X] T021 [P] Create `README.md` at the repository root documenting: prerequisites (container runtime only), devcontainer quickstart (open in VS Code → Reopen in Container → `docker compose up db -d` → `mvn spring-boot:run`), compose quickstart (`docker compose up --build`), health check URL (`http://localhost:8080/actuator/health`), and CI/publishing overview — satisfies SC-001 (10-minute setup following only README steps)
+- [X] T022 [P] Validate Constitution §II (Reactive-First): run `mvn dependency:tree -Dincludes=org.springframework:spring-webmvc` from the repository root and assert the output contains no matches — confirms `spring-webmvc` is not on the classpath as a transitive dependency; fail the task and investigate if any match is found
 
 ---
 
