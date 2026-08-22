@@ -13,6 +13,11 @@ services:
 
   db:
     image: postgres:18.6-alpine
+    # Published so that a `mvn spring-boot:run` outside the compose network — notably from the
+    # dev container, which uses docker-outside-of-docker and therefore sits on a different
+    # bridge — can reach the database, and so DB client tooling can connect.
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: hackathon
       POSTGRES_USER: hackathon

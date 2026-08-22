@@ -113,7 +113,7 @@ Standard Maven single-project layout as defined in `plan.md`:
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [X] T019 [P] Add `.dockerignore` at repository root to exclude `target/`, `.devcontainer/`, `.github/`, `specs/`, and `.specify/` from the Docker build context — reduces build time and image layer cache invalidation (supports SC-002 CI < 10 min, SC-003 image available < 5 min)
-- [ ] T020 Run all quickstart validation scenarios from `specs/001-spring-boot-infrastructure/quickstart.md` (scenarios 1–7) and confirm each passes or is documented as a known limitation
+- [X] T020 Run all quickstart validation scenarios from `specs/001-spring-boot-infrastructure/quickstart.md` (scenarios 1–7) and confirm each passes or is documented as a known limitation
 - [X] T021 [P] Create `README.md` at the repository root documenting: prerequisites (container runtime only), devcontainer quickstart (open in VS Code → Reopen in Container → `docker compose up db -d` → `mvn spring-boot:run`), compose quickstart (`docker compose up --build`), health check URL (`http://localhost:8080/actuator/health`), and CI/publishing overview — satisfies SC-001 (10-minute setup following only README steps)
 - [X] T022 [P] Validate Constitution §II (Reactive-First): run `mvn dependency:tree -Dincludes=org.springframework:spring-webmvc` from the repository root and assert the output contains no matches — confirms `spring-webmvc` is not on the classpath as a transitive dependency; fail the task and investigate if any match is found
 

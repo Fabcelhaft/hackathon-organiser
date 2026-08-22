@@ -35,7 +35,12 @@ code .
 docker compose up db -d
 # → postgres:18.6-alpine starts with a named volume; wait for healthy status
 
-# 4. Build and start the application
+# 4. Build and start the application.
+#    The dev container uses docker-outside-of-docker, so it is NOT on the compose network and
+#    cannot resolve the `db` hostname. It reaches the published port via the default gateway.
+SPRING_R2DBC_URL="r2dbc:postgresql://$(ip route | awk '/default/ {print $3}'):5432/hackathon" \
+SPRING_R2DBC_USERNAME=hackathon \
+SPRING_R2DBC_PASSWORD=hackathon \
 mvn spring-boot:run
 
 # 5. From host browser or dev container terminal:

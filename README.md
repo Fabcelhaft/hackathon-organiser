@@ -25,9 +25,14 @@ are provided by the dev container.
    docker compose up db -d
    ```
 
-3. Start the application:
+3. Start the application. The dev container uses *docker-outside-of-docker*, so it is not on the
+   compose network and cannot resolve the `db` hostname — it reaches the published port through
+   the default gateway instead:
 
    ```bash
+   SPRING_R2DBC_URL="r2dbc:postgresql://$(ip route | awk '/default/ {print $3}'):5432/hackathon" \
+   SPRING_R2DBC_USERNAME=hackathon \
+   SPRING_R2DBC_PASSWORD=hackathon \
    mvn spring-boot:run
    ```
 
