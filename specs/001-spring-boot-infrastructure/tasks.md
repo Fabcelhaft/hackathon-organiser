@@ -102,7 +102,7 @@ Standard Maven single-project layout as defined in `plan.md`:
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] Push the current branch to GitHub and verify `compile-and-test` triggers on the non-main branch, and that `build-and-push` does NOT trigger (only `main` and `v*` tags should trigger the publish job)
+- [X] T016 [US3] Push the current branch to GitHub and verify `compile-and-test` triggers on the non-main branch, and that `build-and-push` does NOT trigger (only `main` and `v*` tags should trigger the publish job)
 - [ ] T017 [US3] Validate the failure gate: temporarily break `ActuatorHealthIT` (assert wrong status), push to a branch, confirm CI fails on `compile-and-test` and `build-and-push` is skipped; revert the intentional break and push again to confirm green
 - [ ] T018 [US3] Validate git tag publishing: create and push a `v0.1.0` tag to `main`, confirm CI publishes the image with a `0.1.0` semver tag in addition to the SHA tag
 
