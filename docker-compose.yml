@@ -32,5 +32,16 @@ services:
       timeout: 5s
       retries: 5
 
+  # Dev-only OIDC provider for the manual visual smoke-test (quickstart.md, feature 002).
+  # Not part of the production deployment path — the `app` service's real OIDC settings are
+  # supplied by the deployment environment, same convention as the R2DBC settings above.
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    command: dex serve /etc/dex/config.yaml
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
+
 volumes:
   postgres-data:

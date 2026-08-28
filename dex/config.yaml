@@ -1,0 +1,29 @@
+# Dev-only OIDC identity provider (Dex), used solely for the constitution-mandated manual
+# visual smoke-test of the organiser Thymeleaf views (see quickstart.md). Not used by any
+# automated test — those authenticate via spring-security-test's mockOidcLogin()/mockUser()
+# against the real SecurityWebFilterChain instead (research.md §6). Never deploy this file or
+# its static credentials outside a local/dev environment.
+issuer: http://localhost:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /tmp/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+staticClients:
+  - id: hackathon-organiser
+    secret: dev-secret
+    name: "Hackathon Organiser (dev)"
+    redirectURIs:
+      - "http://localhost:8080/login/oauth2/code/dex"
+
+enablePasswordDB: true
+staticPasswords:
+  # Dex's own published example credential (password: "password") — public, not a real secret.
+  - email: "organiser@example.dev"
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: "organiser"
+    userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

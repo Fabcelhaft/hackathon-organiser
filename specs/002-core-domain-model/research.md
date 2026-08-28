@@ -6,26 +6,30 @@ Decision / Rationale / Alternatives considered.
 
 ## 1. UUID v7 generation (FR-025)
 
-**Decision**: Implement a minimal in-house generator, `net.fabcelhaft.hackathonorganiser.common.Uuid7Generator`,
-producing RFC 9562 §5.7-compliant UUIDv7 values: a 48-bit big-endian Unix-epoch-millisecond timestamp in the
-high bits, the version nibble (`0111`) and IETF variant bits (`10`) set per spec, and the remaining bits filled
-from `SecureRandom`. Exposed as a single static `UUID generate()` method used everywhere a new entity ID is
-needed.
+**Decision**: Rely on PostgreSQL 18's native, built-in `uuidv7()` function as the column-level `DEFAULT` for
+every UUIDv7 primary key — e.g. `id uuid PRIMARY KEY DEFAULT uuidv7()` — rather than generating the value in
+application code. Spring Data R2DBC entities declare `@Id private UUID id` left `null` when constructing a new
+instance; the R2DBC driver omits a `null` `@Id` column from the generated `INSERT`, Postgres fills it via the
+default, and Spring Data R2DBC reads the generated value back off the `INSERT ... RETURNING id` it already
+issues for `@Id`-annotated columns. No application method is ever called to produce an identifier.
 
-**Rationale**: `java.util.UUID` (JDK 25) has no UUIDv7 factory method — there is no standard JDK proposal for
-this on track as of this writing. The algorithm is small and fully specified (~20 lines), so a dedicated
-third-party dependency is unnecessary weight against Constitution Principle I's "minimise dependency surface"
-rationale. A self-contained generator is easy to unit test directly (version/variant bits, timestamp ordering)
-without pulling in an external API surface.
+**Rationale**: PostgreSQL 18 — already the version pinned in [docker-compose.yml](../../docker-compose.yml)
+(`postgres:18.6-alpine`) — ships a native, RFC 9562 §5.7-compliant `uuidv7()` function with no extension and no
+custom PL/pgSQL required. This is strictly simpler than any application-side approach: zero dependency surface
+(Constitution Principle I's "minimise dependency surface" concern doesn't even arise), one line of DDL per
+table instead of a generator class plus its own unit test, and the database becomes the single source of truth
+for identity generation — correct even for rows inserted outside the application (manual fixes, future
+migration scripts) without relying on every code path remembering to call a generator.
 
 **Alternatives considered**:
-- `com.github.f4b6a3:uuid-creator` — mature, widely used, but an extra dependency for a well-specified,
-  small algorithm.
-- `com.fasterxml.uuid` (Java Uuid Generator) — same reasoning, plus a heavier feature set than needed.
-- Database-generated IDs via Postgres `gen_random_uuid()` / pgcrypto — Postgres has no built-in UUIDv7
-  function either (as of PG 18), so this would require a custom PL/pgSQL function, moving ID-generation logic
-  into the database and breaking from the reactive-application-owns-identity approach already used everywhere
-  else in this codebase.
+- An in-house Java generator (the original decision here, superseded) — was based on the incorrect premise
+  that "Postgres has no built-in UUIDv7 function as of PG 18." PG 18 specifically added `uuidv7()`, which makes
+  a hand-rolled generator pure duplication of behavior the database already provides natively.
+- `com.github.f4b6a3:uuid-creator` / `com.fasterxml.uuid` (Java Uuid Generator) — rejected for the same reason
+  as before, now more clearly unnecessary: an extra dependency (or hand-written class) for something the
+  database does out of the box.
+- A custom PL/pgSQL function or the `pgcrypto`/`uuid-ossp` extensions — unnecessary now that PG 18 ships
+  `uuidv7()` directly as a built-in.
 
 ## 2. OIDC authentication & role derivation (FR-001–FR-005, edge case on privilege revocation)
 
@@ -55,21 +59,42 @@ database on every login (rather than caching it for the life of a long session/J
 ## 3. Thymeleaf/WebFlux organiser path & package separation (FR-024)
 
 **Decision**: All organiser-only Spring MVC-style controllers (`@Controller`, WebFlux-reactive) and their
-Thymeleaf templates live under one sub-package/sub-directory pair —
-`net.fabcelhaft.hackathonorganiser.organiser.web` for Java, `templates/organiser/**` for views — with every
-route prefixed `/organiser/**`. Domain entities, repositories, and services stay in the top-level package tree
-(`domain`, `repository`, `service`), since they are not organiser-exclusive.
+Thymeleaf templates live under one top-level Java package / template directory —
+`net.fabcelhaft.hackathonorganiser.organiser` / `templates/organiser/**` — with every route prefixed
+`/organiser/**`, satisfying FR-024. Below that single root, controllers are grouped by *business domain*
+rather than bundled into one flat technology-named bucket: `organiser.user.UserController`,
+`organiser.participant.ParticipantController`, `organiser.skill.SkillController`,
+`organiser.customfield.CustomFieldController`, `organiser.topic.TopicController`,
+`organiser.group.GroupController`. The domain entities, repositories, and services these controllers call are
+organized the same way, one package per business domain (`user`, `participant`, `skill`, `customfield`,
+`topic`, `group`) holding that domain's entity/repository/service together, instead of technology-layered
+`domain`/`repository`/`service` packages — since those are not organiser-exclusive, they sit alongside
+`organiser` rather than under it.
 
-**Rationale**: Directly satisfies FR-024's "distinct path and package... separate from the rest of the
-application" for the *views*, while keeping the reusable domain/service/repository layer available to the
-participant-facing "finetuned logic" the spec's own Input explicitly defers to future specs (Assumptions
-section: self-service registration, topic creation, and team formation are out of scope here but expected
-later). Nesting the whole domain model under `organiser` would force a package move in the very next feature.
+**Rationale**: The single `organiser` package root directly satisfies FR-024's "distinct path and
+package... separate from the rest of the application" for the *views*. Splitting both the organiser web layer
+and the shared domain/service/repository layer by business domain (rather than by technical layer) keeps
+everything relevant to one concept — say, Topic — in one place (`topic/Topic.java`,
+`topic/TopicRepository.java`, `topic/TopicService.java`, `organiser/topic/TopicController.java`) instead of
+scattered across four parallel `domain`/`repository`/`service`/`organiser.web` trees that only line up by
+matching filenames. It also keeps the reusable per-domain layer available to the participant-facing "finetuned
+logic" the spec's own Input explicitly defers to future specs (Assumptions section: self-service registration,
+topic creation, and team formation are out of scope here but expected later) without forcing a package move
+when that logic arrives — a future participant-facing `TopicController` would simply live in a new
+`participant-facing` (or similarly named) sibling package next to `organiser`, reusing the same `topic`
+domain package. `security` remains its own top-level package: it is cross-cutting infrastructure (wires
+`/organiser/**` authorization for every business domain alike, not just one), not itself a business domain.
 
 **Alternatives considered**:
-- Moving the entire domain model under `organiser` too — rejected for the reason above.
-- A separate Maven module for the organiser layer — rejected: the constitution mandates a single reactive
-  Spring Boot application, and this feature's scope doesn't justify multi-module build complexity.
+- One flat `organiser.web` package holding all six controllers, and flat `domain`/`repository`/`service`
+  packages holding all entities/repositories/services (the original decision here, superseded) — technology
+  layering makes every cross-cutting change (e.g., touching everything related to Topic) require editing four
+  unrelated packages, and gives no package-level signal of which classes belong to the same business
+  capability.
+- Moving the entire domain model under `organiser` too — rejected for the same reason as before: it would
+  force a package move in the very next (participant-facing) feature.
+- A separate Maven module per business domain — rejected: the constitution mandates a single reactive Spring
+  Boot application, and this feature's scope doesn't justify multi-module build complexity.
 
 ## 4. Business invariant enforcement
 

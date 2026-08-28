@@ -1,10 +1,11 @@
 # Phase 1 Data Model: Core Domain Model & Organiser Management
 
 Identifier convention (FR-025, per [research.md](research.md) §1): every table below marked **UUIDv7 PK**
-uses `net.fabcelhaft.hackathonorganiser.common.Uuid7Generator` for its primary key. Pure association/value
-tables use composite primary keys instead (per spec Assumptions: "mapping tables ... may use composite or
-surrogate keys"). All tables carry `created_at timestamptz NOT NULL DEFAULT now()`; tables an organiser can
-edit after creation also carry `updated_at timestamptz NOT NULL DEFAULT now()`.
+declares its `id` column as `uuid PRIMARY KEY DEFAULT uuidv7()`, using PostgreSQL 18's native `uuidv7()`
+function — there is no application-level ID generation. Pure association/value tables use composite primary
+keys instead (per spec Assumptions: "mapping tables ... may use composite or surrogate keys"). All tables
+carry `created_at timestamptz NOT NULL DEFAULT now()`; tables an organiser can edit after creation also carry
+`updated_at timestamptz NOT NULL DEFAULT now()`.
 
 ## Entities
 
@@ -12,7 +13,7 @@ edit after creation also carry `updated_at timestamptz NOT NULL DEFAULT now()`.
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `oidc_subject` | text | `NOT NULL`, `UNIQUE` — the IdP's stable subject identifier (edge case: match on this, never on mutable profile fields) |
 | `display_name` | text | `NOT NULL`; refreshed from IdP claims on every login |
 | `email` | text | nullable; refreshed from IdP claims on every login |
@@ -26,7 +27,7 @@ Standard role is not a stored field — it is implicit for every authenticated U
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `user_id` | UUID | `NOT NULL`, `UNIQUE` FK → `users.id` — enforces "at most one Participant per User" (FR-006a) |
 | `status` | enum: `ACTIVE` \| `NOT_PARTICIPATED` \| `REVOKED` | `NOT NULL DEFAULT 'ACTIVE'` (FR-006b sets this on creation; FR-007 restricts to exactly one of these three at a time) |
 | `created_at`, `updated_at` | timestamptz | |
@@ -48,7 +49,7 @@ historical record-keeping, no cascading deletes on status change).
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `name` | text | `NOT NULL`; unique index on `lower(name)` — FR-008a rejects a duplicate/near-duplicate (case-insensitive) name on create or rename |
 | `created_at`, `updated_at` | timestamptz | |
 
@@ -59,7 +60,7 @@ removed while either association still references it (FR-023) — see Referentia
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `label` | text | `NOT NULL` |
 | `field_type` | enum: `FREE_TEXT` \| `MULTI_SELECT` | `NOT NULL`; **locked** once any `custom_field_values`/`custom_field_value_options` row references this definition (FR-012a, service-layer check per [research.md](research.md) §4) |
 | `required` | boolean | `NOT NULL DEFAULT false` (FR-026); drives the Participant "incomplete" computation (FR-027) |
@@ -72,7 +73,7 @@ MULTI_SELECT`, FR-012); one-to-many with Custom Field Value.
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `custom_field_definition_id` | UUID | `NOT NULL` FK → `custom_field_definitions.id` |
 | `label` | text | `NOT NULL`; unique per definition (`UNIQUE (custom_field_definition_id, lower(label))`) |
 | `created_at`, `updated_at` | timestamptz | |
@@ -110,7 +111,7 @@ For `MULTI_SELECT` definitions, the selected options are recorded in a child tab
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `name` | text | `NOT NULL` |
 | `description` | text | `NOT NULL` |
 | `created_by_user_id` | UUID | `NOT NULL` FK → `users.id`; retained even if that User's access is later revoked (edge case: historical creator reference never cleared) |
@@ -122,7 +123,7 @@ Relationships: many-to-many with Skill via `topic_skills`; zero-or-one *active* 
 
 | Field | Type | Rules |
 |---|---|---|
-| `id` | UUID (v7) | PK |
+| `id` | UUID (v7) | PK, `DEFAULT uuidv7()` |
 | `topic_id` | UUID | `NOT NULL` FK → `topics.id` |
 | `status` | enum: `ACTIVE` \| `DISBANDED` | `NOT NULL DEFAULT 'ACTIVE'` |
 | `disbanded_at` | timestamptz | nullable; set when `status` transitions to `DISBANDED` |

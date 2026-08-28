@@ -22,17 +22,18 @@ manual check — see "Manual visual smoke test" below, which is mandatory, not o
 mvn verify
 ```
 
-This runs the unit tests (service-layer invariants, `Uuid7Generator`) and the `*IT` integration tests (via
-Failsafe, per the 001 convention) against a real Testcontainers PostgreSQL instance. Each user story below
-maps to one or more integration test classes to be created in `tasks.md`/implementation:
+This runs the unit tests (service-layer invariants) and the `*IT` integration tests (via Failsafe, per the 001
+convention) against a real Testcontainers PostgreSQL instance. There is no dedicated UUID-generator test suite:
+PostgreSQL 18's native `uuidv7()` column default (research.md §1) needs no application code to test. Each user
+story below maps to one or more integration test classes to be created in `tasks.md`/implementation:
 
 | Story | Acceptance Scenario(s) | Integration test (to be created) |
 |---|---|---|
-| 1 — Identity & Role Recognition | 1–3 | `organiser/web/UserManagementIT` (`mockOidcLogin()` first-time login → Standard; `mockUser()` Organiser toggles another user's privilege; revoked privilege denies the next request) |
-| 2 — Skills & Custom Fields | 1–5 | `organiser/web/SkillManagementIT` (create/rename Skill, duplicate-name rejection, delete-guard) and `organiser/web/CustomFieldManagementIT` (free-text field, multi-select field with options, type-lock, option/definition delete-guards) |
-| 3 — Participant Records | 1–4 | `organiser/web/ParticipantManagementIT` (register, status change, skill add/remove, custom field value validation) |
-| 4 — Topics | 1–3 | `organiser/web/TopicManagementIT` (create/view/edit, skill associations, creator persisted) |
-| 5 — Groups | 1–5 | `organiser/web/GroupManagementIT` (create, membership add/remove, duplicate-Topic rejection, disband + history) |
+| 1 — Identity & Role Recognition | 1–3 | `organiser/user/UserManagementIT` (`mockOidcLogin()` first-time login → Standard; `mockUser()` Organiser toggles another user's privilege; revoked privilege denies the next request) |
+| 2 — Skills & Custom Fields | 1–5 | `organiser/skill/SkillManagementIT` (create/rename Skill, duplicate-name rejection, delete-guard) and `organiser/customfield/CustomFieldManagementIT` (free-text field, multi-select field with options, type-lock, option/definition delete-guards) |
+| 3 — Participant Records | 1–4 | `organiser/participant/ParticipantManagementIT` (register, status change, skill add/remove, custom field value validation) |
+| 4 — Topics | 1–3 | `organiser/topic/TopicManagementIT` (create/view/edit, skill associations, creator persisted) |
+| 5 — Groups | 1–5 | `organiser/group/GroupManagementIT` (create, membership add/remove, duplicate-Topic rejection, disband + history) |
 
 Each test authenticates via `SecurityMockServerConfigurers.mockOidcLogin()`/`.mockUser()` (no live IdP
 required, per [research.md](research.md) §6) and exercises the routes documented in `contracts/`.
@@ -44,8 +45,14 @@ required, per [research.md](research.md) §6) and exercises the routes documente
 - SC-004: Every `*ManagementIT` class includes a case with `mockUser()` holding only `ROLE_USER` (no
   `ROLE_ORGANISER`) hitting each route in the relevant `contracts/*.md` file and asserting a non-2xx
   (redirect-to-denied or 403) response.
-- SC-006: `Uuid7GeneratorTest` (unit) asserts version/variant bits and that 10k generated values are unique
-  and monotonically non-decreasing by timestamp component.
+- SC-006: `UserManagementIT`'s first-login case asserts the generated `User.id` is a valid version-7 UUID
+  (version nibble `7`, IETF variant bits) — proving PostgreSQL's `uuidv7()` column default (research.md §1) is
+  wired correctly; uniqueness is guaranteed by the `PRIMARY KEY` constraint itself. This single check is
+  deliberately treated as representative of all six UUIDv7 tables (`users`, `participants`, `skills`,
+  `custom_field_definitions`, `topics`, `groups`): every one declares the identical `id uuid PRIMARY KEY
+  DEFAULT uuidv7()` DDL pattern (data-model.md), so verifying the mechanism once is sufficient — a
+  version-nibble assertion repeated per entity would test the same Postgres behavior five more times, not
+  five different behaviors.
 - SC-007: `ParticipantManagementIT` asserts the `/organiser/participants` list response body flags a
   Participant with an unmet required Custom Field, without a per-record follow-up request.
 
