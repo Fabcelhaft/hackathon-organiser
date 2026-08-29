@@ -1,0 +1,46 @@
+# Test-only OIDC client registration so the real SecurityWebFilterChain (and its
+# ReactiveClientRegistrationRepository bean) can boot for WebTestClient integration tests that
+# use spring-security-test's mockOidcLogin()/mockUser() (research.md §6). Those helpers inject an
+# already-authenticated principal directly — no network call is ever made against these URIs —
+# but oauth2Login() still requires at least one registered client to exist at context startup.
+#
+# Explicit provider endpoints (not issuer-uri) are used deliberately: issuer-uri triggers eager
+# OIDC discovery (a real HTTP call to /.well-known/openid-configuration) at startup, which would
+# fail with no live IdP reachable from the test JVM.
+#
+# NOTE: classpath:/application.yml resolves to a single resource, so this file fully replaces
+# (not merges with) src/main/resources/application.yml on the test classpath. Settings needed by
+# *IT tests — schema init and actuator health details (ActuatorHealthIT, feature 001) — are
+# re-declared here rather than relying on the main file, which only applies to the packaged
+# application.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
+
+spring:
+  sql:
+    init:
+      mode: always
+  security:
+    oauth2:
+      client:
+        registration:
+          oidc:
+            client-id: test-client
+            client-secret: test-secret
+            client-name: Test IdP
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope: openid,profile,email
+        provider:
+          oidc:
+            authorization-uri: http://localhost:9999/oidc/auth
+            token-uri: http://localhost:9999/oidc/token
+            jwk-set-uri: http://localhost:9999/oidc/keys
+            user-info-uri: http://localhost:9999/oidc/userinfo
+            user-name-attribute: sub

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Participant Detail')}">
+    <title>Participant Detail</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Participant Detail', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+
+        <dl>
+            <dt>User</dt>
+            <dd th:text="${detail.userDisplayName}">Name</dd>
+            <dt>Email</dt>
+            <dd th:text="${detail.userEmail}">Email</dd>
+            <dt>Status</dt>
+            <dd th:text="${detail.participant.status}">Status</dd>
+            <dt>Complete</dt>
+            <dd>
+                <span th:if="${detail.incomplete}" style="color:red;">Incomplete</span>
+                <span th:unless="${detail.incomplete}">Complete</span>
+            </dd>
+        </dl>
+
+        <h2>Status</h2>
+        <form th:action="@{/organiser/participants/{id}/status(id=${detail.participant.id})}" method="post">
+            <select name="status">
+                <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
+                        th:selected="${s == detail.participant.status}">STATUS
+                </option>
+            </select>
+            <button type="submit">Update Status</button>
+        </form>
+
+        <h2>Skills</h2>
+        <form th:action="@{/organiser/participants/{id}/skills(id=${detail.participant.id})}" method="post">
+            <div th:each="skill : ${allSkills}">
+                <label>
+                    <input type="checkbox" name="skill_ids" th:value="${skill.id}"
+                           th:checked="${#lists.contains(detail.skillIds, skill.id)}"/>
+                    <span th:text="${skill.name}">Skill</span>
+                </label>
+            </div>
+            <button type="submit">Save Skills</button>
+        </form>
+
+        <h2>Custom Fields</h2>
+        <div th:each="cfv : ${detail.customFieldValues}">
+            <h3 th:text="${cfv.definition.label} + (${cfv.definition.required} ? ' (required)' : '')">Label</h3>
+
+            <form th:if="${cfv.definition.fieldType.name()} == 'FREE_TEXT'"
+                  th:action="@{/organiser/participants/{id}/custom-fields/{fieldId}(id=${detail.participant.id}, fieldId=${cfv.definition.id})}"
+                  method="post">
+                <input type="text" name="value" th:value="${cfv.freeTextValue}"/>
+                <button type="submit">Save</button>
+            </form>
+
+            <form th:if="${cfv.definition.fieldType.name()} == 'MULTI_SELECT'"
+                  th:action="@{/organiser/participants/{id}/custom-fields/{fieldId}(id=${detail.participant.id}, fieldId=${cfv.definition.id})}"
+                  method="post">
+                <div th:each="option : ${cfv.options}">
+                    <label>
+                        <input type="checkbox" name="option_ids" th:value="${option.id}"
+                               th:checked="${#lists.contains(cfv.selectedOptionIds, option.id)}"/>
+                        <span th:text="${option.label}">Option</span>
+                    </label>
+                </div>
+                <button type="submit">Save</button>
+            </form>
+        </div>
+    </div>
+</th:block>
+</body>
+</html>

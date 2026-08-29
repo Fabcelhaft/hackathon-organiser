@@ -7,9 +7,31 @@ services:
       SPRING_R2DBC_URL: r2dbc:postgresql://db:5432/hackathon
       SPRING_R2DBC_USERNAME: hackathon
       SPRING_R2DBC_PASSWORD: hackathon
+      # OIDC client registration. The registration id is "oidc" — generic, not tied to any one
+      # provider — with the dev-only Dex service below plugged in as the local example. Split by
+      # audience rather than using a single issuer-uri: the browser reaches Dex via its published
+      # host port (localhost), while the app container must reach it via the compose network
+      # (dex) — dex/config.yaml's issuer is hardcoded to localhost, so issuer-uri-based discovery
+      # from this container would fail an issuer mismatch. Explicit endpoints skip discovery
+      # entirely, so no such mismatch check happens. user-info-uri is intentionally omitted:
+      # HackathonOidcUserService disables the UserInfo round-trip and reads claims from the ID
+      # token instead. Swapping in a real provider means changing only these values (and
+      # dex/config.yaml's redirect URI / this container) — no application code changes.
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_ID: hackathon-organiser
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_SECRET: dev-secret
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_SCOPE: openid,profile,email
+      # authorization-grant-type and redirect-uri are only defaulted automatically when
+      # issuer-uri discovery is used; both are required explicitly here.
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_AUTHORIZATION_GRANT_TYPE: authorization_code
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_REDIRECT_URI: "http://localhost:8080/login/oauth2/code/oidc"
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_AUTHORIZATION_URI: http://localhost:5556/dex/auth
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_TOKEN_URI: http://dex:5556/dex/token
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_JWK_SET_URI: http://dex:5556/dex/keys
     depends_on:
       db:
         condition: service_healthy
+      dex:
+        condition: service_started
 
   db:
     image: postgres:18.6-alpine
@@ -31,6 +53,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # Dev-only OIDC provider for the manual visual smoke-test (quickstart.md, feature 002).
+  # Not part of the production deployment path — the `app` service's real OIDC settings are
+  # supplied by the deployment environment, same convention as the R2DBC settings above.
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    command: dex serve /etc/dex/config.yaml
+    ports:
+      - "5556:5556"
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
 
 volumes:
   postgres-data:

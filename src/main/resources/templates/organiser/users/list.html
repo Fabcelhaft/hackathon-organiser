@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Users')}">
+    <title>Users</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Users', content=~{::#content})}">
+    <div id="content">
+        <table>
+            <thead>
+            <tr>
+                <th>Display Name</th>
+                <th>Email</th>
+                <th>Organiser</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="user : ${users}">
+                <td th:text="${user.displayName}">Name</td>
+                <td th:text="${user.email}">Email</td>
+                <td th:text="${user.organiser} ? 'Yes' : 'No'">Organiser</td>
+                <td><a th:href="@{/organiser/users/{id}(id=${user.id})}">View</a></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

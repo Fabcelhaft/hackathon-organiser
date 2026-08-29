@@ -34,6 +34,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
 
         <!-- R2DBC PostgreSQL driver -->
         <dependency>
@@ -46,6 +54,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <!--
@@ -97,6 +110,32 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!--
+              Pico CSS (Constitution IV) is fetched at build time rather than committed to
+              src/main/resources: it lands directly in target/classes/static/css, on the runtime
+              classpath, without ever being vendored into source control.
+            -->
+            <plugin>
+                <groupId>com.googlecode.maven-download-plugin</groupId>
+                <artifactId>download-maven-plugin</artifactId>
+                <version>1.9.0</version>
+                <executions>
+                    <execution>
+                        <id>fetch-pico-css</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>https://unpkg.com/@picocss/pico@2/css/pico.min.css</url>
+                            <outputDirectory>${project.build.outputDirectory}/static/css</outputDirectory>
+                            <outputFileName>pico.min.css</outputFileName>
+                            <overwrite>false</overwrite>
+                            <skipCache>true</skipCache>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!--
               Integration tests are named *IT and are therefore matched by Failsafe, not Surefire.

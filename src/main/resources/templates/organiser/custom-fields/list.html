@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Custom Fields')}">
+    <title>Custom Fields</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Custom Fields', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p><a th:href="@{/organiser/custom-fields/new}" role="button">New Custom Field</a></p>
+        <table>
+            <thead>
+            <tr>
+                <th>Label</th>
+                <th>Type</th>
+                <th>Required</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="field : ${customFields}">
+                <td th:text="${field.label}">Label</td>
+                <td th:text="${field.fieldType}">Type</td>
+                <td th:text="${field.required} ? 'Yes' : 'No'">Required</td>
+                <td>
+                    <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}">Edit</a>
+                    <form th:action="@{/organiser/custom-fields/{id}/delete(id=${field.id})}" method="post" style="display:inline">
+                        <button type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

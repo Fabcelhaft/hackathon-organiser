@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Skill')}">
+    <title>Skill</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Skill', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <form th:action="${skillId} != null ? @{/organiser/skills/{id}(id=${skillId})} : @{/organiser/skills}"
+              method="post">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" th:value="${name}" required="required"/>
+            <button type="submit">Save</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

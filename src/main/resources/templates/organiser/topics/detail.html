@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Topic Detail')}">
+    <title>Topic Detail</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Topic Detail', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+
+        <dl>
+            <dt>Name</dt>
+            <dd th:text="${detail.topic.name}">Name</dd>
+            <dt>Description</dt>
+            <dd th:text="${detail.topic.description}">Description</dd>
+            <dt>Creator</dt>
+            <dd th:text="${detail.creatorDisplayName}">Creator</dd>
+            <dt>Skills</dt>
+            <dd>
+                <span th:each="skill : ${detail.skills}" th:text="${skill.name} + ' '">Skill</span>
+                <span th:if="${detail.skills.isEmpty()}">None</span>
+            </dd>
+            <dt>Active Group</dt>
+            <dd>
+                <a th:if="${activeGroupId} != null"
+                   th:href="@{/organiser/groups/{id}(id=${activeGroupId})}">Active &mdash; View Group</a>
+                <span th:if="${activeGroupId} == null">No active group</span>
+            </dd>
+        </dl>
+
+        <p><a th:href="@{/organiser/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit</a></p>
+    </div>
+</th:block>
+</body>
+</html>
