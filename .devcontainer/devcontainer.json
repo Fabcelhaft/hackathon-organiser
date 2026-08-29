@@ -4,6 +4,7 @@
   "features": {
     "ghcr.io/devcontainers/features/java:1": {
       "version": "25",
+      "jdkDistro": "tem",
       "installMaven": "true"
     },
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
