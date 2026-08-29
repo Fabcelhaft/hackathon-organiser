@@ -268,7 +268,9 @@ gate around).
       `src/main/resources/templates/organiser/settings/form.html`, depends on T013
 - [ ] T028 [P] [US2] Extend `src/main/resources/templates/participants/register.html`'s capacity-message
       placeholder (from T021) to render the actual "Maximum registrations reached" text in place of the field
-      fragment (FR-010)
+      fragment (FR-010), marked `role="status"` the same way `fragments/layout.html`'s flash banner is (FR-040)
+      — this message renders on both a fresh `GET /register` and a `POST /register` re-render, neither of
+      which carries a `flash` redirect, so it needs its own status-region treatment for consistency
 
 **Checkpoint**: User Stories 1–2 both work independently —
 `mvn verify -Dit.test=RegistrationManagementIT,SettingsManagementIT`.
@@ -374,7 +376,9 @@ fragment this reuses).
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/ProfileController.java`, depends on T036 —
       makes T034 pass
 - [ ] T038 [P] [US4] Create `src/main/resources/templates/participants/edit.html` (extends
-      `fragments/layout.html`, includes `fragments/profile-fields-form.html` from T020, pre-filled)
+      `fragments/layout.html`, includes `fragments/profile-fields-form.html` from T020, pre-filled; submit
+      control disabled for the duration of submission, same pattern as T021's register.html, FR-036 — edit
+      save is explicitly in FR-036's scope alongside registration/reactivation)
 - [ ] T039 [P] [US4] Create `src/main/resources/templates/participants/detail.html` — the "self" read-only
       rendering used by `GET /profile` for now (organiser/other-viewer modes are added in User Story 5); an
       Edit action shown only when self-edit is currently enabled
@@ -514,8 +518,10 @@ exists, plus a final full-suite/manual verification pass.
 - [ ] T058 [P] Write `a11y.RegistrationAccessibilityIT` (Playwright headless Chromium + Deque's `AxeBuilder`,
       `@SpringBootTest(webEnvironment = RANDOM_PORT)` + Testcontainers, reusing 003's already-justified
       tooling per research.md §7): scans the registration form (`GET /register`, including its capacity-message
-      state) and the self-edit form (`GET /profile/edit`); asserts zero `critical`/`serious` WCAG 2.1 AA
-      violations on each (SC-009) — in
+      state), the self-edit form (`GET /profile/edit`), and the home page (`GET /`) in its `NOT_PARTICIPATED`
+      lockout state (T019) — FR-037 names "Not Participated lockout messaging" explicitly as new UI in scope,
+      distinct from the pre-existing 002/003 home screen content FR-037's scope note excludes; asserts zero
+      `critical`/`serious` WCAG 2.1 AA violations on each (SC-009) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/a11y/RegistrationAccessibilityIT.java`
 - [ ] T059 [P] Write `a11y.ParticipantsDirectoryAccessibilityIT`: scans the Participants directory table, a
       Participant's own detail view (`GET /profile`), another Participant's detail view, and the extended
@@ -528,7 +534,10 @@ exists, plus a final full-suite/manual verification pass.
       boundaries) in both light and dark presentation (FR-044)
 - [ ] T061 Run `mvn verify` (full unit + `*ManagementIT`/`*IT` + `a11y.*IT` suite) and perform the
       [quickstart.md](quickstart.md) manual visual smoke test end-to-end across all six user stories
-      (Constitution Development Workflow #3)
+      (Constitution Development Workflow #3); as part of that pass, spot-check SC-008 for every
+      state-changing action this feature adds (register, reactivate, revoke, edit save, each of the four
+      organiser setting saves) — confirm each gives a visible in-progress/processing indication and an
+      explicit success or failure outcome, not just the field-level tests' end-state assertions
 
 ---
 
