@@ -64,18 +64,19 @@ dev-only Dex identity provider (`dex/config.yaml`, `docker-compose.yml`) added s
 not used by any automated test.
 
 1. `docker compose up db dex` (starts PostgreSQL and Dex; Dex is published on `localhost:5556`).
-2. Export the OIDC client env vars pointing at Dex, then run the app on the host:
+2. Export the OIDC client env vars for the generic "oidc" registration, pointed at Dex as the
+   example provider, then run the app on the host:
    ```bash
-   export SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DEX_CLIENT_ID=hackathon-organiser
-   export SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DEX_CLIENT_SECRET=dev-secret
-   export SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DEX_SCOPE=openid,profile,email
-   export SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_DEX_ISSUER_URI=http://localhost:5556/dex
+   export SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_ID=hackathon-organiser
+   export SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_SECRET=dev-secret
+   export SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_SCOPE=openid,profile,email
+   export SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_ISSUER_URI=http://localhost:5556/dex
    export SPRING_R2DBC_URL=r2dbc:postgresql://localhost:5432/hackathon
    export SPRING_R2DBC_USERNAME=hackathon
    export SPRING_R2DBC_PASSWORD=hackathon
    mvn spring-boot:run
    ```
-3. Visit `/oauth2/authorization/dex`, sign in as the Dex static user (`organiser@example.dev` /
+3. Visit `/oauth2/authorization/oidc`, sign in as the Dex static user (`organiser@example.dev` /
    `password`) → confirm you land authenticated and `/organiser/**` is denied (Standard role only, no
    Organiser flag yet).
 4. Manually flip that user's `organiser` column to `true` in Postgres (no self-service path exists yet — by

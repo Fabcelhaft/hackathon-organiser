@@ -8,6 +8,21 @@
 # that supply the connection via Testcontainers @ServiceConnection. With no declaration, an
 # environment that provides neither still fails fast with a descriptive
 # "Failed to configure a ConnectionFactory" error.
+# OIDC client registration settings are likewise supplied by the environment, not hard-coded
+# here (same rationale as the R2DBC settings above: an unresolvable ${...} placeholder would be
+# evaluated eagerly and break tests). SecurityConfig doesn't hard-code a provider or registration
+# id — .oauth2Login(withDefaults()) works with whatever single ClientRegistration the environment
+# supplies. This project's convention is the registration id "oidc" (generic, not tied to any one
+# provider), which Spring Boot's relaxed binding maps from:
+#   SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_ID
+#   SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_SECRET
+#   SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_SCOPE
+#   SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_ISSUER_URI
+# onto spring.security.oauth2.client.registration.oidc.* / .provider.oidc.* automatically. With no
+# declaration here, an environment that provides none of these still fails fast — no OAuth2
+# client is registered, and oauth2Login() reports a clear configuration error rather than
+# silently starting with no working login route. See quickstart.md for the dev-only Dex values
+# (Dex is just the example provider plugged into this generic "oidc" registration).
 spring:
   sql:
     init:

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Custom Field')}">
+    <title>Custom Field</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Custom Field', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+
+        <form th:action="${customFieldId} != null ? @{/organiser/custom-fields/{id}(id=${customFieldId})} : @{/organiser/custom-fields}"
+              method="post">
+            <label for="label">Label</label>
+            <input type="text" id="label" name="label" th:value="${label}" required="required"/>
+
+            <label for="fieldType">Type</label>
+            <select id="fieldType" name="fieldType" onchange="toggleOptionsSection()" th:disabled="${typeLocked}">
+                <option th:each="type : ${fieldTypes}" th:value="${type}" th:text="${type}"
+                        th:selected="${type == fieldType}">TYPE
+                </option>
+            </select>
+
+            <label>
+                <input type="checkbox" name="required" value="true" th:checked="${required}"/>
+                Required
+            </label>
+
+            <!-- Dynamic option rows for a new MULTI_SELECT definition (T033); existing options for
+                 an already-created definition are managed separately below via their own routes. -->
+            <div id="newOptionsSection" th:if="${customFieldId} == null">
+                <p>Options (only used when Type is Multi-select)</p>
+                <div id="optionInputs">
+                    <input type="text" name="options" placeholder="Option label"/>
+                </div>
+                <button type="button" onclick="addOptionInputRow()">Add another option</button>
+            </div>
+
+            <button type="submit">Save</button>
+        </form>
+
+        <div th:if="${customFieldId} != null">
+            <h2>Options</h2>
+            <ul>
+                <li th:each="option : ${existingOptions}">
+                    <span th:text="${option.label}">Option</span>
+                    <form th:action="@{/organiser/custom-fields/{id}/options/{optionId}/delete(id=${customFieldId}, optionId=${option.id})}"
+                          method="post" style="display:inline">
+                        <button type="submit">Remove</button>
+                    </form>
+                </li>
+            </ul>
+            <form th:action="@{/organiser/custom-fields/{id}/options(id=${customFieldId})}" method="post">
+                <input type="text" name="label" placeholder="New option label" required="required"/>
+                <button type="submit">Add Option</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function toggleOptionsSection() {
+            var select = document.getElementById('fieldType');
+            var section = document.getElementById('newOptionsSection');
+            if (select && section) {
+                section.style.display = (select.value === 'MULTI_SELECT') ? 'block' : 'none';
+            }
+        }
+
+        function addOptionInputRow() {
+            var container = document.getElementById('optionInputs');
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.name = 'options';
+            input.placeholder = 'Option label';
+            container.appendChild(input);
+        }
+
+        document.addEventListener('DOMContentLoaded', toggleOptionsSection);
+    </script>
+</th:block>
+</body>
+</html>

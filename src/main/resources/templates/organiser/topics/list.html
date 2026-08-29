@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Topics')}">
+    <title>Topics</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Topics', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p><a th:href="@{/organiser/topics/new}" role="button">New Topic</a></p>
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Active Group</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${topics}">
+                <td th:text="${row.topic.name}">Name</td>
+                <td>
+                    <a th:if="${row.activeGroupId} != null"
+                       th:href="@{/organiser/groups/{id}(id=${row.activeGroupId})}">Active</a>
+                    <span th:if="${row.activeGroupId} == null">No active group</span>
+                </td>
+                <td><a th:href="@{/organiser/topics/{id}(id=${row.topic.id})}">View</a></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Register Participant')}">
+    <title>Register Participant</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Register Participant', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <form th:action="@{/organiser/participants}" method="post">
+            <label for="user_id">User</label>
+            <select id="user_id" name="user_id" required="required">
+                <option th:each="user : ${availableUsers}" th:value="${user.id}" th:text="${user.displayName}">
+                    Name
+                </option>
+            </select>
+            <button type="submit">Register</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Skills')}">
+    <title>Skills</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Skills', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p><a th:href="@{/organiser/skills/new}" role="button">New Skill</a></p>
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="skill : ${skills}">
+                <td th:text="${skill.name}">Name</td>
+                <td>
+                    <a th:href="@{/organiser/skills/{id}/edit(id=${skill.id})}">Edit</a>
+                    <form th:action="@{/organiser/skills/{id}/delete(id=${skill.id})}" method="post" style="display:inline">
+                        <button type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

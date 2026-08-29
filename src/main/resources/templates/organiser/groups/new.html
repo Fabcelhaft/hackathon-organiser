@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='New Group')}">
+    <title>New Group</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='New Group', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <form th:action="@{/organiser/groups}" method="post">
+            <!-- Restricted to Topics with no current active Group (FR-016a). -->
+            <label for="topic_id">Topic</label>
+            <select id="topic_id" name="topic_id" required="required">
+                <option th:each="topic : ${availableTopics}" th:value="${topic.id}" th:text="${topic.name}">
+                    Topic
+                </option>
+            </select>
+
+            <fieldset>
+                <legend>Initial Members</legend>
+                <div th:each="participant : ${allParticipants}">
+                    <label>
+                        <input type="checkbox" name="participant_ids" th:value="${participant.id}"/>
+                        <span th:text="${participant.displayName}">Participant</span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <button type="submit">Save</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

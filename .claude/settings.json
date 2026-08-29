@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 .specify/scripts/python/setup_plan.py --json)"
+      "Bash(python3 .specify/scripts/python/setup_plan.py --json)",
+      "Bash(echo \"EXIT:$?\")"
     ]
   }
 }

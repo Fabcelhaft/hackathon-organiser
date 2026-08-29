@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:fragment="head(title)" th:text="${title} + ' — Hackathon Organiser'">Hackathon Organiser</title>
+    <link rel="stylesheet" th:href="@{/css/pico.min.css}"/>
+</head>
+<body>
+<div th:fragment="layout(title, content)">
+    <header class="container">
+        <nav>
+            <ul>
+                <li><strong>Hackathon Organiser</strong></li>
+            </ul>
+            <ul>
+                <li><a th:href="@{/organiser/users}">Users</a></li>
+                <li><a th:href="@{/organiser/participants}">Participants</a></li>
+                <li><a th:href="@{/organiser/skills}">Skills</a></li>
+                <li><a th:href="@{/organiser/custom-fields}">Custom Fields</a></li>
+                <li><a th:href="@{/organiser/topics}">Topics</a></li>
+                <li><a th:href="@{/organiser/groups}">Groups</a></li>
+            </ul>
+        </nav>
+    </header>
+    <main class="container">
+        <h1 th:text="${title}">Page title</h1>
+        <div th:replace="${content}">Page content</div>
+    </main>
+</div>
+</body>
+</html>

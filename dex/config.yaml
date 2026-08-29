@@ -18,7 +18,10 @@ staticClients:
     secret: dev-secret
     name: "Hackathon Organiser (dev)"
     redirectURIs:
-      - "http://localhost:8080/login/oauth2/code/dex"
+      # Must match the Spring registration id used by the app (see docker-compose.yml,
+      # quickstart.md) — the id is "oidc", generic and not Dex-specific; the path segment here
+      # just has to match whatever registration id is configured.
+      - "http://localhost:8080/login/oauth2/code/oidc"
 
 enablePasswordDB: true
 staticPasswords:

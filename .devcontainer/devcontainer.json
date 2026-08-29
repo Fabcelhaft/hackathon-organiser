@@ -11,14 +11,31 @@
     }
   },
   "forwardPorts": [8080],
+  "postCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y -qq chromium",
+  "runArgs": ["--add-host=host.docker.internal:host-gateway"],
   "customizations": {
     "vscode": {
       "extensions": [
         "vscjava.vscode-java-pack",
         "vmware.vscode-spring-boot",
-        "cweijan.vscode-postgresql-client2",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg",
         "anthropic.claude-code"
-      ]
+      ],
+      "settings": {
+        "sqltools.connections": [
+          {
+            "name": "Hackathon (dev)",
+            "driver": "PostgreSQL",
+            "server": "host.docker.internal",
+            "port": 5432,
+            "database": "hackathon",
+            "username": "hackathon",
+            "password": "hackathon",
+            "askForPassword": false
+          }
+        ]
+      }
     }
   }
 }

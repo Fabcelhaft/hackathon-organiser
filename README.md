@@ -49,6 +49,12 @@ docker compose up --build
 
 Then check <http://localhost:8080/actuator/health>.
 
+This also starts a dev-only Dex identity provider — plugged into the app's generic `oidc`
+registration, so OIDC login works out of the box — visit
+<http://localhost:8080/oauth2/authorization/oidc> and sign in as the static Dex user
+(`organiser@example.dev` / `password`). See "Configuration" below for how the app is wired to
+reach Dex, and `specs/002-core-domain-model/quickstart.md` for the full manual smoke-test flow.
+
 > If port 8080 is already bound on your host (the dev container forwards it), publish the app
 > on another port with a compose override rather than editing `docker-compose.yml`.
 
@@ -77,6 +83,20 @@ starting in a broken state.
 | `SPRING_R2DBC_URL` | `r2dbc:postgresql://db:5432/hackathon` |
 | `SPRING_R2DBC_USERNAME` | `hackathon` |
 | `SPRING_R2DBC_PASSWORD` | `hackathon` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_ID` | `hackathon-organiser` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_SECRET` | `dev-secret` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_SCOPE` | `openid,profile,email` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_AUTHORIZATION_GRANT_TYPE` | `authorization_code` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_REDIRECT_URI` | `http://localhost:8080/login/oauth2/code/oidc` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_AUTHORIZATION_URI` | `http://localhost:5556/dex/auth` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_TOKEN_URI` | `http://dex:5556/dex/token` |
+| `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_JWK_SET_URI` | `http://dex:5556/dex/keys` |
+
+The registration id `oidc` is generic — Dex is just the local example provider plugged into it;
+swapping providers means changing only these values, no code changes. The `authorization-uri`
+uses `localhost` (the browser hits it directly) while `token-uri` and `jwk-set-uri` use the `dex`
+compose hostname (the app calls these server-to-server) — see `docker-compose.yml` for why a
+single `issuer-uri` can't be used here.
 
 Schema is managed by `src/main/resources/schema.sql` with `spring.sql.init.mode=always`. All DDL
 must use `CREATE TABLE IF NOT EXISTS` so startup stays idempotent — there is no Flyway or
