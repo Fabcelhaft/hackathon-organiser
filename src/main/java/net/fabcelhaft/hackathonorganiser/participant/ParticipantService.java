@@ -810,8 +810,8 @@ public class ParticipantService {
                             .map(tuple -> {
                                 List<CustomFieldValueView> allViews = tuple.getT1();
                                 List<Skill> allSkills = tuple.getT2();
-                                boolean skillsVisibleToViewer =
-                                        fullAccess || tuple.getT3().isSkillVisibilityEnabled();
+                                boolean skillsVisibleToOthers = tuple.getT3().isSkillVisibilityEnabled();
+                                boolean skillsVisibleToViewer = fullAccess || skillsVisibleToOthers;
                                 List<ViewerFieldValue> fields = allViews.stream()
                                         .map(view -> {
                                             boolean visibleToOthers = view.definition().isPublic_();
@@ -833,6 +833,7 @@ public class ParticipantService {
                                         fields,
                                         skillsVisibleToViewer ? allSkills : List.of(),
                                         skillsVisibleToViewer,
+                                        skillsVisibleToOthers,
                                         isSelf,
                                         viewerIsOrganiser);
                             });
@@ -895,7 +896,10 @@ public class ParticipantService {
      * A Participant's detail view resolved for one viewer (data-model.md
      * {@code findDetailForViewer}): {@code fields} already contains only what this viewer may see;
      * {@code skills} is empty when not visible to this viewer, with {@code skillsVisibleToViewer}
-     * distinguishing "no skills selected" from "hidden from this viewer".
+     * distinguishing "no skills selected" from "hidden from this viewer". {@code
+     * skillsVisibleToOthers} — {@code organiserSettings.skillVisibilityEnabled}, viewer-independent
+     * — drives FR-020's self-mode "visible to others"/"private" Skills label, mirroring {@code
+     * ViewerFieldValue.visibleToOthers}.
      */
     public record ParticipantViewerDetail(
             Participant participant,
@@ -904,6 +908,7 @@ public class ParticipantService {
             List<ViewerFieldValue> fields,
             List<Skill> skills,
             boolean skillsVisibleToViewer,
+            boolean skillsVisibleToOthers,
             boolean self,
             boolean organiserView) {}
 }

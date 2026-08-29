@@ -532,7 +532,7 @@ exists, plus a final full-suite/manual verification pass.
       required/optional marker, the visible/private badge, the capacity message, and the Country combobox's
       listbox popover meet WCAG 2.1 AA contrast minimums (4.5:1 normal text, 3:1 large text/UI component
       boundaries) in both light and dark presentation (FR-044)
-- [ ] T061 Run `mvn verify` (full unit + `*ManagementIT`/`*IT` + `a11y.*IT` suite) and perform the
+- [X] T061 Run `mvn verify` (full unit + `*ManagementIT`/`*IT` + `a11y.*IT` suite) and perform the
       [quickstart.md](quickstart.md) manual visual smoke test end-to-end across all six user stories
       (Constitution Development Workflow #3); as part of that pass, spot-check SC-008 for every
       state-changing action this feature adds (register, reactivate, revoke, edit save, each of the four

@@ -715,6 +715,7 @@ class ParticipantServiceTest {
                 .assertNext(detail -> {
                     assertThat(detail.self()).isTrue();
                     assertThat(detail.skillsVisibleToViewer()).isTrue();
+                    assertThat(detail.skillsVisibleToOthers()).isFalse();
                 })
                 .verifyComplete();
     }
@@ -737,6 +738,7 @@ class ParticipantServiceTest {
                 .assertNext(detail -> {
                     assertThat(detail.self()).isFalse();
                     assertThat(detail.skillsVisibleToViewer()).isFalse();
+                    assertThat(detail.skillsVisibleToOthers()).isFalse();
                 })
                 .verifyComplete();
     }
@@ -760,6 +762,7 @@ class ParticipantServiceTest {
                     assertThat(detail.self()).isFalse();
                     assertThat(detail.organiserView()).isTrue();
                     assertThat(detail.skillsVisibleToViewer()).isTrue();
+                    assertThat(detail.skillsVisibleToOthers()).isFalse();
                 })
                 .verifyComplete();
     }

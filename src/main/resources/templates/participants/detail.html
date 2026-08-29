@@ -50,9 +50,9 @@
     <h2>
         Skills
         <span th:if="${mode} == 'self'" class="visibility-badge"
-              th:classappend="${viewerDetail.skillsVisibleToViewer} ? 'visibility-public' : 'visibility-private'">
-            <span aria-hidden="true" th:text="${viewerDetail.skillsVisibleToViewer} ? '&#128065;' : '&#128274;'">*</span>
-            <span th:text="${viewerDetail.skillsVisibleToViewer} ? 'visible to others' : 'private'">visible to others</span>
+              th:classappend="${viewerDetail.skillsVisibleToOthers} ? 'visibility-public' : 'visibility-private'">
+            <span aria-hidden="true" th:text="${viewerDetail.skillsVisibleToOthers} ? '&#128065;' : '&#128274;'">*</span>
+            <span th:text="${viewerDetail.skillsVisibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
         </span>
     </h2>
     <p th:if="${viewerDetail.skills.isEmpty()}">Not provided</p>

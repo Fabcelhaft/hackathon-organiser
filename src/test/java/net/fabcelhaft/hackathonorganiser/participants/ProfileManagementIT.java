@@ -149,6 +149,10 @@ class ProfileManagementIT {
         String profileBody = profileBody(user);
         assertThat(profileBody).contains("visible to others");
         assertThat(profileBody).contains("private");
+        // Skills' own badge must reflect organiserSettings.skillVisibilityEnabled (default false),
+        // not whether the viewer (self) can currently see the section — those are different
+        // questions; self/organiser always see Skills regardless of this setting.
+        assertThat(profileBody.substring(profileBody.indexOf("Skills"))).contains("private");
 
         String editBody = webTestClient
                 .mutateWith(loginAs(user))
