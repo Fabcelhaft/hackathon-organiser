@@ -11,6 +11,8 @@ import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionReposi
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
+import net.fabcelhaft.hackathonorganiser.group.GroupService;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.user.User;
@@ -41,6 +43,8 @@ public class ParticipantService {
     private final CustomFieldDefinitionRepository customFieldDefinitionRepository;
     private final CustomFieldOptionRepository customFieldOptionRepository;
     private final DatabaseClient databaseClient;
+    private final OrganiserSettingsService organiserSettingsService;
+    private final GroupService groupService;
 
     public ParticipantService(
             ParticipantRepository participantRepository,
@@ -48,13 +52,78 @@ public class ParticipantService {
             SkillRepository skillRepository,
             CustomFieldDefinitionRepository customFieldDefinitionRepository,
             CustomFieldOptionRepository customFieldOptionRepository,
-            DatabaseClient databaseClient) {
+            DatabaseClient databaseClient,
+            OrganiserSettingsService organiserSettingsService,
+            GroupService groupService) {
         this.participantRepository = participantRepository;
         this.userRepository = userRepository;
         this.skillRepository = skillRepository;
         this.customFieldDefinitionRepository = customFieldDefinitionRepository;
         this.customFieldOptionRepository = customFieldOptionRepository;
         this.databaseClient = databaseClient;
+        this.organiserSettingsService = organiserSettingsService;
+        this.groupService = groupService;
+    }
+
+    // --- Self-service registration/revocation (FR-003, FR-004, FR-006, FR-007, FR-007a) --------
+
+    /**
+     * A user's own self-service registration/reactivation action (FR-003, FR-007), rejecting with
+     * a friendly {@link ParticipantConflictException} if self-registration is currently disabled
+     * (FR-006) — re-read from {@link OrganiserSettingsService} on every call, never cached.
+     *
+     * <p>Deliberately not a thin wrapper around {@link #register(UUID)}: that method rejects any
+     * pre-existing Participant record outright, which is correct for its own organiser-driven
+     * caller but wrong here — FR-007 requires an existing non-{@code ACTIVE} record (in
+     * particular {@code REVOKED}) be reactivated to {@code ACTIVE} in place, never a new row. An
+     * already-{@code ACTIVE} record is a no-op (Edge Cases: a double-submit must not create a
+     * duplicate or otherwise mutate the record).
+     */
+    public Mono<Participant> selfRegister(UUID userId) {
+        return organiserSettingsService.current().flatMap(settings -> {
+            if (!settings.isSelfRegistrationEnabled()) {
+                return Mono.error(new ParticipantConflictException("Self-registration is currently disabled"));
+            }
+            return participantRepository
+                    .findByUserId(userId)
+                    .flatMap(existing -> {
+                        if (existing.getStatus() == ParticipantStatus.ACTIVE) {
+                            return Mono.just(existing);
+                        }
+                        existing.setStatus(ParticipantStatus.ACTIVE);
+                        existing.setUpdatedAt(Instant.now());
+                        return participantRepository.save(existing);
+                    })
+                    .switchIfEmpty(Mono.defer(() -> participantRepository.save(newParticipant(userId))));
+        });
+    }
+
+    /**
+     * A user's own self-service revocation action (FR-004), rejecting with a friendly
+     * {@link ParticipantConflictException} if self-revocation is currently disabled (FR-006) —
+     * re-read from {@link OrganiserSettingsService} on every call, never cached. On success, sets
+     * {@code status = REVOKED} and removes the Participant's current Group membership if one
+     * exists (FR-007a), composing {@link GroupService#findActiveGroupForParticipant} and {@link
+     * GroupService#removeMember} rather than duplicating that logic (research.md §10); a no-op on
+     * the Group side when the Participant has no current Group. Completes empty if no Participant
+     * exists with the given id.
+     */
+    public Mono<Participant> selfRevoke(UUID participantId) {
+        return organiserSettingsService.current().flatMap(settings -> {
+            if (!settings.isSelfRevocationEnabled()) {
+                return Mono.error(new ParticipantConflictException("Self-revocation is currently disabled"));
+            }
+            return participantRepository.findById(participantId).flatMap(participant -> {
+                participant.setStatus(ParticipantStatus.REVOKED);
+                participant.setUpdatedAt(Instant.now());
+                return participantRepository
+                        .save(participant)
+                        .flatMap(saved -> groupService
+                                .findActiveGroupForParticipant(participantId)
+                                .flatMap(group -> groupService.removeMember(group.getId(), participantId))
+                                .thenReturn(saved));
+            });
+        });
     }
 
     // --- Registration (FR-006a, FR-006b) --------------------------------------------------------
@@ -75,6 +144,11 @@ public class ParticipantService {
                             "This user is already registered as a Participant")))
                     .switchIfEmpty(Mono.defer(() -> participantRepository.save(newParticipant(userId))));
         });
+    }
+
+    /** The current user's own Participant record, if any — used by the homepage (FR-001, FR-007a). */
+    public Mono<Participant> findByUserId(UUID userId) {
+        return participantRepository.findByUserId(userId);
     }
 
     /** Users with no Participant record yet — the pool the registration form picks from (FR-006a). */

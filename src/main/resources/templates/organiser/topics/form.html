@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{organiser/fragments/layout :: head(title='Topic')}">
     <title>Topic</title>
 </head>
@@ -15,12 +15,23 @@
             <label for="description">Description</label>
             <textarea id="description" name="description" required="required" th:text="${description}"></textarea>
 
-            <!-- The creator is set once, at creation, and is never re-assignable afterward
-                 (FR-015) — this field only ever appears on the new-Topic form. -->
+            <!-- 002: the creator field on the new-Topic form, required. -->
             <div th:if="${topicId} == null">
                 <label for="created_by_user_id">Creator</label>
                 <select id="created_by_user_id" name="created_by_user_id" required="required">
                     <option th:each="user : ${availableUsers}" th:value="${user.id}" th:text="${user.displayName}">
+                        Name
+                    </option>
+                </select>
+            </div>
+
+            <!-- FR-015 (003): an Organiser may reassign an existing Topic's author from the edit
+                 form — the one exception to 002's original creator-immutability guarantee. -->
+            <div th:if="${topicId} != null">
+                <label for="created_by_user_id">Creator</label>
+                <select id="created_by_user_id" name="created_by_user_id">
+                    <option th:each="user : ${availableUsers}" th:value="${user.id}" th:text="${user.displayName}"
+                            th:selected="${user.id == currentAuthorUserId}">
                         Name
                     </option>
                 </select>

@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(python3 .specify/scripts/python/setup_plan.py --json)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git add *)",
+      "Bash(mvn -q test -Dtest=MarkdownRendererTest)",
+      "Bash(mvn -q test -Dtest=ContentImageServiceTest)"
     ]
   }
 }

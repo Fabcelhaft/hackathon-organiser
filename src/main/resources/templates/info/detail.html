@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title=${page.title})}">
+    <title>Info</title>
+</head>
+<body>
+<!--/* FR-036: the page's own title is rendered as the top-level (h1, via the layout fragment)
+     heading; MarkdownRenderer already shifts every markdown-authored heading to <h2> or below, so
+     exactly one logical top-level heading exists per page. th:utext is deliberate here — bodyHtml
+     is pre-sanitized by MarkdownRenderer, the single point in this codebase allowed to emit
+     unescaped HTML (research.md §1). */-->
+<th:block th:replace="~{fragments/layout :: layout(title=${page.title}, content=~{::#content})}">
+    <div id="content" th:utext="${bodyHtml}">Body</div>
+</th:block>
+</body>
+</html>

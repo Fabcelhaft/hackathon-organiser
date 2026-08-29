@@ -5,10 +5,15 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.springSecurity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
 import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
+import net.fabcelhaft.hackathonorganiser.participant.Participant;
+import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
+import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
+import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -22,7 +27,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.OidcLoginMutator;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -69,6 +77,26 @@ class TopicManagementIT {
 
     @Autowired
     GroupRepository groupRepository;
+
+    @Autowired
+    net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository organiserSettingsRepository;
+
+    @Autowired
+    ParticipantRepository participantRepository;
+
+    @BeforeEach
+    void resetOrganiserSettingsToDefaults() {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setSelfRegistrationEnabled(true);
+                    settings.setSelfRevocationEnabled(true);
+                    settings.setTopicApprovalRequired(false);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
+    }
 
     // --- Create (FR-015) --------------------------------------------------------------------------
 
@@ -231,16 +259,51 @@ class TopicManagementIT {
     // --- Creator persistence (FR-015) ---------------------------------------------------------------
 
     @Test
-    void updateRouteIgnoresAnyAttemptToChangeTheCreator() {
+    void updateRouteReassignsTheCreatorWhenACreatedByUserIdIsSubmitted() {
+        // Feature 003's FR-015 supersedes 002's original immutability guarantee for this one
+        // Organiser-only route (data-model.md "Topic", TopicManagementIT extended for T030): a
+        // submitted created_by_user_id is now applied via TopicService.reassignAuthor.
         User originalCreator = persistUser("Original Creator " + UUID.randomUUID());
-        User otherUser = persistUser("Other User " + UUID.randomUUID());
-        Topic topic = persistTopic(originalCreator.getId(), "Immutable Creator Topic " + UUID.randomUUID(), "Desc");
+        User newCreator = persistUser("New Creator " + UUID.randomUUID());
+        Topic topic = persistTopic(originalCreator.getId(), "Reassignable Creator Topic " + UUID.randomUUID(), "Desc");
 
         webTestClient.mutateWith(organiser())
                 .post().uri("/organiser/topics/{id}", topic.getId())
-                .body(BodyInserters.fromFormData("name", "Immutable Creator Topic")
+                .body(BodyInserters.fromFormData("name", "Reassignable Creator Topic")
                         .with("description", "Desc")
-                        .with("created_by_user_id", otherUser.getId().toString()))
+                        .with("created_by_user_id", newCreator.getId().toString()))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(topicRepository.findById(topic.getId()).block().getCreatedByUserId())
+                .isEqualTo(newCreator.getId());
+    }
+
+    @Test
+    void updateRouteRejectsAnUnknownReassignedCreatorWithAFieldAssociatedError() {
+        User originalCreator = persistUser("Original Creator " + UUID.randomUUID());
+        Topic topic = persistTopic(originalCreator.getId(), "Unknown Reassign Topic " + UUID.randomUUID(), "Desc");
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/topics/{id}", topic.getId())
+                .body(BodyInserters.fromFormData("name", "Unknown Reassign Topic")
+                        .with("description", "Desc")
+                        .with("created_by_user_id", UUID.randomUUID().toString()))
+                .exchange()
+                .expectStatus().isOk(); // form re-rendered with error, not a bare 404
+
+        assertThat(topicRepository.findById(topic.getId()).block().getCreatedByUserId())
+                .isEqualTo(originalCreator.getId());
+    }
+
+    @Test
+    void updateRouteWithNoCreatedByUserIdFieldLeavesTheCreatorUnchanged() {
+        User originalCreator = persistUser("Unchanged Creator " + UUID.randomUUID());
+        Topic topic = persistTopic(originalCreator.getId(), "Unchanged Creator Topic " + UUID.randomUUID(), "Desc");
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/topics/{id}", topic.getId())
+                .body(BodyInserters.fromFormData("name", "Unchanged Creator Topic").with("description", "Desc"))
                 .exchange()
                 .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
 
@@ -344,6 +407,98 @@ class TopicManagementIT {
                 .expectStatus().isForbidden();
     }
 
+    // --- Topic approval workflow (User Story 4, T030; FR-013, FR-014, FR-016) -------------------
+
+    @Test
+    void enablingTopicApprovalRequiredMakesNewlyProposedTopicsStartPending() {
+        User organiser = persistUser("Approval Organiser " + UUID.randomUUID());
+        organiser.setOrganiser(true);
+        userRepository.save(organiser).block();
+        User author = persistUser("Approval Author " + UUID.randomUUID());
+        persistParticipant(author.getId());
+        setTopicApprovalRequired(true);
+        String name = "Pending Via Setting " + UUID.randomUUID();
+
+        webTestClient.mutateWith(loginAsUser(author))
+                .post().uri("/topics")
+                .body(BodyInserters.fromFormData("name", name).with("description", "Desc"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        Topic saved = topicRepository.findAll().filter(t -> t.getName().equals(name)).blockFirst();
+        assertThat(saved.getApprovalStatus())
+                .isEqualTo(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.PENDING);
+    }
+
+    @Test
+    void disablingTopicApprovalRequiredIsNotRetroactive() {
+        User author = persistUser("Non Retroactive Author " + UUID.randomUUID());
+        persistParticipant(author.getId());
+        setTopicApprovalRequired(true);
+        String name = "Stays Pending " + UUID.randomUUID();
+        webTestClient.mutateWith(loginAsUser(author))
+                .post().uri("/topics")
+                .body(BodyInserters.fromFormData("name", name).with("description", "Desc"))
+                .exchange();
+
+        setTopicApprovalRequired(false);
+
+        Topic stillPending = topicRepository.findAll().filter(t -> t.getName().equals(name)).blockFirst();
+        assertThat(stillPending.getApprovalStatus())
+                .isEqualTo(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.PENDING);
+    }
+
+    @Test
+    void organiserCanApproveAPendingTopic() {
+        User creator = persistUser("Pending Approve Creator " + UUID.randomUUID());
+        Topic pending = persistTopic(creator.getId(), "To Approve " + UUID.randomUUID(), "Desc");
+        pending.setApprovalStatus(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.PENDING);
+        topicRepository.save(pending).block();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/topics/{id}/approve", pending.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(topicRepository.findById(pending.getId()).block().getApprovalStatus())
+                .isEqualTo(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.APPROVED);
+    }
+
+    @Test
+    void approvingAnUnknownTopicReturnsNotFound() {
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/topics/{id}/approve", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void multiplePendingTopicsFromDifferentAuthorsAppearGroupedTogetherOrderedByCreationDateInTheOrganisersView() {
+        User organiserUser = persistUser("Grouped Organiser " + UUID.randomUUID());
+        organiserUser.setOrganiser(true);
+        userRepository.save(organiserUser).block();
+        User authorA = persistUser("Grouped Author A " + UUID.randomUUID());
+        User authorB = persistUser("Grouped Author B " + UUID.randomUUID());
+        Topic pendingA = persistTopic(authorA.getId(), "Grouped Pending A " + UUID.randomUUID(), "Desc");
+        pendingA.setApprovalStatus(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.PENDING);
+        topicRepository.save(pendingA).block();
+        Topic pendingB = persistTopic(authorB.getId(), "Grouped Pending B " + UUID.randomUUID(), "Desc");
+        pendingB.setApprovalStatus(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.PENDING);
+        topicRepository.save(pendingB).block();
+
+        String body = webTestClient.mutateWith(loginAsUser(organiserUser))
+                .get().uri("/")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains(pendingA.getName());
+        assertThat(body).contains(pendingB.getName());
+        assertThat(body.indexOf(pendingA.getName())).isLessThan(body.indexOf(pendingB.getName()));
+    }
+
     // --- Test helpers ----------------------------------------------------------------------------
 
     private String detailBody(UUID topicId) {
@@ -372,6 +527,7 @@ class TopicManagementIT {
         topic.setName(name);
         topic.setDescription(description);
         topic.setCreatedByUserId(creatorId);
+        topic.setApprovalStatus(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.APPROVED);
         topic.setCreatedAt(Instant.now());
         topic.setUpdatedAt(Instant.now());
         return topicRepository.save(topic).block();
@@ -400,5 +556,46 @@ class TopicManagementIT {
 
     private static OidcLoginMutator standardUser() {
         return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"));
+    }
+
+    private Participant persistParticipant(UUID userId) {
+        Participant participant = new Participant();
+        participant.setUserId(userId);
+        participant.setStatus(ParticipantStatus.ACTIVE);
+        Instant now = Instant.now();
+        participant.setCreatedAt(now);
+        participant.setUpdatedAt(now);
+        return participantRepository.save(participant).block();
+    }
+
+    private void setTopicApprovalRequired(boolean required) {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setTopicApprovalRequired(required);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
+    }
+
+    /** A full {@link HackathonOidcUser} principal login — needed for routes (Home, Topic
+     * self-service) that resolve {@code @AuthenticationPrincipal HackathonOidcUser}, unlike the
+     * plain {@link #organiser()}/{@link #standardUser()} mutators this 002-era file otherwise
+     * uses for the {@code /organiser/topics/**} routes, which never inject the principal. */
+    private static OidcLoginMutator loginAsUser(User user) {
+        Instant issuedAt = Instant.now();
+        OidcIdToken idToken = OidcIdToken.withTokenValue("token-value")
+                .subject(user.getOidcSubject())
+                .issuedAt(issuedAt)
+                .expiresAt(issuedAt.plusSeconds(300))
+                .claim("name", user.getDisplayName())
+                .build();
+        List<GrantedAuthority> authorities = user.isOrganiser()
+                ? List.of(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("ROLE_ORGANISER"))
+                : List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        DefaultOidcUser delegate = new DefaultOidcUser(authorities, idToken);
+        HackathonOidcUser principal = new HackathonOidcUser(user, delegate);
+        return mockOidcLogin().oidcUser(principal);
     }
 }

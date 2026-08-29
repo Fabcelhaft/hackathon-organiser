@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title=${topicId} != null ? 'Edit Topic' : 'Propose Topic')}">
+    <title>Propose Topic</title>
+</head>
+<body>
+<th:block
+        th:replace="~{fragments/layout :: layout(title=${topicId} != null ? 'Edit Topic' : 'Propose Topic', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <form th:action="${topicId} != null ? @{/topics/{id}(id=${topicId})} : @{/topics}" method="post">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" th:value="${name}" required="required"/>
+
+            <label for="description">Description</label>
+            <textarea id="description" name="description" required="required" th:text="${description}"></textarea>
+
+            <button type="submit">Save</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

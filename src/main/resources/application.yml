@@ -27,6 +27,11 @@ spring:
   sql:
     init:
       mode: always
+  # FR-029's 5 MB Content Image cap must be the *only* size limit in effect: WebFlux's default
+  # in-memory buffer (256 KB) would otherwise truncate/reject a multipart upload well before
+  # ContentImageService ever gets to validate it (T056).
+  codec:
+    max-in-memory-size: 6MB
 
 management:
   endpoints:

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Settings')}">
+    <title>Settings</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Settings', content=~{::#content})}">
+    <div id="content">
+        <form th:action="@{/organiser/settings}" method="post">
+            <fieldset>
+                <label for="self_registration_enabled">
+                    <input type="hidden" name="self_registration_enabled" value="false"/>
+                    <input type="checkbox" id="self_registration_enabled" name="self_registration_enabled"
+                           value="true" th:checked="${settings.selfRegistrationEnabled}"/>
+                    Allow self-registration
+                </label>
+                <p th:if="${settings.selfRegistrationEnabled}">
+                    Users can register themselves as Active Participants at any time.
+                </p>
+                <p th:unless="${settings.selfRegistrationEnabled}">
+                    Self-registration is off — only an Organiser can register a Participant.
+                </p>
+            </fieldset>
+
+            <fieldset>
+                <label for="self_revocation_enabled">
+                    <input type="hidden" name="self_revocation_enabled" value="false"/>
+                    <input type="checkbox" id="self_revocation_enabled" name="self_revocation_enabled"
+                           value="true" th:checked="${settings.selfRevocationEnabled}"/>
+                    Allow self-revocation
+                </label>
+                <p th:if="${settings.selfRevocationEnabled}">
+                    Users can revoke their own registration at any time.
+                </p>
+                <p th:unless="${settings.selfRevocationEnabled}">
+                    Self-revocation is off — only an Organiser can revoke a Participant's registration.
+                </p>
+            </fieldset>
+
+            <fieldset>
+                <label for="topic_approval_required">
+                    <input type="hidden" name="topic_approval_required" value="false"/>
+                    <input type="checkbox" id="topic_approval_required" name="topic_approval_required"
+                           value="true" th:checked="${settings.topicApprovalRequired}"/>
+                    Require Organiser approval for proposed Topics
+                </label>
+                <p th:if="${settings.topicApprovalRequired}">
+                    A newly proposed Topic starts Pending and is hidden from other Participants until an
+                    Organiser approves it.
+                </p>
+                <p th:unless="${settings.topicApprovalRequired}">
+                    A newly proposed Topic is immediately Approved and visible to everyone.
+                </p>
+            </fieldset>
+
+            <button type="submit">Save</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

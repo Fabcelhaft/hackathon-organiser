@@ -13,9 +13,12 @@ import org.springframework.data.relational.core.mapping.Table;
  * {@code topics.id} column's {@code DEFAULT uuidv7()} (research.md §1) — no application-side ID
  * generation exists anywhere in this codebase.
  *
- * <p>{@code createdByUserId} is set once, at creation, and never reassigned afterward (FR-015):
- * the creator reference is retained even if that User's access is later revoked (edge case,
- * spec.md) — no code path in this feature clears or reassigns it.
+ * <p>{@code createdByUserId} was set once, at creation, and never reassigned afterward in feature
+ * 002 (FR-015 there): the creator reference is retained even if that User's access is later
+ * revoked (edge case, spec.md) — no code path from that feature's own {@code update(...)} clears
+ * or reassigns it. Feature 003's FR-015 supersedes that guarantee with exactly one exception: an
+ * Organiser-only {@link TopicService#reassignAuthor} method (data-model.md "Topic"). Every other
+ * caller still cannot change it.
  */
 @Table("topics")
 public class Topic {
@@ -28,6 +31,8 @@ public class Topic {
     private String description;
 
     private UUID createdByUserId;
+
+    private TopicApprovalStatus approvalStatus;
 
     private Instant createdAt;
 
@@ -63,6 +68,14 @@ public class Topic {
 
     public void setCreatedByUserId(UUID createdByUserId) {
         this.createdByUserId = createdByUserId;
+    }
+
+    public TopicApprovalStatus getApprovalStatus() {
+        return approvalStatus;
+    }
+
+    public void setApprovalStatus(TopicApprovalStatus approvalStatus) {
+        this.approvalStatus = approvalStatus;
     }
 
     public Instant getCreatedAt() {

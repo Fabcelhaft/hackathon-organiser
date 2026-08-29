@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{organiser/fragments/layout :: head(title='Topic Detail')}">
     <title>Topic Detail</title>
 </head>
@@ -15,6 +15,16 @@
             <dd th:text="${detail.topic.description}">Description</dd>
             <dt>Creator</dt>
             <dd th:text="${detail.creatorDisplayName}">Creator</dd>
+            <dt>Approval Status</dt>
+            <dd>
+                <span th:if="${detail.topic.approvalStatus.name()} == 'PENDING'" class="badge-pending">Pending approval</span>
+                <span th:if="${detail.topic.approvalStatus.name()} == 'APPROVED'">Approved</span>
+                <form th:if="${detail.topic.approvalStatus.name()} == 'PENDING'"
+                      th:action="@{/organiser/topics/{id}/approve(id=${detail.topic.id})}" method="post"
+                      style="display:inline">
+                    <button type="submit">Approve</button>
+                </form>
+            </dd>
             <dt>Skills</dt>
             <dd>
                 <span th:each="skill : ${detail.skills}" th:text="${skill.name} + ' '">Skill</span>

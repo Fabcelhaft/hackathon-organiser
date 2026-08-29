@@ -3,7 +3,6 @@ package net.fabcelhaft.hackathonorganiser.group;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
@@ -87,6 +86,17 @@ public class GroupService {
     /** Whether — and which — active Group currently exists for a Topic (contracts/topic-management.md). */
     public Mono<Group> findActiveGroupForTopic(UUID topicId) {
         return groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE);
+    }
+
+    /**
+     * The Participant's current active Group, if any (research.md §10) — a thin public wrapper
+     * around the {@code group_members}-querying logic that already exists privately as
+     * {@link #findActiveGroupIdForParticipant}, extended to also fetch the {@link Group} row
+     * itself. Used by {@code ParticipantService.selfRevoke} (FR-007a) to find the membership to
+     * remove; completes empty if the Participant has no active Group.
+     */
+    public Mono<Group> findActiveGroupForParticipant(UUID participantId) {
+        return findActiveGroupIdForParticipant(participantId).flatMap(groupRepository::findById);
     }
 
     /**

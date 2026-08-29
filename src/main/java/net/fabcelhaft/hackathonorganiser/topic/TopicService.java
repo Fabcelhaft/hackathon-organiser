@@ -1,11 +1,14 @@
 package net.fabcelhaft.hackathonorganiser.topic;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.user.User;
@@ -34,20 +37,28 @@ public class TopicService {
     private final UserRepository userRepository;
     private final SkillRepository skillRepository;
     private final DatabaseClient databaseClient;
+    private final OrganiserSettingsService organiserSettingsService;
 
     public TopicService(
             TopicRepository topicRepository,
             UserRepository userRepository,
             SkillRepository skillRepository,
-            DatabaseClient databaseClient) {
+            DatabaseClient databaseClient,
+            OrganiserSettingsService organiserSettingsService) {
         this.topicRepository = topicRepository;
         this.userRepository = userRepository;
         this.skillRepository = skillRepository;
         this.databaseClient = databaseClient;
+        this.organiserSettingsService = organiserSettingsService;
     }
 
     public Flux<Topic> findAll() {
         return topicRepository.findAll();
+    }
+
+    /** A single Topic by id — used by the homepage to show a Participant's assigned Topic. */
+    public Mono<Topic> findById(UUID id) {
+        return topicRepository.findById(id);
     }
 
     /** The pool the new-Topic form's creator dropdown picks from. */
@@ -109,6 +120,158 @@ public class TopicService {
                     .flatMap(saved -> replaceTopicSkills(id, ids).thenReturn(saved));
         }));
     }
+
+    // --- Self-service propose/edit (FR-009-FR-013, FR-016, research.md §6) -----------------------
+
+    /**
+     * Creates a Topic authored by a Participant (FR-010), rejecting a blank {@code name}/
+     * {@code description} with a {@link TopicConflictException} (FR-037, matching {@link #create}'s
+     * existing validation pattern). {@code approvalStatus} is set once, at creation, from the
+     * current {@code OrganiserSettings.topicApprovalRequired} value (FR-013) — never re-derived
+     * later, so disabling that setting afterward is not retroactive (FR-016).
+     */
+    public Mono<Topic> propose(UUID authorUserId, String name, String description) {
+        if (isBlank(name) || isBlank(description)) {
+            return Mono.error(new TopicConflictException("name and description are required"));
+        }
+        return organiserSettingsService.current().flatMap(settings -> {
+            Topic topic = new Topic();
+            topic.setName(name);
+            topic.setDescription(description);
+            topic.setCreatedByUserId(authorUserId);
+            topic.setApprovalStatus(
+                    settings.isTopicApprovalRequired() ? TopicApprovalStatus.PENDING : TopicApprovalStatus.APPROVED);
+            Instant now = Instant.now();
+            topic.setCreatedAt(now);
+            topic.setUpdatedAt(now);
+            return topicRepository.save(topic);
+        });
+    }
+
+    /**
+     * A single Topic, honoring FR-012a's Pending-visibility rule: completes empty if {@code id} is
+     * unknown, or the Topic is {@code PENDING} and {@code viewerUserId} is neither its author nor
+     * {@code viewerIsOrganiser} — enforced here, at the read-model layer, so no route can
+     * accidentally leak a Pending Topic regardless of which controller calls this.
+     */
+    public Mono<Topic> findVisibleTo(UUID id, UUID viewerUserId, boolean viewerIsOrganiser) {
+        return topicRepository.findById(id).filter(topic -> isVisibleTo(topic, viewerUserId, viewerIsOrganiser));
+    }
+
+    /**
+     * Author-only self-service update of {@code name}/{@code description} (FR-011); does not
+     * re-trigger approval (spec Assumptions) — {@code approvalStatus} is left untouched. Rejects a
+     * non-author with a {@link TopicConflictException} (callers are expected to have already
+     * translated the full 404/403 rule via {@link #findVisibleTo} plus their own authorship check
+     * — this is a defensive second check, not the primary authorization gate). Completes empty if
+     * no Topic exists with the given id.
+     */
+    public Mono<Topic> updateAsAuthor(UUID id, UUID requesterUserId, String name, String description) {
+        if (isBlank(name) || isBlank(description)) {
+            return Mono.error(new TopicConflictException("name and description are required"));
+        }
+        return topicRepository.findById(id).flatMap(topic -> {
+            if (!topic.getCreatedByUserId().equals(requesterUserId)) {
+                return Mono.error(new TopicConflictException("You may only edit your own Topic"));
+            }
+            topic.setName(name);
+            topic.setDescription(description);
+            topic.setUpdatedAt(Instant.now());
+            return topicRepository.save(topic);
+        });
+    }
+
+    /**
+     * The viewer-scoped, 3-group visibility/ordering read model for the homepage's topic list
+     * (FR-009a, research.md §6): (1) the viewer's own {@code PENDING} Topics, (2) the viewer's own
+     * {@code APPROVED} Topics, (3) every other Topic visible to the viewer (other authors'
+     * {@code APPROVED} Topics always; other authors' {@code PENDING} Topics too, but only when
+     * {@code viewerIsOrganiser} — FR-012a) — each group ordered by creation date. A Topic appears
+     * in exactly one group.
+     */
+    public Mono<TopicListView> findVisibleTopicsFor(UUID viewerUserId, boolean viewerIsOrganiser) {
+        return topicRepository
+                .findAll()
+                .filter(topic -> isVisibleTo(topic, viewerUserId, viewerIsOrganiser))
+                .collectList()
+                .map(topics -> {
+                    Comparator<Topic> byCreatedAt = Comparator.comparing(Topic::getCreatedAt);
+                    List<Topic> ownPending = topics.stream()
+                            .filter(t -> isOwn(t, viewerUserId) && t.getApprovalStatus() == TopicApprovalStatus.PENDING)
+                            .sorted(byCreatedAt)
+                            .toList();
+                    List<Topic> ownApproved = topics.stream()
+                            .filter(t ->
+                                    isOwn(t, viewerUserId) && t.getApprovalStatus() == TopicApprovalStatus.APPROVED)
+                            .sorted(byCreatedAt)
+                            .toList();
+                    List<Topic> others = topics.stream()
+                            .filter(t -> !isOwn(t, viewerUserId))
+                            .sorted(byCreatedAt)
+                            .toList();
+                    return new TopicListView(ownPending, ownApproved, others);
+                });
+    }
+
+    /**
+     * The distinct authors ({@code createdByUserId}) of the given Topics, keyed by id — used by
+     * the homepage to show each Topic's author display name and OIDC subject (FR-009) without a
+     * per-row lookup.
+     */
+    public Mono<Map<UUID, User>> loadAuthors(List<Topic> topics) {
+        Set<UUID> authorIds =
+                topics.stream().map(Topic::getCreatedByUserId).collect(Collectors.toSet());
+        if (authorIds.isEmpty()) {
+            return Mono.just(Map.of());
+        }
+        return userRepository.findAllById(authorIds).collectMap(User::getId, user -> user);
+    }
+
+    /** Organiser-only: moves a Pending Topic to Approved (FR-014); a no-op if already Approved. */
+    public Mono<Topic> approve(UUID topicId) {
+        return topicRepository.findById(topicId).flatMap(topic -> {
+            if (topic.getApprovalStatus() == TopicApprovalStatus.APPROVED) {
+                return Mono.just(topic);
+            }
+            topic.setApprovalStatus(TopicApprovalStatus.APPROVED);
+            topic.setUpdatedAt(Instant.now());
+            return topicRepository.save(topic);
+        });
+    }
+
+    /**
+     * Organiser-only: reassigns a Topic's author (FR-015, superseding 002's immutability
+     * guarantee — see {@link Topic}'s class comment). Rejects an unknown {@code newAuthorUserId}
+     * with a {@link TopicConflictException} — the exact pattern {@link #create} already uses for
+     * the identical "unknown user id" check, so the controller can re-render the edit form with a
+     * field-associated error (FR-037) instead of a bare 404. Completes empty if {@code topicId} is
+     * unknown.
+     */
+    public Mono<Topic> reassignAuthor(UUID topicId, UUID newAuthorUserId) {
+        return topicRepository.findById(topicId).flatMap(topic -> userRepository
+                .existsById(newAuthorUserId)
+                .flatMap(exists -> {
+                    if (!exists) {
+                        return Mono.error(new TopicConflictException("Unknown user: " + newAuthorUserId));
+                    }
+                    topic.setCreatedByUserId(newAuthorUserId);
+                    topic.setUpdatedAt(Instant.now());
+                    return topicRepository.save(topic);
+                }));
+    }
+
+    private static boolean isVisibleTo(Topic topic, UUID viewerUserId, boolean viewerIsOrganiser) {
+        return topic.getApprovalStatus() != TopicApprovalStatus.PENDING
+                || viewerIsOrganiser
+                || isOwn(topic, viewerUserId);
+    }
+
+    private static boolean isOwn(Topic topic, UUID viewerUserId) {
+        return topic.getCreatedByUserId().equals(viewerUserId);
+    }
+
+    /** The homepage's viewer-scoped topic-list read model (FR-009a) — see {@link #findVisibleTopicsFor}. */
+    public record TopicListView(List<Topic> ownPending, List<Topic> ownApproved, List<Topic> others) {}
 
     /**
      * A Topic's detail-view read model: the Topic itself, its creator's stored {@code
@@ -179,6 +342,9 @@ public class TopicService {
         topic.setName(name);
         topic.setDescription(description);
         topic.setCreatedByUserId(createdByUserId);
+        // An Organiser-created Topic (this method) never goes through the approval workflow —
+        // that only applies to Participant self-service proposals (FR-013, propose(...) below).
+        topic.setApprovalStatus(TopicApprovalStatus.APPROVED);
         Instant now = Instant.now();
         topic.setCreatedAt(now);
         topic.setUpdatedAt(now);

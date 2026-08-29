@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Content Images')}">
+    <title>Content Images</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Content Images', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+
+        <form th:action="@{/organiser/content-images}" method="post" enctype="multipart/form-data">
+            <label for="file">Image file (PNG, JPEG, GIF, or WebP; up to 5 MB)</label>
+            <input type="file" id="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp"
+                   required="required"/>
+
+            <label for="alt_text">Alt text</label>
+            <input type="text" id="alt_text" name="alt_text" required="required"/>
+
+            <button type="submit">Upload</button>
+        </form>
+
+        <table>
+            <thead>
+            <tr>
+                <th>Preview</th>
+                <th>Embed syntax</th>
+                <th>Alt text</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="image : ${images}">
+                <td>
+                    <img th:src="@{/content-images/{id}(id=${image.id})}" th:alt="${image.altText}"
+                         style="max-width: 6rem; max-height: 6rem;"/>
+                </td>
+                <td>
+                    <code th:text="'![' + ${image.altText} + '](/content-images/' + ${image.id} + ')'">syntax</code>
+                </td>
+                <td>
+                    <form th:action="@{/organiser/content-images/{id}/alt-text(id=${image.id})}" method="post">
+                        <label th:for="'alt-text-' + ${image.id}">Alt text</label>
+                        <input type="text" th:id="'alt-text-' + ${image.id}" name="alt_text"
+                               th:value="${image.altText}" required="required"/>
+                        <button type="submit">Update</button>
+                    </form>
+                </td>
+                <td>
+                    <form th:action="@{/organiser/content-images/{id}/delete(id=${image.id})}" method="post">
+                        <button type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>
