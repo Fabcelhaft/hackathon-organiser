@@ -3,6 +3,9 @@ package net.fabcelhaft.hackathonorganiser.organiser.settings;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import net.fabcelhaft.hackathonorganiser.organisersettings.DirectoryAudience;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsConflictException;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
@@ -52,15 +55,56 @@ public class OrganiserSettingsController {
 
     @PostMapping
     public Mono<Rendering> update(ServerWebExchange exchange) {
-        return exchange.getFormData().flatMap(form -> organiserSettingsService
-                .update(
-                        checkboxValue(form, "self_registration_enabled"),
-                        checkboxValue(form, "self_revocation_enabled"),
-                        checkboxValue(form, "topic_approval_required"))
-                .map(settings -> Rendering.redirectTo(
-                                "/organiser/settings?flash=" + encode("Settings updated."))
-                        .status(HttpStatus.SEE_OTHER)
-                        .build()));
+        return exchange.getFormData().flatMap(form -> {
+            // Deliberately not Mono.fromCallable(...) here: maxRegistrations is a legitimate null
+            // ("no limit" / "leave unchanged"), and Mono.fromCallable treats a null return value
+            // as an EMPTY Mono (Reactive Streams forbids a null onNext) — which would silently
+            // short-circuit this whole chain to empty rather than proceeding, since a plain
+            // Integer parse has no async component that needs a reactive wrapper anyway.
+            Integer maxRegistrations;
+            try {
+                maxRegistrations = parseMaxRegistrations(form.getFirst("max_registrations"));
+            } catch (NumberFormatException ex) {
+                return organiserSettingsService
+                        .current()
+                        .map(settings -> formView(settings, "Maximum registrations must be a whole number"));
+            }
+            return organiserSettingsService
+                    .update(
+                            checkboxValue(form, "self_registration_enabled"),
+                            checkboxValue(form, "self_revocation_enabled"),
+                            checkboxValue(form, "topic_approval_required"),
+                            maxRegistrations,
+                            checkboxValue(form, "self_edit_enabled"),
+                            checkboxValue(form, "skill_visibility_enabled"),
+                            directoryAudienceValue(form))
+                    .<Rendering>map(settings -> Rendering.redirectTo(
+                                    "/organiser/settings?flash=" + encode("Settings updated."))
+                            .status(HttpStatus.SEE_OTHER)
+                            .build())
+                    .onErrorResume(OrganiserSettingsConflictException.class, ex -> organiserSettingsService
+                            .current()
+                            .map(settings -> formView(settings, ex.getMessage())));
+        });
+    }
+
+    private Rendering formView(OrganiserSettings settings, String error) {
+        return Rendering.view("organiser/settings/form")
+                .modelAttribute("settings", settings)
+                .modelAttribute("error", error)
+                .build();
+    }
+
+    private static Integer parseMaxRegistrations(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return Integer.valueOf(raw.trim());
+    }
+
+    private static DirectoryAudience directoryAudienceValue(MultiValueMap<String, String> form) {
+        String raw = form.getFirst("participants_directory_audience");
+        return (raw == null || raw.isBlank()) ? null : DirectoryAudience.valueOf(raw);
     }
 
     private static Boolean checkboxValue(MultiValueMap<String, String> form, String name) {

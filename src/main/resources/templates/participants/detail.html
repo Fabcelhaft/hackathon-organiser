@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Profile')}">
+    <title>Profile</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Profile', content=~{::#content})}">
+<div id="content">
+    <p><strong th:text="${viewerDetail.userDisplayName}">Name</strong></p>
+
+    <p th:if="${mode} == 'self' and ${canEdit}">
+        <a th:href="@{/profile/edit}" role="button">Edit</a>
+    </p>
+
+    <!--/* Every field is rendered by its own label and a display matching its type — no "Custom
+         Field" heading/tag/badge anywhere (FR-002a). Fields already carry only what this viewer
+         may see (ParticipantService#findDetailForViewer); an omitted field is simply absent, never
+         rendered blank/locked (FR-006). In self mode, each value is additionally labeled "visible
+         to others"/"private" via text (never color alone, FR-020, FR-041). */-->
+    <dl>
+        <th:block th:each="cfv : ${viewerDetail.fields}">
+            <dt>
+                <span th:text="${cfv.definition.label}">Label</span>
+                <span th:if="${mode} == 'self'" class="visibility-badge"
+                      th:classappend="${cfv.visibleToOthers} ? 'visibility-public' : 'visibility-private'">
+                    <span aria-hidden="true" th:text="${cfv.visibleToOthers} ? '&#128065;' : '&#128274;'">*</span>
+                    <span th:text="${cfv.visibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
+                </span>
+            </dt>
+
+            <dd th:if="${cfv.definition.fieldType.name()} == 'FREE_TEXT'"
+                th:text="${cfv.freeTextValue != null and !#strings.isEmpty(cfv.freeTextValue)} ? ${cfv.freeTextValue} : 'Not provided'">
+                Value
+            </dd>
+
+            <dd th:if="${cfv.definition.fieldType.name()} == 'COUNTRY'"
+                th:text="${cfv.freeTextValue != null and !#strings.isEmpty(cfv.freeTextValue)} ? ${countryNamesByCode.get(cfv.freeTextValue)} : 'Not provided'">
+                Country
+            </dd>
+
+            <dd th:if="${cfv.definition.fieldType.name()} == 'SINGLE_SELECT' or ${cfv.definition.fieldType.name()} == 'MULTI_SELECT'"
+                class="option-list">
+                <span th:if="${cfv.selectedOptionIds.isEmpty()}">Not provided</span>
+                <span th:each="option : ${cfv.options}" th:if="${#lists.contains(cfv.selectedOptionIds, option.id)}"
+                      th:text="${option.label}">Option</span>
+            </dd>
+        </th:block>
+    </dl>
+
+    <h2>
+        Skills
+        <span th:if="${mode} == 'self'" class="visibility-badge"
+              th:classappend="${viewerDetail.skillsVisibleToViewer} ? 'visibility-public' : 'visibility-private'">
+            <span aria-hidden="true" th:text="${viewerDetail.skillsVisibleToViewer} ? '&#128065;' : '&#128274;'">*</span>
+            <span th:text="${viewerDetail.skillsVisibleToViewer} ? 'visible to others' : 'private'">visible to others</span>
+        </span>
+    </h2>
+    <p th:if="${viewerDetail.skills.isEmpty()}">Not provided</p>
+    <ul th:unless="${viewerDetail.skills.isEmpty()}">
+        <li th:each="skill : ${viewerDetail.skills}" th:text="${skill.name}">Skill</li>
+    </ul>
+</div>
+</th:block>
+</body>
+</html>

@@ -58,7 +58,7 @@ class CustomFieldServiceTest {
 
     @Test
     void createRejectsMultiSelectWithNoOptions() {
-        StepVerifier.create(customFieldService.create("Languages", CustomFieldType.MULTI_SELECT, false, List.of()))
+        StepVerifier.create(customFieldService.create("Languages", CustomFieldType.MULTI_SELECT, false, List.of(), false, false))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
@@ -70,7 +70,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldDefinition>getArgument(0))));
 
-        StepVerifier.create(customFieldService.create("T-Shirt Size", CustomFieldType.FREE_TEXT, true, null))
+        StepVerifier.create(customFieldService.create("T-Shirt Size", CustomFieldType.FREE_TEXT, true, null, false, false))
                 .assertNext(definition -> {
                     assertThat(definition.getLabel()).isEqualTo("T-Shirt Size");
                     assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.FREE_TEXT);
@@ -89,11 +89,44 @@ class CustomFieldServiceTest {
                 .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldOption>getArgument(0))));
 
         StepVerifier.create(customFieldService.create(
-                        "Languages", CustomFieldType.MULTI_SELECT, false, List.of("Java", "Python")))
+                        "Languages", CustomFieldType.MULTI_SELECT, false, List.of("Java", "Python"), false, false))
                 .assertNext(definition -> assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.MULTI_SELECT))
                 .verifyComplete();
 
         verify(optionRepository, times(2)).save(any(CustomFieldOption.class));
+    }
+
+    // --- registrationFields: all non-COUNTRY, plus COUNTRY only when enabled (FR-002a) ----------
+
+    @Test
+    void registrationFieldsIncludesEveryNonCountryDefinition() {
+        CustomFieldDefinition freeText = definitionOf(UUID.randomUUID(), "Size", CustomFieldType.FREE_TEXT, false);
+        CustomFieldDefinition multiSelect =
+                definitionOf(UUID.randomUUID(), "Languages", CustomFieldType.MULTI_SELECT, false);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(freeText, multiSelect));
+
+        StepVerifier.create(customFieldService.registrationFields())
+                .expectNext(freeText)
+                .expectNext(multiSelect)
+                .verifyComplete();
+    }
+
+    @Test
+    void registrationFieldsExcludesCountryWhenDisabled() {
+        CustomFieldDefinition country = countryDefinition(false);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(country));
+
+        StepVerifier.create(customFieldService.registrationFields()).verifyComplete();
+    }
+
+    @Test
+    void registrationFieldsIncludesCountryWhenEnabled() {
+        CustomFieldDefinition country = countryDefinition(true);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(country));
+
+        StepVerifier.create(customFieldService.registrationFields())
+                .expectNext(country)
+                .verifyComplete();
     }
 
     // --- update: field_type lock once a value exists (FR-012a) ---------------------------------
@@ -105,7 +138,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.findById(id)).thenReturn(Mono.just(existing));
         stubValueReferenceCounts(1L, 0L);
 
-        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT))
+        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
@@ -121,7 +154,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT))
+        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null))
                 .assertNext(definition -> assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.MULTI_SELECT))
                 .verifyComplete();
     }
@@ -134,7 +167,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(customFieldService.update(id, "Renamed", true, CustomFieldType.FREE_TEXT))
+        StepVerifier.create(customFieldService.update(id, "Renamed", true, CustomFieldType.FREE_TEXT, null, null))
                 .assertNext(definition -> {
                     assertThat(definition.getLabel()).isEqualTo("Renamed");
                     assertThat(definition.isRequired()).isTrue();
@@ -182,7 +215,21 @@ class CustomFieldServiceTest {
     @Test
     void definitionRemovalIsBlockedWhileReferenced() {
         UUID id = UUID.randomUUID();
+        when(definitionRepository.findById(id))
+                .thenReturn(Mono.just(definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false)));
         stubValueReferenceCounts(4L, 0L);
+
+        StepVerifier.create(customFieldService.deleteDefinition(id))
+                .expectError(CustomFieldConflictException.class)
+                .verify();
+
+        verify(definitionRepository, never()).deleteById(any(UUID.class));
+    }
+
+    @Test
+    void definitionRemovalRejectsTheCountryRow() {
+        UUID id = UUID.randomUUID();
+        when(definitionRepository.findById(id)).thenReturn(Mono.just(countryDefinition(true)));
 
         StepVerifier.create(customFieldService.deleteDefinition(id))
                 .expectError(CustomFieldConflictException.class)
@@ -194,6 +241,8 @@ class CustomFieldServiceTest {
     @Test
     void definitionRemovalSucceedsWhenNotReferencedAndCascadesItsOptions() {
         UUID id = UUID.randomUUID();
+        when(definitionRepository.findById(id))
+                .thenReturn(Mono.just(definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false)));
         stubValueReferenceCounts(0L, 0L);
         CustomFieldOption option = new CustomFieldOption();
         option.setId(UUID.randomUUID());
@@ -214,6 +263,8 @@ class CustomFieldServiceTest {
         // story's schema (they are added by User Story 3): the guard query's
         // BadSqlGrammarException is treated defensively as "zero references".
         UUID id = UUID.randomUUID();
+        when(definitionRepository.findById(id))
+                .thenReturn(Mono.just(definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false)));
         RowsFetchSpec<Long> failingFetch = mockFetch();
         when(databaseClient.sql(anyString())).thenReturn(executeSpec);
         when(executeSpec.bind(eq("id"), any())).thenReturn(executeSpec);
@@ -225,6 +276,98 @@ class CustomFieldServiceTest {
         StepVerifier.create(customFieldService.deleteDefinition(id)).verifyComplete();
 
         verify(definitionRepository).deleteById(id);
+    }
+
+    // --- create: SINGLE_SELECT option rule, COUNTRY rejected (FR-012, FR-013) -------------------
+
+    @Test
+    void createRejectsSingleSelectWithNoOptionsTheSameWayAsMultiSelect() {
+        StepVerifier.create(customFieldService.create("Size", CustomFieldType.SINGLE_SELECT, false, List.of(), false, false))
+                .expectError(CustomFieldConflictException.class)
+                .verify();
+
+        verify(definitionRepository, never()).save(any());
+    }
+
+    @Test
+    void createSingleSelectSucceedsAndPersistsEachOption() {
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldDefinition>getArgument(0))));
+        when(optionRepository.save(any(CustomFieldOption.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldOption>getArgument(0))));
+
+        StepVerifier.create(
+                        customFieldService.create("Size", CustomFieldType.SINGLE_SELECT, false, List.of("S", "L"), false, false))
+                .assertNext(definition -> assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.SINGLE_SELECT))
+                .verifyComplete();
+
+        verify(optionRepository, times(2)).save(any(CustomFieldOption.class));
+    }
+
+    @Test
+    void createRejectsFieldTypeCountry() {
+        StepVerifier.create(customFieldService.create("Country", CustomFieldType.COUNTRY, false, List.of(), false, false))
+                .expectError(CustomFieldConflictException.class)
+                .verify();
+
+        verify(definitionRepository, never()).save(any());
+    }
+
+    // --- update: public_/overview independent of the field_type lock, on any field type (FR-016) --
+
+    @Test
+    void updateAppliesPublicAndOverviewIndependentlyWithNoLock() {
+        UUID id = UUID.randomUUID();
+        CustomFieldDefinition existing = definitionOf(id, "Languages", CustomFieldType.MULTI_SELECT, false);
+        when(definitionRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(customFieldService.update(id, "Languages", false, null, true, null))
+                .assertNext(definition -> {
+                    assertThat(definition.isPublic_()).isTrue();
+                    assertThat(definition.isOverview()).isFalse();
+                })
+                .verifyComplete();
+
+        StepVerifier.create(customFieldService.update(id, "Languages", false, null, null, true))
+                .assertNext(definition -> {
+                    assertThat(definition.isPublic_()).isTrue();
+                    assertThat(definition.isOverview()).isTrue();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void updateRejectsAFieldTypeChangeOnTheCountryRow() {
+        UUID id = UUID.randomUUID();
+        CustomFieldDefinition country = countryDefinition(true);
+        country.setId(id);
+        when(definitionRepository.findById(id)).thenReturn(Mono.just(country));
+
+        StepVerifier.create(customFieldService.update(id, "Country", false, CustomFieldType.FREE_TEXT, null, null))
+                .expectError(CustomFieldConflictException.class)
+                .verify();
+
+        verify(definitionRepository, never()).save(any());
+    }
+
+    // --- setCountryEnabled: toggles the singleton COUNTRY row (FR-013, FR-015) -------------------
+
+    @Test
+    void setCountryEnabledTogglesTheSingletonCountryRow() {
+        CustomFieldDefinition freeText = definitionOf(UUID.randomUUID(), "Size", CustomFieldType.FREE_TEXT, false);
+        CustomFieldDefinition country = countryDefinition(false);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(freeText, country));
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(customFieldService.setCountryEnabled(true))
+                .assertNext(definition -> {
+                    assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.COUNTRY);
+                    assertThat(definition.isEnabled()).isTrue();
+                })
+                .verifyComplete();
     }
 
     // --- add option: duplicate label rejected case-insensitively --------------------------------
@@ -255,6 +398,12 @@ class CustomFieldServiceTest {
         definition.setRequired(required);
         definition.setCreatedAt(Instant.now());
         definition.setUpdatedAt(Instant.now());
+        return definition;
+    }
+
+    private CustomFieldDefinition countryDefinition(boolean enabled) {
+        CustomFieldDefinition definition = definitionOf(UUID.randomUUID(), "Country", CustomFieldType.COUNTRY, false);
+        definition.setEnabled(enabled);
         return definition;
     }
 

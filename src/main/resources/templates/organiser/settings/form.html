@@ -6,6 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Settings', content=~{::#content})}">
     <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
         <form th:action="@{/organiser/settings}" method="post">
             <fieldset>
                 <label for="self_registration_enabled">
@@ -51,6 +52,50 @@
                 <p th:unless="${settings.topicApprovalRequired}">
                     A newly proposed Topic is immediately Approved and visible to everyone.
                 </p>
+            </fieldset>
+
+            <fieldset>
+                <label for="max_registrations">Maximum registrations</label>
+                <input type="number" id="max_registrations" name="max_registrations" min="1"
+                       th:value="${settings.maxRegistrations}"/>
+                <p>Leave blank for unlimited registrations.</p>
+            </fieldset>
+
+            <fieldset>
+                <label for="self_edit_enabled">
+                    <input type="hidden" name="self_edit_enabled" value="false"/>
+                    <input type="checkbox" id="self_edit_enabled" name="self_edit_enabled"
+                           value="true" th:checked="${settings.selfEditEnabled}"/>
+                    Allow participants to edit their own profile
+                </label>
+            </fieldset>
+
+            <fieldset>
+                <label for="skill_visibility_enabled">
+                    <input type="hidden" name="skill_visibility_enabled" value="false"/>
+                    <input type="checkbox" id="skill_visibility_enabled" name="skill_visibility_enabled"
+                           value="true" th:checked="${settings.skillVisibilityEnabled}"/>
+                    Show participants' skills to other users
+                </label>
+            </fieldset>
+
+            <fieldset>
+                <legend>Participants directory visible to</legend>
+                <label>
+                    <input type="radio" name="participants_directory_audience" value="ORGANISERS_ONLY"
+                           th:checked="${settings.participantsDirectoryAudience.name()} == 'ORGANISERS_ONLY'"/>
+                    Organisers only
+                </label>
+                <label>
+                    <input type="radio" name="participants_directory_audience" value="ORGANISERS_AND_PARTICIPANTS"
+                           th:checked="${settings.participantsDirectoryAudience.name()} == 'ORGANISERS_AND_PARTICIPANTS'"/>
+                    Organisers and Participants
+                </label>
+                <label>
+                    <input type="radio" name="participants_directory_audience" value="ALL_AUTHENTICATED"
+                           th:checked="${settings.participantsDirectoryAudience.name()} == 'ALL_AUTHENTICATED'"/>
+                    All authenticated users
+                </label>
             </fieldset>
 
             <button type="submit">Save</button>

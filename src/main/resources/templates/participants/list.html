@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Participants')}">
+    <title>Participants</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Participants', content=~{::#content})}">
+<div id="content">
+    <!--/* One column per Overview-marked Custom Field Definition (FR-027); no Skills column, ever
+         (FR-027). A cell with no stored value renders a clear "Not provided" indicator (FR-031).
+         Every row's first cell links to that Participant's detail view. */-->
+    <table>
+        <thead>
+        <tr>
+            <th>Name</th>
+            <th th:each="field : ${#lists.isEmpty(rows) ? null : rows[0].overviewValues}"
+                th:text="${field.definition.label}">Field</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="row : ${rows}">
+            <td><a th:href="@{/participants/{id}(id=${row.participantId})}" th:text="${row.displayName}">Name</a></td>
+            <td th:each="field : ${row.overviewValues}">
+                <span th:if="${field.definition.fieldType.name()} == 'FREE_TEXT'"
+                      th:text="${field.freeTextValue != null and !#strings.isEmpty(field.freeTextValue)} ? ${field.freeTextValue} : 'Not provided'">Value</span>
+                <span th:if="${field.definition.fieldType.name()} == 'COUNTRY'"
+                      th:text="${field.freeTextValue != null and !#strings.isEmpty(field.freeTextValue)} ? ${countryNamesByCode.get(field.freeTextValue)} : 'Not provided'">Country</span>
+                <span th:if="${field.definition.fieldType.name()} == 'SINGLE_SELECT' or ${field.definition.fieldType.name()} == 'MULTI_SELECT'"
+                      class="option-list">
+                    <span th:if="${field.selectedOptionIds.isEmpty()}">Not provided</span>
+                    <span th:each="option : ${field.options}" th:if="${#lists.contains(field.selectedOptionIds, option.id)}"
+                          th:text="${option.label}">Option</span>
+                </span>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+    <p th:if="${#lists.isEmpty(rows)}">No registered Participants yet.</p>
+</div>
+</th:block>
+</body>
+</html>

@@ -3,6 +3,7 @@ package net.fabcelhaft.hackathonorganiser.customfield;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Column;
 import org.springframework.data.relational.core.mapping.Table;
 
 /**
@@ -13,6 +14,10 @@ import org.springframework.data.relational.core.mapping.Table;
  * <p>{@code id} is left {@code null} on construction: PostgreSQL assigns it via the
  * {@code custom_field_definitions.id} column's {@code DEFAULT uuidv7()} (research.md §1) — no
  * application-side ID generation exists anywhere in this codebase.
+ *
+ * <p>{@code public_} is named with a trailing underscore because {@code public} is a reserved
+ * Java keyword; {@link Column} maps it back onto the plain {@code public} database column
+ * (data-model.md "Custom Field Definition", FR-016).
  */
 @Table("custom_field_definitions")
 public class CustomFieldDefinition {
@@ -25,6 +30,13 @@ public class CustomFieldDefinition {
     private CustomFieldType fieldType;
 
     private boolean required;
+
+    @Column("public")
+    private boolean public_;
+
+    private boolean overview;
+
+    private boolean enabled;
 
     private Instant createdAt;
 
@@ -60,6 +72,30 @@ public class CustomFieldDefinition {
 
     public void setRequired(boolean required) {
         this.required = required;
+    }
+
+    public boolean isPublic_() {
+        return public_;
+    }
+
+    public void setPublic_(boolean public_) {
+        this.public_ = public_;
+    }
+
+    public boolean isOverview() {
+        return overview;
+    }
+
+    public void setOverview(boolean overview) {
+        this.overview = overview;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     public Instant getCreatedAt() {

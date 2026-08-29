@@ -1,8 +1,10 @@
 package net.fabcelhaft.hackathonorganiser.organiser.customfield;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldConflictException;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
@@ -42,7 +44,7 @@ public class CustomFieldController {
     @GetMapping("/new")
     public Mono<Rendering> newForm() {
         return Mono.just(Rendering.view("organiser/custom-fields/form")
-                .modelAttribute("fieldTypes", CustomFieldType.values())
+                .modelAttribute("fieldTypes", createableFieldTypes())
                 .build());
     }
 
@@ -55,9 +57,11 @@ public class CustomFieldController {
             CustomFieldType fieldType = CustomFieldType.valueOf(form.getFirst("fieldType"));
             boolean required = isChecked(form.getFirst("required"));
             List<String> options = blankFilteredOptions(form.get("options"));
+            boolean public_ = isChecked(form.getFirst("public_"));
+            boolean overview = isChecked(form.getFirst("overview"));
 
             return customFieldService
-                    .create(label, fieldType, required, options)
+                    .create(label, fieldType, required, options, public_, overview)
                     .<Rendering>map(definition -> Rendering.redirectTo("/organiser/custom-fields")
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -65,7 +69,7 @@ public class CustomFieldController {
                             CustomFieldConflictException.class,
                             ex -> Mono.just(Rendering.view("organiser/custom-fields/form")
                                     .modelAttribute("error", ex.getMessage())
-                                    .modelAttribute("fieldTypes", CustomFieldType.values())
+                                    .modelAttribute("fieldTypes", createableFieldTypes())
                                     .modelAttribute("label", label)
                                     .modelAttribute("fieldType", fieldType)
                                     .modelAttribute("required", required)
@@ -81,8 +85,7 @@ public class CustomFieldController {
                 .flatMap(definition -> Mono.zip(
                                 customFieldService.findOptions(id).collectList(),
                                 customFieldService.hasRecordedValues(id))
-                        .map(tuple -> editFormView(id, definition.getLabel(), definition.getFieldType(),
-                                definition.isRequired(), tuple.getT1(), tuple.getT2(), null)))
+                        .map(tuple -> editFormView(definition, tuple.getT1(), tuple.getT2(), null)))
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 
@@ -101,21 +104,24 @@ public class CustomFieldController {
                                     : CustomFieldType.valueOf(requestedTypeRaw);
 
                     return customFieldService
-                            .update(id, label, required, requestedType)
+                            .update(
+                                    id,
+                                    label,
+                                    required,
+                                    requestedType,
+                                    isChecked(form.getFirst("public_")),
+                                    isChecked(form.getFirst("overview")))
                             .<Rendering>map(definition -> Rendering.redirectTo("/organiser/custom-fields")
                                     .status(HttpStatus.SEE_OTHER)
                                     .build())
                             .onErrorResume(CustomFieldConflictException.class, ex -> Mono.zip(
                                             customFieldService.findOptions(id).collectList(),
                                             customFieldService.hasRecordedValues(id))
-                                    .map(tuple -> editFormView(
-                                            id,
-                                            label,
-                                            existing.getFieldType(),
-                                            required,
-                                            tuple.getT1(),
-                                            tuple.getT2(),
-                                            ex.getMessage())));
+                                    .map(tuple -> {
+                                        existing.setLabel(label);
+                                        existing.setRequired(required);
+                                        return editFormView(existing, tuple.getT1(), tuple.getT2(), ex.getMessage());
+                                    }));
                 }));
     }
 
@@ -133,6 +139,32 @@ public class CustomFieldController {
                                 .modelAttribute("error", ex.getMessage())
                                 .status(HttpStatus.CONFLICT)
                                 .build()));
+    }
+
+    @PostMapping("/{id}/country/enable")
+    public Mono<Rendering> enableCountry(@PathVariable UUID id) {
+        return setCountryEnabled(id, true);
+    }
+
+    @PostMapping("/{id}/country/disable")
+    public Mono<Rendering> disableCountry(@PathVariable UUID id) {
+        return setCountryEnabled(id, false);
+    }
+
+    private Mono<Rendering> setCountryEnabled(UUID id, boolean enabled) {
+        return customFieldService
+                .findById(id)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .flatMap(definition -> {
+                    if (definition.getFieldType() != CustomFieldType.COUNTRY) {
+                        return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
+                    }
+                    return customFieldService.setCountryEnabled(enabled);
+                })
+                .map(definition -> Rendering.redirectTo(
+                                "/organiser/custom-fields?flash=" + (enabled ? "Country+enabled." : "Country+disabled."))
+                        .status(HttpStatus.SEE_OTHER)
+                        .build());
     }
 
     @PostMapping("/{id}/options")
@@ -165,34 +197,44 @@ public class CustomFieldController {
                 .flatMap(definition -> Mono.zip(
                                 customFieldService.findOptions(id).collectList(),
                                 customFieldService.hasRecordedValues(id))
-                        .map(tuple -> editFormView(id, definition.getLabel(), definition.getFieldType(),
-                                definition.isRequired(), tuple.getT1(), tuple.getT2(), ex.getMessage())));
+                        .map(tuple -> editFormView(definition, tuple.getT1(), tuple.getT2(), ex.getMessage())));
     }
 
     private Rendering editFormView(
-            UUID id,
-            String label,
-            CustomFieldType fieldType,
-            boolean required,
+            CustomFieldDefinition definition,
             List<CustomFieldOption> existingOptions,
             boolean typeLocked,
             String error) {
+        boolean isCountry = definition.getFieldType() == CustomFieldType.COUNTRY;
         Rendering.Builder<?> builder = Rendering.view("organiser/custom-fields/form")
-                .modelAttribute("fieldTypes", CustomFieldType.values())
-                .modelAttribute("customFieldId", id)
-                .modelAttribute("label", label)
-                .modelAttribute("fieldType", fieldType)
-                .modelAttribute("required", required)
+                .modelAttribute("fieldTypes", createableFieldTypes())
+                .modelAttribute("customFieldId", definition.getId())
+                .modelAttribute("label", definition.getLabel())
+                .modelAttribute("fieldType", definition.getFieldType())
+                .modelAttribute("required", definition.isRequired())
+                .modelAttribute("public_", definition.isPublic_())
+                .modelAttribute("overview", definition.isOverview())
+                .modelAttribute("isCountry", isCountry)
+                .modelAttribute("countryEnabled", definition.isEnabled())
                 .modelAttribute("existingOptions", existingOptions)
-                .modelAttribute("typeLocked", typeLocked);
-        // Per contracts/catalog-management.md, every one of these re-render paths (the field_type
-        // lock on update, a duplicate option label on add, the option delete-guard) is specified
-        // as a plain 200 re-render — unlike the two entity-level "delete" routes below, which are
-        // explicitly called out as "409-style" and set that status themselves.
+                // The COUNTRY row's type can never change (its own dedicated guard), on top of the
+                // ordinary once-a-value-exists lock every other field type is still subject to.
+                .modelAttribute("typeLocked", typeLocked || isCountry);
+        // Per contracts/custom-fields-and-country.md, every one of these re-render paths (the
+        // field_type lock on update, a duplicate option label on add, the option delete-guard) is
+        // specified as a plain 200 re-render — unlike the two entity-level "delete" routes below,
+        // which are explicitly called out as "409-style" and set that status themselves.
         if (error != null) {
             builder = builder.modelAttribute("error", error);
         }
         return builder.build();
+    }
+
+    /** {@code COUNTRY} is never an option here — it is seeded once, never created (research.md §1). */
+    private static List<CustomFieldType> createableFieldTypes() {
+        return Arrays.stream(CustomFieldType.values())
+                .filter(type -> type != CustomFieldType.COUNTRY)
+                .toList();
     }
 
     private static boolean isChecked(String value) {

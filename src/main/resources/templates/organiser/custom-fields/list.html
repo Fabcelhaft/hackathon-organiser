@@ -14,6 +14,8 @@
                 <th>Label</th>
                 <th>Type</th>
                 <th>Required</th>
+                <th>Public</th>
+                <th>Overview</th>
                 <th></th>
             </tr>
             </thead>
@@ -22,11 +24,25 @@
                 <td th:text="${field.label}">Label</td>
                 <td th:text="${field.fieldType}">Type</td>
                 <td th:text="${field.required} ? 'Yes' : 'No'">Required</td>
+                <td th:text="${field.public_} ? 'Yes' : 'No'">Public</td>
+                <td th:text="${field.overview} ? 'Yes' : 'No'">Overview</td>
                 <td>
-                    <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}">Edit</a>
-                    <form th:action="@{/organiser/custom-fields/{id}/delete(id=${field.id})}" method="post" style="display:inline">
-                        <button type="submit">Delete</button>
-                    </form>
+                    <span th:if="${field.fieldType.name()} == 'COUNTRY'">
+                        <span th:text="${field.enabled} ? 'Enabled' : 'Disabled'">Enabled</span>
+                        <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}">Edit</a>
+                        <form th:if="${field.enabled}" th:action="@{/organiser/custom-fields/{id}/country/disable(id=${field.id})}" method="post" style="display:inline">
+                            <button type="submit">Disable</button>
+                        </form>
+                        <form th:unless="${field.enabled}" th:action="@{/organiser/custom-fields/{id}/country/enable(id=${field.id})}" method="post" style="display:inline">
+                            <button type="submit">Enable</button>
+                        </form>
+                    </span>
+                    <span th:unless="${field.fieldType.name()} == 'COUNTRY'">
+                        <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}">Edit</a>
+                        <form th:action="@{/organiser/custom-fields/{id}/delete(id=${field.id})}" method="post" style="display:inline">
+                            <button type="submit">Delete</button>
+                        </form>
+                    </span>
                 </td>
             </tr>
             </tbody>

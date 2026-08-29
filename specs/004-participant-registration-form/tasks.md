@@ -59,18 +59,18 @@ directory-audience check), and the JDK-backed country catalog.
 
 ### Tests (write first, confirm they fail)
 
-- [ ] T001 [P] Write failing unit tests for `IsoCountryCatalog.all()` (returns one entry per ISO 3166-1
+- [X] T001 [P] Write failing unit tests for `IsoCountryCatalog.all()` (returns one entry per ISO 3166-1
       alpha-2 code including `"PS"`/`"DE"`/`"US"`, sorted by display name, built via `Locale.of(...)` not the
       deprecated `new Locale(String, String)` constructor — plain JUnit, no `StepVerifier`, research.md §1) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/customfield/IsoCountryCatalogTest.java`
-- [ ] T002 [P] Write failing unit tests for `OrganiserSettingsService.update(...)`'s four new parameters
+- [X] T002 [P] Write failing unit tests for `OrganiserSettingsService.update(...)`'s four new parameters
       (`maxRegistrations`: `null` leaves unchanged, a positive value is accepted, `0`/negative raises
       `OrganiserSettingsConflictException` with no field changed at all — FR-007; `selfEditEnabled`,
       `skillVisibilityEnabled`, `participantsDirectoryAudience` each settable independently and left unchanged
       when `null`; verified via `StepVerifier`) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettingsServiceTest.java`
       (extends the existing file)
-- [ ] T003 [P] Write failing unit tests for `CustomFieldService.registrationFields()` (returns every
+- [X] T003 [P] Write failing unit tests for `CustomFieldService.registrationFields()` (returns every
       non-`COUNTRY` definition plus the `COUNTRY` definition only when its `enabled` column is `true`;
       excludes it when `false`; verified via `StepVerifier`) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/customfield/CustomFieldServiceTest.java` (extends the
@@ -78,44 +78,44 @@ directory-audience check), and the JDK-backed country catalog.
 
 ### Implementation
 
-- [ ] T004 Add `public boolean NOT NULL DEFAULT false`, `overview boolean NOT NULL DEFAULT false`, and
+- [X] T004 Add `public boolean NOT NULL DEFAULT false`, `overview boolean NOT NULL DEFAULT false`, and
       `enabled boolean NOT NULL DEFAULT true` columns to `custom_field_definitions` via
       `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; add the partial unique index
       `custom_field_definitions_country_key ON custom_field_definitions (field_type) WHERE field_type =
       'COUNTRY'`; add the idempotent seed `INSERT ... SELECT 'Country', 'COUNTRY', false, false, false, false
       WHERE NOT EXISTS (...)` in `src/main/resources/schema.sql` (data-model.md "Schema additions",
       research.md §1)
-- [ ] T005 Add `max_registrations integer` (with a `CHECK (max_registrations IS NULL OR max_registrations >=
+- [X] T005 Add `max_registrations integer` (with a `CHECK (max_registrations IS NULL OR max_registrations >=
       1)` constraint, added idempotently since PostgreSQL's `ADD CONSTRAINT` has no native `IF NOT EXISTS` —
       guard it in a `DO $$ ... IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '...') ... $$`
       block), `self_edit_enabled boolean NOT NULL DEFAULT true`, `skill_visibility_enabled boolean NOT NULL
       DEFAULT false`, and `participants_directory_audience text NOT NULL DEFAULT 'ORGANISERS_ONLY'` columns to
       `organiser_settings` via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in
       `src/main/resources/schema.sql` (data-model.md, research.md §5), depends on T004 (same file)
-- [ ] T006 [P] Add `SINGLE_SELECT` and `COUNTRY` values to the `CustomFieldType` enum in
+- [X] T006 [P] Add `SINGLE_SELECT` and `COUNTRY` values to the `CustomFieldType` enum in
       `src/main/java/net/fabcelhaft/hackathonorganiser/customfield/CustomFieldType.java`
-- [ ] T007 [P] Add `public`, `overview`, `enabled` fields and accessors to `CustomFieldDefinition` in
+- [X] T007 [P] Add `public`, `overview`, `enabled` fields and accessors to `CustomFieldDefinition` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/customfield/CustomFieldDefinition.java`
-- [ ] T008 [P] Create `IsoCountryCatalog` (a `record Country(String code, String name)` plus a static
+- [X] T008 [P] Create `IsoCountryCatalog` (a `record Country(String code, String name)` plus a static
       `List<Country> all()` built from `Locale.getISOCountries()` + `Locale.of("", code)
       .getDisplayCountry(Locale.ENGLISH)`, sorted by name, research.md §1) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/customfield/IsoCountryCatalog.java` — makes T001 pass
-- [ ] T009 [P] Create the `DirectoryAudience` enum (`ORGANISERS_ONLY`, `ORGANISERS_AND_PARTICIPANTS`,
+- [X] T009 [P] Create the `DirectoryAudience` enum (`ORGANISERS_ONLY`, `ORGANISERS_AND_PARTICIPANTS`,
       `ALL_AUTHENTICATED`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/DirectoryAudience.java`
-- [ ] T010 [P] Add `maxRegistrations` (`Integer`, nullable), `selfEditEnabled`, `skillVisibilityEnabled`
+- [X] T010 [P] Add `maxRegistrations` (`Integer`, nullable), `selfEditEnabled`, `skillVisibilityEnabled`
       (`boolean`), and `participantsDirectoryAudience` (`DirectoryAudience`) fields and accessors to
       `OrganiserSettings` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettings.java`, depends on
       T009
-- [ ] T011 [P] Create `OrganiserSettingsConflictException` (mirrors `CustomFieldConflictException`'s existing
+- [X] T011 [P] Create `OrganiserSettingsConflictException` (mirrors `CustomFieldConflictException`'s existing
       shape) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettingsConflictException.java`
-- [ ] T012 [P] Create `RegistrationCapacityReachedException` (mirrors `ParticipantConflictException`'s existing
+- [X] T012 [P] Create `RegistrationCapacityReachedException` (mirrors `ParticipantConflictException`'s existing
       shape — kept distinct so callers can render FR-035's specific capacity message rather than a generic
       validation error) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participant/RegistrationCapacityReachedException.java`
-- [ ] T013 Extend `OrganiserSettingsService.update(...)` with four new parameters (`Integer maxRegistrations`,
+- [X] T013 Extend `OrganiserSettingsService.update(...)` with four new parameters (`Integer maxRegistrations`,
       `Boolean selfEditEnabled`, `Boolean skillVisibilityEnabled`, `DirectoryAudience
       participantsDirectoryAudience`), each following the existing `null` = "leave unchanged" convention;
       validate `maxRegistrations` (`null` or `>= 1`) before touching any field, raising
@@ -123,7 +123,7 @@ directory-audience check), and the JDK-backed country catalog.
       an invalid value (FR-007) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettingsService.java`,
       depends on T010, T011 — makes T002 pass
-- [ ] T014 Implement `CustomFieldService.registrationFields()` (all definitions with `field_type != COUNTRY`,
+- [X] T014 Implement `CustomFieldService.registrationFields()` (all definitions with `field_type != COUNTRY`,
       plus the `COUNTRY` definition only if `enabled = true`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/customfield/CustomFieldService.java`, depends on T007 —
       makes T003 pass
@@ -145,7 +145,7 @@ record created), then submit fully filled in (Participant record created with ex
 
 ### Tests for User Story 1 ⚠️ write first, confirm they fail
 
-- [ ] T015 [P] [US1] Write failing `WebTestClient` integration tests: `GET /register` renders every
+- [X] T015 [P] [US1] Write failing `WebTestClient` integration tests: `GET /register` renders every
       `registrationFields()` entry and the Skill catalog as one flat set of ordinary fields — each by its own
       label and control, no "Custom Field" heading/tag/badge (FR-002a) — with required fields visually marked
       (FR-002); `POST /register` missing a required field re-renders the form (200) identifying the missing
@@ -159,7 +159,7 @@ record created), then submit fully filled in (Participant record created with ex
       with an explanatory Organiser-set message (FR-006a) — per
       [contracts/registration-and-self-edit.md](contracts/registration-and-self-edit.md) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/RegistrationManagementIT.java`
-- [ ] T016 [P] [US1] Write failing unit tests for `ParticipantService.submitRegistration` (creates a new
+- [X] T016 [P] [US1] Write failing unit tests for `ParticipantService.submitRegistration` (creates a new
       `ACTIVE` record with exactly the submitted Custom Field values and Skill selections, all written inside
       one `TransactionalOperator` transaction so a rejected submission leaves **no** partial write — assert via
       an intentionally-invalid submission that no `custom_field_values`/`participant_skills` rows are written;
@@ -175,7 +175,7 @@ record created), then submit fully filled in (Participant record created with ex
 
 ### Implementation for User Story 1
 
-- [ ] T017 [US1] Implement `ParticipantService.submitRegistration(UUID userId, ProfileFormSubmission
+- [X] T017 [US1] Implement `ParticipantService.submitRegistration(UUID userId, ProfileFormSubmission
       submission)` (data-model.md "Participant"): inside one `TransactionalOperator.transactional(...)` chain,
       validate every `registrationFields()` entry's submitted answer against its type and `required` flag,
       validate `SINGLE_SELECT`/`COUNTRY` cardinality (≤1) and `COUNTRY` code membership, then create a new
@@ -185,7 +185,7 @@ record created), then submit fully filled in (Participant record created with ex
       in the same transaction; add the `NOT_PARTICIPATED` guard to `selfRegister` and `selfRevoke` (FR-006a)
       in `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`, depends on
       T014, T008 — makes T016 pass
-- [ ] T018 [US1] Implement `RegistrationController` (`GET`/`POST /register`) per
+- [X] T018 [US1] Implement `RegistrationController` (`GET`/`POST /register`) per
       [contracts/registration-and-self-edit.md](contracts/registration-and-self-edit.md): `GET` renders the
       form (pre-filled from an existing `REVOKED` record if present) or redirects home with a flash if the
       caller is `NOT_PARTICIPATED` or self-registration is disabled; `POST` calls `submitRegistration`,
@@ -193,20 +193,20 @@ record created), then submit fully filled in (Participant record created with ex
       `ParticipantConflictException`, preserving submitted values — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/RegistrationController.java`, depends on
       T017
-- [ ] T019 [US1] Update `HomeController`/`home/index.html`: the "Register" action becomes a plain link to
+- [X] T019 [US1] Update `HomeController`/`home/index.html`: the "Register" action becomes a plain link to
       `GET /register` instead of an immediate `POST /register` (FR-001); render the `NOT_PARTICIPATED`
       explanatory message (FR-006a) in place of both Register and Revoke when applicable — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/home/HomeController.java` and
       `src/main/resources/templates/home/index.html`, depends on T017
-- [ ] T020 [P] [US1] Create the shared fragment `src/main/resources/templates/fragments/profile-fields-form.html`
+- [X] T020 [P] [US1] Create the shared fragment `src/main/resources/templates/fragments/profile-fields-form.html`
       (one block per `registrationFields()` entry — label + required/optional marker (FR-002) + a control
       matching its type: text input, radio/checkbox group for `SINGLE_SELECT`/`MULTI_SELECT`, and an accessible
       combobox for `COUNTRY` — plus the Skill multi-select; every control has a programmatically associated
       label, FR-039, and is keyboard-operable with a visible focus indicator, FR-038)
-- [ ] T021 [P] [US1] Create `src/main/resources/templates/participants/register.html` (extends
+- [X] T021 [P] [US1] Create `src/main/resources/templates/participants/register.html` (extends
       `fragments/layout.html`, includes `profile-fields-form.html`; a placeholder region for User Story 2's
       capacity message; submit control disabled for the duration of submission, FR-036), depends on T020
-- [ ] T022 [P] [US1] Create `src/main/resources/static/js/country-select.js` (vanilla JS: filters the
+- [X] T022 [P] [US1] Create `src/main/resources/static/js/country-select.js` (vanilla JS: filters the
       server-rendered country `role="listbox"` as the user types in the `role="combobox"` text input, updates
       `aria-expanded`/`aria-activedescendant`, and writes the chosen alpha-2 code into the hidden submit field
       — FR-045, research.md §1)
@@ -229,7 +229,7 @@ gate around).
 
 ### Tests for User Story 2 ⚠️ write first, confirm they fail
 
-- [ ] T023 [P] [US2] Write failing `WebTestClient` integration test additions: with `maxRegistrations` set,
+- [X] T023 [P] [US2] Write failing `WebTestClient` integration test additions: with `maxRegistrations` set,
       reaching it makes `GET /register` show "Maximum registrations reached" instead of the form (FR-010) and
       makes `POST /register` reject with the same distinct message (FR-035), for both a first-time registration
       and a `REVOKED`-Participant reactivation (FR-009); revoking one Participant when at capacity permits the
@@ -237,7 +237,7 @@ gate around).
       max never blocks (FR-007) — per
       [contracts/registration-and-self-edit.md](contracts/registration-and-self-edit.md) — extending
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/RegistrationManagementIT.java`
-- [ ] T024 [P] [US2] Write failing unit test for `ParticipantService.submitRegistration`'s capacity check
+- [X] T024 [P] [US2] Write failing unit test for `ParticipantService.submitRegistration`'s capacity check
       (rejects with `RegistrationCapacityReachedException` at/over `maxRegistrations`, counting only `ACTIVE`
       Participants, before any write happens; accepts below the max; a `null` max never blocks; two concurrent
       calls for the last slot — driven via two subscriptions racing on the same `TransactionalOperator`-backed
@@ -249,24 +249,24 @@ gate around).
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Extend `ParticipantService.submitRegistration` to, as the first step inside its existing
+- [X] T025 [US2] Extend `ParticipantService.submitRegistration` to, as the first step inside its existing
       transaction, execute `SELECT pg_advisory_xact_lock(hashtext('participant-registration-cap'))`, then
       `COUNT(*)` `ACTIVE` Participants and compare against `organiserSettings.maxRegistrations`, raising
       `RegistrationCapacityReachedException` (no write performed) when at or over the limit — research.md §4
       — in `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`, depends on
       T017 — makes T024 pass
-- [ ] T026 [US2] Extend `RegistrationController`: `GET /register` shows the capacity message instead of the
+- [X] T026 [US2] Extend `RegistrationController`: `GET /register` shows the capacity message instead of the
       form when `ParticipantService` reports the cap is reached; `POST /register` catches
       `RegistrationCapacityReachedException` and re-renders the same capacity message (200), distinct from
       field-validation errors — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/RegistrationController.java`, depends on
       T025, T018 — makes T023 pass
-- [ ] T027 [P] [US2] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add a "Maximum
+- [X] T027 [P] [US2] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add a "Maximum
       registrations" number input (blank = unlimited), submitted and validated atomically alongside the
       existing toggles (FR-007) — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/settings/OrganiserSettingsController.java` and
       `src/main/resources/templates/organiser/settings/form.html`, depends on T013
-- [ ] T028 [P] [US2] Extend `src/main/resources/templates/participants/register.html`'s capacity-message
+- [X] T028 [P] [US2] Extend `src/main/resources/templates/participants/register.html`'s capacity-message
       placeholder (from T021) to render the actual "Maximum registrations reached" text in place of the field
       fragment (FR-010), marked `role="status"` the same way `fragments/layout.html`'s flash banner is (FR-040)
       — this message renders on both a fresh `GET /register` and a `POST /register` re-render, neither of
@@ -290,7 +290,7 @@ Overview, confirm those flags are honored on the registration form (User Story 1
 
 ### Tests for User Story 3 ⚠️ write first, confirm they fail
 
-- [ ] T029 [P] [US3] Write failing `WebTestClient` integration test additions: creating a `SINGLE_SELECT` field
+- [X] T029 [P] [US3] Write failing `WebTestClient` integration test additions: creating a `SINGLE_SELECT` field
       requires ≥1 option (mirrors the existing `MULTI_SELECT` rule, FR-012) and then appears on `GET /register`
       restricted to one choice; `Public`/`Overview` checkboxes are independently settable and persist (FR-016);
       enabling Country makes it appear on `GET /register` as a searchable single-select populated with the full
@@ -300,7 +300,7 @@ Overview, confirm those flags are honored on the registration form (User Story 1
       it is rejected (research.md §1); a non-Organiser is denied every route — per
       [contracts/custom-fields-and-country.md](contracts/custom-fields-and-country.md) — extending
       `src/test/java/net/fabcelhaft/hackathonorganiser/organiser/customfield/CustomFieldManagementIT.java`
-- [ ] T030 [P] [US3] Write failing unit tests for `CustomFieldService`'s new behavior: `create()` rejects a
+- [X] T030 [P] [US3] Write failing unit tests for `CustomFieldService`'s new behavior: `create()` rejects a
       `SINGLE_SELECT` submitted with zero options, the same way it already rejects `MULTI_SELECT`; `create()`
       and `deleteDefinition()` reject a `field_type = COUNTRY` argument outright; `update()` accepts `public`/
       `overview` independently with no lock, on any field type; `setCountryEnabled(boolean)` toggles the
@@ -309,7 +309,7 @@ Overview, confirm those flags are honored on the registration form (User Story 1
 
 ### Implementation for User Story 3
 
-- [ ] T031 [US3] Extend `CustomFieldService`: `create()` applies the ≥1-option rule to `SINGLE_SELECT` the same
+- [X] T031 [US3] Extend `CustomFieldService`: `create()` applies the ≥1-option rule to `SINGLE_SELECT` the same
       way it already does for `MULTI_SELECT`; `create()`/`deleteDefinition()` reject `field_type = COUNTRY`
       with `CustomFieldConflictException`; `update()` gains `Boolean public_`/`Boolean overview` parameters
       applied independently of the existing `field_type`-lock logic; add
@@ -317,13 +317,13 @@ Overview, confirm those flags are honored on the registration form (User Story 1
       column) — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/customfield/CustomFieldService.java`, depends on T007,
       T014 — makes T030 pass
-- [ ] T032 [US3] Extend `organiser/customfield/CustomFieldController`: `field_type` select on create gains
+- [X] T032 [US3] Extend `organiser/customfield/CustomFieldController`: `field_type` select on create gains
       `SINGLE_SELECT`; create/edit forms gain `public`/`overview` checkboxes; add
       `POST /organiser/custom-fields/{id}/country/enable` and `.../disable` per
       [contracts/custom-fields-and-country.md](contracts/custom-fields-and-country.md) — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/customfield/CustomFieldController.java`,
       depends on T031 — makes T029 pass
-- [ ] T033 [P] [US3] Extend `src/main/resources/templates/organiser/custom-fields/list.html` and `form.html`:
+- [X] T033 [P] [US3] Extend `src/main/resources/templates/organiser/custom-fields/list.html` and `form.html`:
       `SINGLE_SELECT` in the type dropdown (reusing the existing option-list input `MULTI_SELECT` already has);
       `Public`/`Overview` checkboxes; the `COUNTRY` row shows its `enabled` state and an Enable/Disable action
       in place of a type-change/delete control
@@ -346,7 +346,7 @@ fragment this reuses).
 
 ### Tests for User Story 4 ⚠️ write first, confirm they fail
 
-- [ ] T034 [P] [US4] Write failing `WebTestClient` integration tests: `GET /profile` always shows the caller's
+- [X] T034 [P] [US4] Write failing `WebTestClient` integration tests: `GET /profile` always shows the caller's
       current values read-only, including when self-edit is disabled or status is `NOT_PARTICIPATED` (FR-023);
       an Edit link/action appears only when self-edit is currently enabled; `GET /profile/edit` is pre-filled
       with current values (FR-022); a valid `POST /profile/edit` persists changes with an explicit confirmation
@@ -356,7 +356,7 @@ fragment this reuses).
       rejected server-side regardless of what the page displayed (FR-024) — per
       [contracts/registration-and-self-edit.md](contracts/registration-and-self-edit.md) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/ProfileManagementIT.java`
-- [ ] T035 [P] [US4] Write failing unit tests for `ParticipantService.submitSelfEdit` (reuses
+- [X] T035 [P] [US4] Write failing unit tests for `ParticipantService.submitSelfEdit` (reuses
       `registrationFields()`'s validation rules identically to `submitRegistration`; rejects with
       `ParticipantConflictException` when `selfEditEnabled` is currently `false` or status is
       `NOT_PARTICIPATED`, re-read at call time, never cached; persists changes in place, no new record;
@@ -366,23 +366,23 @@ fragment this reuses).
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Implement `ParticipantService.submitSelfEdit(UUID participantId, ProfileFormSubmission
+- [X] T036 [US4] Implement `ParticipantService.submitSelfEdit(UUID participantId, ProfileFormSubmission
       submission)` (same per-field validation as `submitRegistration`, minus capacity/create-vs-reactivate
       branching; gated on `organiserSettings.selfEditEnabled` and the `NOT_PARTICIPATED` guard) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`, depends on T017,
       T013 — makes T035 pass
-- [ ] T037 [US4] Implement `ProfileController` (`GET /profile` read-only; `GET`/`POST /profile/edit`) per
+- [X] T037 [US4] Implement `ProfileController` (`GET /profile` read-only; `GET`/`POST /profile/edit`) per
       [contracts/registration-and-self-edit.md](contracts/registration-and-self-edit.md) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/ProfileController.java`, depends on T036 —
       makes T034 pass
-- [ ] T038 [P] [US4] Create `src/main/resources/templates/participants/edit.html` (extends
+- [X] T038 [P] [US4] Create `src/main/resources/templates/participants/edit.html` (extends
       `fragments/layout.html`, includes `fragments/profile-fields-form.html` from T020, pre-filled; submit
       control disabled for the duration of submission, same pattern as T021's register.html, FR-036 — edit
       save is explicitly in FR-036's scope alongside registration/reactivation)
-- [ ] T039 [P] [US4] Create `src/main/resources/templates/participants/detail.html` — the "self" read-only
+- [X] T039 [P] [US4] Create `src/main/resources/templates/participants/detail.html` — the "self" read-only
       rendering used by `GET /profile` for now (organiser/other-viewer modes are added in User Story 5); an
       Edit action shown only when self-edit is currently enabled
-- [ ] T040 [P] [US4] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add an "Allow
+- [X] T040 [P] [US4] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add an "Allow
       participants to edit their own profile" checkbox — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/settings/OrganiserSettingsController.java` and
       `src/main/resources/templates/organiser/settings/form.html`, depends on T013
@@ -405,7 +405,7 @@ flags this resolves).
 
 ### Tests for User Story 5 ⚠️ write first, confirm they fail
 
-- [ ] T041 [P] [US5] Write failing `WebTestClient` integration tests: the "Participants" nav item is shown/
+- [X] T041 [P] [US5] Write failing `WebTestClient` integration tests: the "Participants" nav item is shown/
       hidden exactly per the configured audience (FR-025); `GET /participants` lists `ACTIVE` Participants
       alphabetically ascending by display name (FR-027a) with one column per Overview-marked Custom Field, no
       Skills column ever (FR-027), and a clear empty-value indicator for an unfilled cell (FR-031);
@@ -416,11 +416,11 @@ flags this resolves).
       setting is enforced on the very next request, not retroactively on an open page (Edge Cases) — per
       [contracts/participants-directory.md](contracts/participants-directory.md) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/ParticipantsDirectoryManagementIT.java`
-- [ ] T042 [P] [US5] Write failing unit tests for `ParticipantsDirectoryAccessPolicy` (all three
+- [X] T042 [P] [US5] Write failing unit tests for `ParticipantsDirectoryAccessPolicy` (all three
       `DirectoryAudience` tiers combined with organiser / has-Participant-record / plain-authenticated-user,
       research.md §6) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/ParticipantsDirectoryAccessPolicyTest.java`
-- [ ] T043 [P] [US5] Write failing unit tests for `ParticipantService.findDirectoryListing()` (only `ACTIVE`
+- [X] T043 [P] [US5] Write failing unit tests for `ParticipantService.findDirectoryListing()` (only `ACTIVE`
       Participants, ordered alphabetically ascending by display name, one value per Overview-marked field) and
       `findDetailForViewer(...)` (self/organiser see everything; other-viewer sees only `Public`, an
       Overview-only-non-Public field omitted per FR-017) — verified via `StepVerifier` — extending
@@ -428,34 +428,34 @@ flags this resolves).
 
 ### Implementation for User Story 5
 
-- [ ] T044 [US5] Implement `ParticipantsDirectoryAccessPolicy` (one method resolving audience membership from
+- [X] T044 [US5] Implement `ParticipantsDirectoryAccessPolicy` (one method resolving audience membership from
       `OrganiserSettings.participantsDirectoryAudience` plus `(isOrganiser, hasParticipantRecord)`, reused by
       both the controllers below and the nav model advice, research.md §6) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/ParticipantsDirectoryAccessPolicy.java`,
       depends on T010 — makes T042 pass
-- [ ] T045 [US5] Implement `ParticipantService.findDirectoryListing()` and `findDetailForViewer(UUID
+- [X] T045 [US5] Implement `ParticipantService.findDirectoryListing()` and `findDetailForViewer(UUID
       participantId, UUID viewerUserId, boolean viewerIsOrganiser)` (data-model.md, research.md §3) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`, depends on T007 —
       makes T043 pass
-- [ ] T046 [US5] Implement `ParticipantsDirectoryController` (`GET /participants`, `GET /participants/{id}`)
+- [X] T046 [US5] Implement `ParticipantsDirectoryController` (`GET /participants`, `GET /participants/{id}`)
       per [contracts/participants-directory.md](contracts/participants-directory.md), returning 403 when
       `ParticipantsDirectoryAccessPolicy` denies access and the requested id isn't the caller's own, in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/ParticipantsDirectoryController.java`,
       depends on T044, T045 — makes T041 pass (partial)
-- [ ] T047 [US5] Update `ProfileController`'s `GET /profile` (T037) to delegate to the same detail-rendering
+- [X] T047 [US5] Update `ProfileController`'s `GET /profile` (T037) to delegate to the same detail-rendering
       logic `ParticipantsDirectoryController` uses for self mode, so there is exactly one detail-rendering code
       path (plan.md Structure Decision) — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/ProfileController.java`, depends on T046
-- [ ] T048 [P] [US5] Extend `CurrentUserModelAdvice` to inject `showParticipantsMenuItem` via
+- [X] T048 [P] [US5] Extend `CurrentUserModelAdvice` to inject `showParticipantsMenuItem` via
       `ParticipantsDirectoryAccessPolicy` — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/web/CurrentUserModelAdvice.java`, depends on T044
-- [ ] T049 [P] [US5] Extend `src/main/resources/templates/fragments/layout.html`: a "Participants" nav item
+- [X] T049 [P] [US5] Extend `src/main/resources/templates/fragments/layout.html`: a "Participants" nav item
       rendered only when `showParticipantsMenuItem` is true, depends on T048
-- [ ] T050 [P] [US5] Create `src/main/resources/templates/participants/list.html` (directory table; Overview
+- [X] T050 [P] [US5] Create `src/main/resources/templates/participants/list.html` (directory table; Overview
       columns; a clear "—"/"Not provided" empty-cell indicator, FR-031)
-- [ ] T051 [US5] Extend `src/main/resources/templates/participants/detail.html` (from T039) to add
+- [X] T051 [US5] Extend `src/main/resources/templates/participants/detail.html` (from T039) to add
       organiser-mode and other-viewer-mode rendering (self mode already exists), depends on T039, T045
-- [ ] T052 [P] [US5] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add a
+- [X] T052 [P] [US5] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add a
       "Participants directory visible to" radio group (Organisers only / Organisers and Participants / All
       authenticated users) — depends on T013
 
@@ -478,7 +478,7 @@ also labels).
 
 ### Tests for User Story 6 ⚠️ write first, confirm they fail
 
-- [ ] T053 [P] [US6] Write failing `WebTestClient` integration test additions: enabling skill visibility shows
+- [X] T053 [P] [US6] Write failing `WebTestClient` integration test additions: enabling skill visibility shows
       Skills on another viewer's `GET /participants/{id}` (subject to the directory audience, FR-018/FR-019);
       disabling hides them from non-owning, non-organiser viewers; Skills never appear as a `GET /participants`
       table column regardless of the toggle (FR-027); on `GET /profile` and `GET /profile/edit`, every Custom
@@ -486,7 +486,7 @@ also labels).
       its actual `public`/skill-visibility configuration, never color alone (FR-020, FR-041) — extending
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/ParticipantsDirectoryManagementIT.java` and
       `src/test/java/net/fabcelhaft/hackathonorganiser/participants/ProfileManagementIT.java`
-- [ ] T054 [P] [US6] Write failing unit tests for `ParticipantService.findDetailForViewer`'s Skill-visibility
+- [X] T054 [P] [US6] Write failing unit tests for `ParticipantService.findDetailForViewer`'s Skill-visibility
       filtering (non-owning, non-organiser viewer sees Skills only when `skillVisibilityEnabled` is true;
       self/organiser always see them) and for a per-field/per-Skill "visible to others" boolean now included in
       the self-mode read model — verified via `StepVerifier` — extending
@@ -494,16 +494,16 @@ also labels).
 
 ### Implementation for User Story 6
 
-- [ ] T055 [US6] Extend `ParticipantService.findDetailForViewer` to filter Skills by
+- [X] T055 [US6] Extend `ParticipantService.findDetailForViewer` to filter Skills by
       `organiserSettings.skillVisibilityEnabled` for non-owning, non-organiser viewers, and to compute a
       per-Custom-Field-value and per-Skill "visible to others" boolean for self-mode labeling (FR-020) — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`, depends on T045 —
       makes T054 pass
-- [ ] T056 [US6] Extend `participants/detail.html`, `edit.html`, and `fragments/profile-fields-form.html` to
+- [X] T056 [US6] Extend `participants/detail.html`, `edit.html`, and `fragments/profile-fields-form.html` to
       render the "visible to others"/"private" label (a text string plus an icon carrying an accessible text
       alternative, never color alone — FR-020, FR-041) next to each Custom Field and the Skills section in self
       mode — depends on T055, T020, T039, T051
-- [ ] T057 [P] [US6] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add a "Show
+- [X] T057 [P] [US6] Extend `OrganiserSettingsController` and `organiser/settings/form.html`: add a "Show
       participants' skills to other users" checkbox — depends on T013
 
 **Checkpoint**: All six user stories are independently functional.
@@ -515,7 +515,7 @@ also labels).
 **Purpose**: The automated accessibility gate (SC-009), which only makes sense once every screen it scans
 exists, plus a final full-suite/manual verification pass.
 
-- [ ] T058 [P] Write `a11y.RegistrationAccessibilityIT` (Playwright headless Chromium + Deque's `AxeBuilder`,
+- [X] T058 [P] Write `a11y.RegistrationAccessibilityIT` (Playwright headless Chromium + Deque's `AxeBuilder`,
       `@SpringBootTest(webEnvironment = RANDOM_PORT)` + Testcontainers, reusing 003's already-justified
       tooling per research.md §7): scans the registration form (`GET /register`, including its capacity-message
       state), the self-edit form (`GET /profile/edit`), and the home page (`GET /`) in its `NOT_PARTICIPATED`
@@ -523,12 +523,12 @@ exists, plus a final full-suite/manual verification pass.
       distinct from the pre-existing 002/003 home screen content FR-037's scope note excludes; asserts zero
       `critical`/`serious` WCAG 2.1 AA violations on each (SC-009) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/a11y/RegistrationAccessibilityIT.java`
-- [ ] T059 [P] Write `a11y.ParticipantsDirectoryAccessibilityIT`: scans the Participants directory table, a
+- [X] T059 [P] Write `a11y.ParticipantsDirectoryAccessibilityIT`: scans the Participants directory table, a
       Participant's own detail view (`GET /profile`), another Participant's detail view, and the extended
       organiser settings and Custom Field forms; asserts zero `critical`/`serious` WCAG 2.1 AA violations on
       each (SC-009); explicitly excludes 002/003's pre-existing organiser screens per FR-037's scope note — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/a11y/ParticipantsDirectoryAccessibilityIT.java`
-- [ ] T060 Review T058/T059's results and adjust `src/main/resources/static/css/app.css` as needed so the
+- [X] T060 Review T058/T059's results and adjust `src/main/resources/static/css/app.css` as needed so the
       required/optional marker, the visible/private badge, the capacity message, and the Country combobox's
       listbox popover meet WCAG 2.1 AA contrast minimums (4.5:1 normal text, 3:1 large text/UI component
       boundaries) in both light and dark presentation (FR-044)

@@ -77,11 +77,16 @@ public class HomeController {
                 .flatMap(tuple -> {
                     Optional<Participant> participantOpt = tuple.getT1();
                     OrganiserSettings settings = tuple.getT2();
-                    boolean canRegister = settings.isSelfRegistrationEnabled()
+                    boolean notParticipated = participantOpt
+                            .map(p -> p.getStatus() == ParticipantStatus.NOT_PARTICIPATED)
+                            .orElse(false);
+                    boolean canRegister = !notParticipated
+                            && settings.isSelfRegistrationEnabled()
                             && participantOpt
                                     .map(p -> p.getStatus() != ParticipantStatus.ACTIVE)
                                     .orElse(true);
-                    boolean canRevoke = settings.isSelfRevocationEnabled()
+                    boolean canRevoke = !notParticipated
+                            && settings.isSelfRevocationEnabled()
                             && participantOpt
                                     .map(p -> p.getStatus() == ParticipantStatus.ACTIVE)
                                     .orElse(false);
@@ -98,6 +103,7 @@ public class HomeController {
                                     .modelAttribute("participant", participantOpt.orElse(null))
                                     .modelAttribute("canRegister", canRegister)
                                     .modelAttribute("canRevoke", canRevoke)
+                                    .modelAttribute("notParticipated", notParticipated)
                                     .modelAttribute("assignedGroup", results.getT1().group())
                                     .modelAttribute("assignedTopic", results.getT1().topic())
                                     .modelAttribute("topicList", topicList)
@@ -118,16 +124,8 @@ public class HomeController {
         return topicService.loadAuthors(all);
     }
 
-    @PostMapping("/register")
-    public Mono<Rendering> register(@AuthenticationPrincipal HackathonOidcUser oidcUser) {
-        UUID userId = oidcUser.getUser().getId();
-        return participantService
-                .selfRegister(userId)
-                .map(participant -> redirectHomeWithFlash("Registration successful."))
-                .onErrorResume(
-                        ParticipantConflictException.class,
-                        ex -> Mono.just(redirectHomeWithFlash(ex.getMessage())));
-    }
+    // POST /register no longer lives here (FR-001): registration is now form-driven via
+    // RegistrationController's GET/POST /register, superseding 003's immediate-registration button.
 
     @PostMapping("/revoke")
     public Mono<Rendering> revoke(@AuthenticationPrincipal HackathonOidcUser oidcUser) {

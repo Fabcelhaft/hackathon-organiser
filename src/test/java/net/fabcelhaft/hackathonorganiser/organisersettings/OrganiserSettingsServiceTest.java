@@ -2,6 +2,8 @@ package net.fabcelhaft.hackathonorganiser.organisersettings;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
@@ -50,7 +52,7 @@ class OrganiserSettingsServiceTest {
         when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(organiserSettingsService.update(false, null, true))
+        StepVerifier.create(organiserSettingsService.update(false, null, true, null, null, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isSelfRegistrationEnabled()).isFalse();
                     assertThat(saved.isSelfRevocationEnabled()).isTrue();
@@ -61,17 +63,88 @@ class OrganiserSettingsServiceTest {
     }
 
     @Test
-    void updateWithAllNullsLeavesEveryToggleUnchanged() {
+    void updateWithAllNullsLeavesEveryBooleanAndEnumToggleUnchanged() {
         OrganiserSettings settings = settingsOf(true, false, true);
+        settings.setMaxRegistrations(5);
+        settings.setSelfEditEnabled(true);
+        settings.setSkillVisibilityEnabled(false);
+        settings.setParticipantsDirectoryAudience(DirectoryAudience.ORGANISERS_AND_PARTICIPANTS);
         when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
         when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(organiserSettingsService.update(null, null, null))
+        StepVerifier.create(organiserSettingsService.update(null, null, null, 5, null, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isSelfRegistrationEnabled()).isTrue();
                     assertThat(saved.isSelfRevocationEnabled()).isFalse();
                     assertThat(saved.isTopicApprovalRequired()).isTrue();
+                    assertThat(saved.isSelfEditEnabled()).isTrue();
+                    assertThat(saved.isSkillVisibilityEnabled()).isFalse();
+                    assertThat(saved.getParticipantsDirectoryAudience())
+                            .isEqualTo(DirectoryAudience.ORGANISERS_AND_PARTICIPANTS);
+                })
+                .verifyComplete();
+    }
+
+    // --- maxRegistrations (FR-007) ----------------------------------------------------------------
+
+    @Test
+    void updateWithANullMaxRegistrationsClearsAPreviouslySetLimit() {
+        OrganiserSettings settings = settingsOf(true, true, false);
+        settings.setMaxRegistrations(5);
+        when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
+        when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(organiserSettingsService.update(null, null, null, null, null, null, null))
+                .assertNext(saved -> assertThat(saved.getMaxRegistrations()).isNull())
+                .verifyComplete();
+    }
+
+    @Test
+    void updateAcceptsAPositiveMaxRegistrations() {
+        OrganiserSettings settings = settingsOf(true, true, false);
+        when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
+        when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(organiserSettingsService.update(null, null, null, 10, null, null, null))
+                .assertNext(saved -> assertThat(saved.getMaxRegistrations()).isEqualTo(10))
+                .verifyComplete();
+    }
+
+    @Test
+    void updateRejectsZeroOrNegativeMaxRegistrationsAndAppliesNoChangeAtAll() {
+        StepVerifier.create(organiserSettingsService.update(false, null, null, 0, null, null, null))
+                .expectError(OrganiserSettingsConflictException.class)
+                .verify();
+        StepVerifier.create(organiserSettingsService.update(false, null, null, -1, null, null, null))
+                .expectError(OrganiserSettingsConflictException.class)
+                .verify();
+
+        verify(organiserSettingsRepository, never()).findBySingletonTrue();
+        verify(organiserSettingsRepository, never()).save(any());
+    }
+
+    // --- selfEditEnabled / skillVisibilityEnabled / participantsDirectoryAudience (FR-018, FR-021, FR-025) --
+
+    @Test
+    void updateSetsSelfEditSkillVisibilityAndDirectoryAudienceIndependently() {
+        OrganiserSettings settings = settingsOf(true, true, false);
+        settings.setSelfEditEnabled(true);
+        settings.setSkillVisibilityEnabled(false);
+        settings.setParticipantsDirectoryAudience(DirectoryAudience.ORGANISERS_ONLY);
+        when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
+        when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(organiserSettingsService.update(
+                        null, null, null, null, false, true, DirectoryAudience.ALL_AUTHENTICATED))
+                .assertNext(saved -> {
+                    assertThat(saved.isSelfEditEnabled()).isFalse();
+                    assertThat(saved.isSkillVisibilityEnabled()).isTrue();
+                    assertThat(saved.getParticipantsDirectoryAudience())
+                            .isEqualTo(DirectoryAudience.ALL_AUTHENTICATED);
                 })
                 .verifyComplete();
     }
@@ -84,6 +157,7 @@ class OrganiserSettingsServiceTest {
         settings.setSelfRegistrationEnabled(selfRegistrationEnabled);
         settings.setSelfRevocationEnabled(selfRevocationEnabled);
         settings.setTopicApprovalRequired(topicApprovalRequired);
+        settings.setParticipantsDirectoryAudience(DirectoryAudience.ORGANISERS_ONLY);
         settings.setUpdatedAt(Instant.now());
         return settings;
     }
