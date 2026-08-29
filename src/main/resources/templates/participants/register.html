@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Register')}">
+    <title>Register</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Register', content=~{::#content})}">
+<div id="content">
+    <!--/* FR-010: with maxRegistrations reached, the capacity message replaces the form entirely —
+         on both a fresh GET and a POST re-render, neither of which carries a `flash` redirect, so
+         it gets its own role="status" treatment for consistency with the layout's flash banner. */-->
+    <p th:if="${atCapacity}" role="status">Maximum registrations reached.</p>
+
+    <form th:unless="${atCapacity}" th:action="@{/register}" method="post" id="register-form">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+
+        <div th:replace="~{fragments/profile-fields-form :: fields}"></div>
+
+        <button type="submit" id="register-submit">Register</button>
+    </form>
+
+    <!--/* FR-036: submit control disabled for the duration of submission. */-->
+    <script th:unless="${atCapacity}">
+        (function () {
+            var form = document.getElementById('register-form');
+            var submitButton = document.getElementById('register-submit');
+            if (!form || !submitButton) {
+                return;
+            }
+            form.addEventListener('submit', function () {
+                submitButton.disabled = true;
+            });
+        })();
+    </script>
+</div>
+</th:block>
+<script th:unless="${atCapacity}" th:src="@{/js/country-select.js}"></script>
+</body>
+</html>

@@ -25,10 +25,21 @@
                 Required
             </label>
 
-            <!-- Dynamic option rows for a new MULTI_SELECT definition (T033); existing options for
-                 an already-created definition are managed separately below via their own routes. -->
+            <label>
+                <input type="checkbox" name="public_" value="true" th:checked="${public_}"/>
+                Public (visible to other users)
+            </label>
+
+            <label>
+                <input type="checkbox" name="overview" value="true" th:checked="${overview}"/>
+                Overview (shown as a column in the Participants directory table)
+            </label>
+
+            <!-- Dynamic option rows for a new SINGLE_SELECT/MULTI_SELECT definition (T033);
+                 existing options for an already-created definition are managed separately below
+                 via their own routes. -->
             <div id="newOptionsSection" th:if="${customFieldId} == null">
-                <p>Options (only used when Type is Multi-select)</p>
+                <p>Options (only used when Type is Single-select or Multi-select)</p>
                 <div id="optionInputs">
                     <input type="text" name="options" placeholder="Option label"/>
                 </div>
@@ -37,6 +48,12 @@
 
             <button type="submit">Save</button>
         </form>
+
+        <p th:if="${isCountry}">
+            The Country field's type is fixed and cannot be changed — its Required/Public/Overview
+            flags above can still be saved. Use Enable/Disable on the
+            <a th:href="@{/organiser/custom-fields}">Custom Fields list</a> to control its availability.
+        </p>
 
         <div th:if="${customFieldId} != null">
             <h2>Options</h2>
@@ -61,7 +78,7 @@
             var select = document.getElementById('fieldType');
             var section = document.getElementById('newOptionsSection');
             if (select && section) {
-                section.style.display = (select.value === 'MULTI_SELECT') ? 'block' : 'none';
+                section.style.display = (select.value === 'MULTI_SELECT' || select.value === 'SINGLE_SELECT') ? 'block' : 'none';
             }
         }
 

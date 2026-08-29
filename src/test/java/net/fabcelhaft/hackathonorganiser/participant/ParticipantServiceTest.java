@@ -12,16 +12,21 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
+import net.fabcelhaft.hackathonorganiser.participant.ProfileFormSubmission.FreeText;
+import net.fabcelhaft.hackathonorganiser.participant.ProfileFormSubmission.Options;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +36,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.r2dbc.core.RowsFetchSpec;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -73,10 +79,28 @@ class ParticipantServiceTest {
     @Mock
     private GroupService groupService;
 
+    @Mock
+    private CustomFieldService customFieldService;
+
     private ParticipantService participantService;
 
     @BeforeEach
     void setUp() {
+        // A pass-through TransactionalOperator: unit tests exercise business logic, not real
+        // reactive-transaction semantics (that's *ManagementIT's job, against a real Postgres).
+        TransactionalOperator transactionalOperator = new TransactionalOperator() {
+            @Override
+            public <T> reactor.core.publisher.Flux<T> execute(
+                    org.springframework.transaction.reactive.TransactionCallback<T> action) {
+                throw new UnsupportedOperationException("not used by these tests");
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public <T> Mono<T> transactional(Mono<T> mono) {
+                return mono;
+            }
+        };
         participantService = new ParticipantService(
                 participantRepository,
                 userRepository,
@@ -85,7 +109,9 @@ class ParticipantServiceTest {
                 customFieldOptionRepository,
                 databaseClient,
                 organiserSettingsService,
-                groupService);
+                groupService,
+                customFieldService,
+                transactionalOperator);
     }
 
     // --- register: single Participant per User (FR-006a), initial status ACTIVE (FR-006b) ------
@@ -360,6 +386,241 @@ class ParticipantServiceTest {
         verify(participantRepository, org.mockito.Mockito.times(1)).save(any(Participant.class));
     }
 
+    // --- selfRegister/selfRevoke: NOT_PARTICIPATED lockout (FR-006a) ---------------------------
+
+    @Test
+    void selfRegisterRejectsWhenCallerIsNotParticipated() {
+        UUID userId = UUID.randomUUID();
+        Participant existing = participantOf(UUID.randomUUID(), userId, ParticipantStatus.NOT_PARTICIPATED);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(participantService.selfRegister(userId))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void selfRevokeRejectsWhenCallerIsNotParticipated() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.NOT_PARTICIPATED);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(participantService.selfRevoke(participantId))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    // --- submitRegistration: form-driven registration/reactivation (FR-002, FR-003, FR-004, FR-005) --
+
+    @Test
+    void submitRegistrationRejectsWhenSelfRegistrationIsDisabled() {
+        UUID userId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false, true)));
+
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRegistrationRejectsWhenCallerIsNotParticipated() {
+        UUID userId = UUID.randomUUID();
+        Participant existing = participantOf(UUID.randomUUID(), userId, ParticipantStatus.NOT_PARTICIPATED);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRegistrationRejectsAMissingRequiredFreeTextFieldWithNoRecordCreated() {
+        UUID userId = UUID.randomUUID();
+        UUID fieldId = UUID.randomUUID();
+        CustomFieldDefinition required = requiredDefinitionOf(fieldId, CustomFieldType.FREE_TEXT);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(customFieldService.registrationFields()).thenReturn(Flux.just(required));
+        stubCapacityGuardPasses();
+
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRegistrationRejectsMoreThanOneOptionForASingleSelectField() {
+        UUID userId = UUID.randomUUID();
+        UUID fieldId = UUID.randomUUID();
+        UUID option1 = UUID.randomUUID();
+        UUID option2 = UUID.randomUUID();
+        CustomFieldDefinition singleSelect = definitionOf(fieldId, CustomFieldType.SINGLE_SELECT);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(customFieldService.registrationFields()).thenReturn(Flux.just(singleSelect));
+        stubCapacityGuardPasses();
+
+        ProfileFormSubmission submission =
+                new ProfileFormSubmission(Map.of(fieldId, new Options(Set.of(option1, option2))), List.of());
+
+        StepVerifier.create(participantService.submitRegistration(userId, submission))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRegistrationRejectsACountryCodeNotInTheCatalog() {
+        UUID userId = UUID.randomUUID();
+        UUID fieldId = UUID.randomUUID();
+        CustomFieldDefinition country = definitionOf(fieldId, CustomFieldType.COUNTRY);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(customFieldService.registrationFields()).thenReturn(Flux.just(country));
+        stubCapacityGuardPasses();
+
+        ProfileFormSubmission submission =
+                new ProfileFormSubmission(Map.of(fieldId, new FreeText("ZZ")), List.of());
+
+        StepVerifier.create(participantService.submitRegistration(userId, submission))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRegistrationAcceptsZeroSkillsAndCreatesAnActiveRecord() {
+        UUID userId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(customFieldService.registrationFields()).thenReturn(Flux.empty());
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.getArgument(0))));
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+                .assertNext(participant -> {
+                    assertThat(participant.getUserId()).isEqualTo(userId);
+                    assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void submitRegistrationReactivatesAnExistingRevokedRecordInPlace() {
+        UUID userId = UUID.randomUUID();
+        Participant existing = participantOf(UUID.randomUUID(), userId, ParticipantStatus.REVOKED);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
+        when(customFieldService.registrationFields()).thenReturn(Flux.empty());
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+                .assertNext(participant -> {
+                    assertThat(participant.getId()).isEqualTo(existing.getId());
+                    assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
+                })
+                .verifyComplete();
+    }
+
+    // --- submitSelfEdit: reuses registration validation, no create/reactivate branching (FR-022) --
+
+    @Test
+    void submitSelfEditRejectsWhenSelfEditIsCurrentlyDisabled() {
+        UUID participantId = UUID.randomUUID();
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSelfEditEnabled(false);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void submitSelfEditRejectsWhenTheParticipantIsNotParticipated() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing =
+                participantOf(participantId, UUID.randomUUID(), ParticipantStatus.NOT_PARTICIPATED);
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSelfEditEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitSelfEditAppliesTheSameFieldValidationAsRegistration() {
+        UUID participantId = UUID.randomUUID();
+        UUID fieldId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        CustomFieldDefinition required = definitionOf(fieldId, CustomFieldType.FREE_TEXT);
+        required.setRequired(true);
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSelfEditEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(customFieldService.registrationFields()).thenReturn(Flux.just(required));
+
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void submitSelfEditPersistsChangesInPlaceWithNoNewRecord() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSelfEditEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(customFieldService.registrationFields()).thenReturn(Flux.empty());
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+                .expectNext(existing)
+                .verifyComplete();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    private ProfileFormSubmission emptySubmission() {
+        return new ProfileFormSubmission(Map.of(), List.of());
+    }
+
+    private CustomFieldDefinition requiredDefinitionOf(UUID id, CustomFieldType type) {
+        CustomFieldDefinition definition = definitionOf(id, type);
+        definition.setRequired(true);
+        return definition;
+    }
+
     // --- selfRevoke: honors OrganiserSettings, removes current Group membership (FR-006, FR-007a) --
 
     @Test
@@ -412,6 +673,188 @@ class ParticipantServiceTest {
         verify(groupService, never()).removeMember(any(UUID.class), any(UUID.class));
     }
 
+    // --- findDirectoryListing: only ACTIVE, alphabetical by display name (FR-027, FR-027a) -------
+    // Field-level Public/Overview resolution is exercised end-to-end against a real database by
+    // ParticipantsDirectoryManagementIT — these unit tests use zero Overview-marked definitions so
+    // the ordering/ACTIVE-filtering logic under test needs no per-field DatabaseClient mocking.
+
+    @Test
+    void findDirectoryListingIncludesOnlyActiveParticipantsOrderedAlphabetically() {
+        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        Participant zoe = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        Participant alice = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        Participant revoked = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.REVOKED);
+        when(participantRepository.findAll()).thenReturn(Flux.just(zoe, alice, revoked));
+        when(userRepository.findById(zoe.getUserId())).thenReturn(Mono.just(userOf(zoe.getUserId(), "Zoe")));
+        when(userRepository.findById(alice.getUserId())).thenReturn(Mono.just(userOf(alice.getUserId(), "Alice")));
+
+        StepVerifier.create(participantService.findDirectoryListing())
+                .assertNext(row -> assertThat(row.displayName()).isEqualTo("Alice"))
+                .assertNext(row -> assertThat(row.displayName()).isEqualTo("Zoe"))
+                .verifyComplete();
+
+        verify(userRepository, never()).findById(revoked.getUserId());
+    }
+
+    // --- findDetailForViewer: self/organiser see everything; other-viewer sees only what's shared -
+
+    @Test
+    void findDetailForViewerGivesTheOwnerSkillsRegardlessOfSkillVisibilitySetting() {
+        UUID participantId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
+        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        stubSkills(participantId, List.of());
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSkillVisibilityEnabled(false);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, ownerUserId, false))
+                .assertNext(detail -> {
+                    assertThat(detail.self()).isTrue();
+                    assertThat(detail.skillsVisibleToViewer()).isTrue();
+                    assertThat(detail.skillsVisibleToOthers()).isFalse();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findDetailForViewerHidesSkillsFromAnOtherViewerWhenSkillVisibilityIsDisabled() {
+        UUID participantId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+        UUID viewerUserId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
+        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        stubSkills(participantId, List.of());
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSkillVisibilityEnabled(false);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, viewerUserId, false))
+                .assertNext(detail -> {
+                    assertThat(detail.self()).isFalse();
+                    assertThat(detail.skillsVisibleToViewer()).isFalse();
+                    assertThat(detail.skillsVisibleToOthers()).isFalse();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findDetailForViewerGivesAnOrganiserSkillsRegardlessOfSkillVisibilitySetting() {
+        UUID participantId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+        UUID organiserUserId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
+        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        stubSkills(participantId, List.of());
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSkillVisibilityEnabled(false);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, organiserUserId, true))
+                .assertNext(detail -> {
+                    assertThat(detail.self()).isFalse();
+                    assertThat(detail.organiserView()).isTrue();
+                    assertThat(detail.skillsVisibleToViewer()).isTrue();
+                    assertThat(detail.skillsVisibleToOthers()).isFalse();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findDetailForViewerCompletesEmptyForANonActiveParticipantViewedByAnyoneOtherThanThemselves() {
+        UUID participantId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+        UUID viewerUserId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.REVOKED);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, viewerUserId, false))
+                .verifyComplete();
+    }
+
+    @Test
+    void findDetailForViewerMarksEachFieldVisibleToOthersByItsPublicFlagAndOmitsNonPublicFieldsFromAnOtherViewer() {
+        UUID participantId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+        UUID viewerUserId = UUID.randomUUID();
+        UUID publicFieldId = UUID.randomUUID();
+        UUID privateFieldId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
+        CustomFieldDefinition publicField = definitionOf(publicFieldId, CustomFieldType.FREE_TEXT);
+        publicField.setPublic_(true);
+        CustomFieldDefinition privateField = definitionOf(privateFieldId, CustomFieldType.FREE_TEXT);
+        privateField.setPublic_(false);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
+        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.just(publicField, privateField));
+        stubNoStoredFieldValues();
+        stubSkills(participantId, List.of());
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSkillVisibilityEnabled(false);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, ownerUserId, false))
+                .assertNext(detail -> {
+                    assertThat(detail.fields()).hasSize(2);
+                    assertThat(detail.fields())
+                            .extracting(ParticipantService.ViewerFieldValue::visibleToOthers)
+                            .containsExactlyInAnyOrder(true, false);
+                })
+                .verifyComplete();
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, viewerUserId, false))
+                .assertNext(detail -> {
+                    assertThat(detail.fields()).hasSize(1);
+                    assertThat(detail.fields().get(0).definition().getId()).isEqualTo(publicFieldId);
+                })
+                .verifyComplete();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubNoStoredFieldValues() {
+        org.springframework.r2dbc.core.RowsFetchSpec<Object> fetch = mock(org.springframework.r2dbc.core.RowsFetchSpec.class);
+        lenient().when(databaseClient.sql(anyString())).thenReturn(executeSpec);
+        lenient().when(executeSpec.bind(anyString(), any())).thenReturn(executeSpec);
+        lenient().when(executeSpec.map(any(java.util.function.Function.class))).thenReturn(fetch);
+        lenient().when(fetch.one()).thenReturn(Mono.empty());
+        lenient().when(fetch.all()).thenReturn(Flux.empty());
+        lenient()
+                .when(customFieldOptionRepository.findByCustomFieldDefinitionId(any(UUID.class)))
+                .thenReturn(Flux.empty());
+    }
+
+    private void stubSkills(UUID participantId, List<net.fabcelhaft.hackathonorganiser.skill.Skill> skills) {
+        RowsFetchSpec<UUID> fetch = mock(RowsFetchSpec.class);
+        lenient().when(databaseClient.sql(anyString())).thenReturn(executeSpec);
+        lenient().when(executeSpec.bind(eq("pid"), any())).thenReturn(executeSpec);
+        lenient().when(executeSpec.mapValue(UUID.class)).thenReturn(fetch);
+        lenient()
+                .when(fetch.all())
+                .thenReturn(Flux.fromIterable(
+                        skills.stream().map(net.fabcelhaft.hackathonorganiser.skill.Skill::getId).toList()));
+        if (!skills.isEmpty()) {
+            when(skillRepository.findAllById(any(java.util.Collection.class))).thenReturn(Flux.fromIterable(skills));
+        }
+    }
+
+    private net.fabcelhaft.hackathonorganiser.user.User userOf(UUID id, String displayName) {
+        net.fabcelhaft.hackathonorganiser.user.User user = new net.fabcelhaft.hackathonorganiser.user.User();
+        user.setId(id);
+        user.setDisplayName(displayName);
+        user.setOidcSubject("sub-" + id);
+        user.setCreatedAt(Instant.now());
+        user.setUpdatedAt(Instant.now());
+        return user;
+    }
+
     // --- test helpers ------------------------------------------------------------------------------
 
     private OrganiserSettings settingsOf(boolean selfRegistrationEnabled, boolean selfRevocationEnabled) {
@@ -422,6 +865,13 @@ class ParticipantServiceTest {
         settings.setSelfRevocationEnabled(selfRevocationEnabled);
         settings.setUpdatedAt(Instant.now());
         return settings;
+    }
+
+    private Participant withId(Participant participant) {
+        if (participant.getId() == null) {
+            participant.setId(UUID.randomUUID());
+        }
+        return participant;
     }
 
     private Participant participantOf(UUID id, UUID userId, ParticipantStatus status) {
@@ -443,6 +893,12 @@ class ParticipantServiceTest {
         definition.setCreatedAt(Instant.now());
         definition.setUpdatedAt(Instant.now());
         return definition;
+    }
+
+    /** Stubs just enough for {@code acquireLockAndCheckCapacity}'s advisory-lock statement to pass. */
+    private void stubCapacityGuardPasses() {
+        when(databaseClient.sql(anyString())).thenReturn(executeSpec);
+        when(executeSpec.then()).thenReturn(Mono.empty());
     }
 
     private void stubWriteAlwaysSucceeds() {

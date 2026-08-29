@@ -31,6 +31,14 @@ public class OrganiserSettings {
 
     private boolean topicApprovalRequired;
 
+    private Integer maxRegistrations;
+
+    private boolean selfEditEnabled;
+
+    private boolean skillVisibilityEnabled;
+
+    private DirectoryAudience participantsDirectoryAudience;
+
     private Instant updatedAt;
 
     public UUID getId() {
@@ -71,6 +79,38 @@ public class OrganiserSettings {
 
     public void setTopicApprovalRequired(boolean topicApprovalRequired) {
         this.topicApprovalRequired = topicApprovalRequired;
+    }
+
+    public Integer getMaxRegistrations() {
+        return maxRegistrations;
+    }
+
+    public void setMaxRegistrations(Integer maxRegistrations) {
+        this.maxRegistrations = maxRegistrations;
+    }
+
+    public boolean isSelfEditEnabled() {
+        return selfEditEnabled;
+    }
+
+    public void setSelfEditEnabled(boolean selfEditEnabled) {
+        this.selfEditEnabled = selfEditEnabled;
+    }
+
+    public boolean isSkillVisibilityEnabled() {
+        return skillVisibilityEnabled;
+    }
+
+    public void setSkillVisibilityEnabled(boolean skillVisibilityEnabled) {
+        this.skillVisibilityEnabled = skillVisibilityEnabled;
+    }
+
+    public DirectoryAudience getParticipantsDirectoryAudience() {
+        return participantsDirectoryAudience;
+    }
+
+    public void setParticipantsDirectoryAudience(DirectoryAudience participantsDirectoryAudience) {
+        this.participantsDirectoryAudience = participantsDirectoryAudience;
     }
 
     public Instant getUpdatedAt() {

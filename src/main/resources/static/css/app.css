@@ -72,3 +72,30 @@
     background-color: #fff3cd;
     color: #664d03;
 }
+
+/* Feature 004: comma-separates a SINGLE_SELECT/MULTI_SELECT value's selected option labels
+   (participants/detail.html) without fragile Thymeleaf loop-index arithmetic. */
+.option-list span + span::before {
+    content: ", ";
+}
+
+/* Feature 004 (FR-020, FR-041): the self-view "visible to others"/"private" badge — an icon plus
+   text label, contrast reviewed against WCAG 2.1 AA in both light and dark presentation. Never
+   color alone conveys the state; the text label is what actually carries the meaning. */
+.visibility-badge {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: normal;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    padding: 0 0.4rem;
+    margin-left: 0.5rem;
+}
+
+.visibility-public {
+    color: #14432a;
+}
+
+.visibility-private {
+    color: #664d03;
+}

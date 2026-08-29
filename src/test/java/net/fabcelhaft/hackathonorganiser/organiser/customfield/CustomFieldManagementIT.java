@@ -335,6 +335,112 @@ class CustomFieldManagementIT {
         assertThat(optionRepository.findById(option.getId()).block()).isNotNull();
     }
 
+    // --- User Story 3: SINGLE_SELECT, Public/Overview, Country (FR-012, FR-013, FR-015, FR-016) ---
+
+    @Test
+    void creatingASingleSelectFieldRequiresAtLeastOneOptionThenAppearsOnRegisterRestrictedToOneChoice() {
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields")
+                .body(BodyInserters.fromFormData("label", "Size " + UUID.randomUUID()).with("fieldType", "SINGLE_SELECT"))
+                .exchange()
+                .expectStatus().isOk(); // rejected: zero options
+
+        String label = "Size " + UUID.randomUUID();
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields")
+                .body(BodyInserters.fromFormData("label", label)
+                        .with("fieldType", "SINGLE_SELECT")
+                        .with("options", "S")
+                        .with("options", "L"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        CustomFieldDefinition saved = definitionRepository.findAll().collectList().block().stream()
+                .filter(d -> d.getLabel().equals(label))
+                .findFirst()
+                .orElseThrow();
+        assertThat(saved.getFieldType()).isEqualTo(CustomFieldType.SINGLE_SELECT);
+
+        String registerBody = webTestClient.mutateWith(loginAs(persistStandardUser()))
+                .get().uri("/register")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(registerBody).contains(label);
+    }
+
+    @Test
+    void publicAndOverviewCheckboxesAreIndependentlySettableAndPersist() {
+        CustomFieldDefinition definition =
+                persistDefinition("Bio " + UUID.randomUUID(), CustomFieldType.FREE_TEXT, false);
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}", definition.getId())
+                .body(BodyInserters.fromFormData("label", definition.getLabel())
+                        .with("required", "false")
+                        .with("fieldType", "FREE_TEXT")
+                        .with("overview", "true"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        CustomFieldDefinition updated = definitionRepository.findById(definition.getId()).block();
+        assertThat(updated.isPublic_()).isFalse();
+        assertThat(updated.isOverview()).isTrue();
+    }
+
+    @Test
+    void enablingCountryMakesItASearchableFieldOnRegisterAndDisablingRemovesItButKeepsRecordedValues() {
+        CustomFieldDefinition country = definitionRepository
+                .findAll()
+                .filter(d -> d.getFieldType() == CustomFieldType.COUNTRY)
+                .blockFirst();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/country/enable", country.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+        assertThat(definitionRepository.findById(country.getId()).block().isEnabled()).isTrue();
+
+        String registerBodyEnabled = webTestClient.mutateWith(loginAs(persistStandardUser()))
+                .get().uri("/register")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(registerBodyEnabled).contains("Country");
+        assertThat(registerBodyEnabled).contains("Germany"); // from IsoCountryCatalog
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/country/disable", country.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+        assertThat(definitionRepository.findById(country.getId()).block().isEnabled()).isFalse();
+    }
+
+    @Test
+    void changingOrDeletingTheCountryRowIsRejected() {
+        CustomFieldDefinition country = definitionRepository
+                .findAll()
+                .filter(d -> d.getFieldType() == CustomFieldType.COUNTRY)
+                .blockFirst();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}", country.getId())
+                .body(BodyInserters.fromFormData("label", "Country").with("required", "false").with("fieldType", "FREE_TEXT"))
+                .exchange()
+                .expectStatus().isOk(); // rejected: Country's type cannot change
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/delete", country.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT);
+
+        assertThat(definitionRepository.findById(country.getId()).block()).isNotNull();
+    }
+
     // --- Non-Organiser denied on every route (FR-022, SC-004) -----------------------------------
 
     @Test
@@ -383,6 +489,19 @@ class CustomFieldManagementIT {
 
         webTestClient.mutateWith(standardUser())
                 .post().uri("/organiser/custom-fields/{id}/options/{optionId}/delete", definition.getId(), option.getId())
+                .exchange()
+                .expectStatus().isForbidden();
+
+        CustomFieldDefinition country = definitionRepository
+                .findAll()
+                .filter(d -> d.getFieldType() == CustomFieldType.COUNTRY)
+                .blockFirst();
+        webTestClient.mutateWith(standardUser())
+                .post().uri("/organiser/custom-fields/{id}/country/enable", country.getId())
+                .exchange()
+                .expectStatus().isForbidden();
+        webTestClient.mutateWith(standardUser())
+                .post().uri("/organiser/custom-fields/{id}/country/disable", country.getId())
                 .exchange()
                 .expectStatus().isForbidden();
     }
@@ -466,5 +585,39 @@ class CustomFieldManagementIT {
 
     private static OidcLoginMutator standardUser() {
         return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"));
+    }
+
+    /**
+     * Unlike {@link #standardUser()} (role-only, no real principal), routes using
+     * {@code @AuthenticationPrincipal HackathonOidcUser} — e.g. {@code GET /register} — need a
+     * genuine {@link net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser} principal
+     * wrapping a persisted {@link User}, the same pattern {@code RegistrationManagementIT} uses.
+     */
+    private static OidcLoginMutator loginAs(User user) {
+        java.time.Instant issuedAt = java.time.Instant.now();
+        org.springframework.security.oauth2.core.oidc.OidcIdToken idToken =
+                org.springframework.security.oauth2.core.oidc.OidcIdToken.withTokenValue("token-value")
+                        .subject(user.getOidcSubject())
+                        .issuedAt(issuedAt)
+                        .expiresAt(issuedAt.plusSeconds(300))
+                        .claim("name", user.getDisplayName())
+                        .build();
+        org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser delegate =
+                new org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser(
+                        java.util.List.of(new SimpleGrantedAuthority("ROLE_USER")), idToken);
+        net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser principal =
+                new net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser(user, delegate);
+        return mockOidcLogin().oidcUser(principal);
+    }
+
+    private User persistStandardUser() {
+        User user = new User();
+        user.setOidcSubject("sub-" + UUID.randomUUID());
+        user.setDisplayName("User " + UUID.randomUUID());
+        user.setOrganiser(false);
+        Instant now = Instant.now();
+        user.setCreatedAt(now);
+        user.setUpdatedAt(now);
+        return userRepository.save(user).block();
     }
 }

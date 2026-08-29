@@ -17,10 +17,13 @@
             Group topic: <span th:text="${assignedTopic.name}">Topic</span>
         </p>
 
-        <form th:if="${canRegister}" th:action="@{/register}" method="post">
-            <p id="register-help">Registering makes you an Active Participant immediately — no approval needed.</p>
-            <button type="submit" aria-describedby="register-help">Register</button>
-        </form>
+        <p th:if="${canRegister}">
+            <a th:href="@{/register}" role="button">Register</a>
+        </p>
+
+        <p th:if="${notParticipated}" role="status">
+            Your participation status was set by an Organiser. Only an Organiser can change it.
+        </p>
 
         <form th:if="${canRevoke}" id="revoke-form" th:action="@{/revoke}" method="post">
             <button type="button" id="revoke-open-button">Revoke Registration</button>

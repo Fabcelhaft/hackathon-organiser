@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Edit Profile')}">
+    <title>Edit Profile</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Edit Profile', content=~{::#content})}">
+<div id="content">
+    <form th:action="@{/profile/edit}" method="post" id="edit-form">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+
+        <div th:replace="~{fragments/profile-fields-form :: fields}"></div>
+
+        <button type="submit" id="edit-submit">Save</button>
+    </form>
+
+    <!--/* FR-036: submit control disabled for the duration of submission. */-->
+    <script>
+        (function () {
+            var form = document.getElementById('edit-form');
+            var submitButton = document.getElementById('edit-submit');
+            if (!form || !submitButton) {
+                return;
+            }
+            form.addEventListener('submit', function () {
+                submitButton.disabled = true;
+            });
+        })();
+    </script>
+</div>
+</th:block>
+<script th:src="@{/js/country-select.js}"></script>
+</body>
+</html>

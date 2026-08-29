@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  Shared Custom Field/Skill/Country field-rendering fragment (contracts/registration-and-self-edit.md):
+  included by both participants/register.html and participants/edit.html so the markup — and its
+  required/optional marking (FR-002), label association (FR-039), and keyboard operability
+  (FR-038) — is defined exactly once. Every field is rendered by its own label and a control
+  matching its type, with no "Custom Field" heading/tag/badge anywhere (FR-002a).
+
+  Expects in its model: `fields` (a List of ParticipantService.CustomFieldValueView), `skills`
+  (the full Skill catalog), `selectedSkillIds`, and `countries` (IsoCountryCatalog.all(), only
+  actually used by a COUNTRY field, if one is present and enabled).
+*/-->
+<div th:fragment="fields">
+    <div th:each="cfv : ${fields}" class="profile-field">
+        <!-- FREE_TEXT -->
+        <div th:if="${cfv.definition.fieldType.name()} == 'FREE_TEXT'">
+            <label th:for="${'field_' + cfv.definition.id}">
+                <span th:text="${cfv.definition.label}">Label</span>
+                <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
+                <span th:if="${showVisibility}" class="visibility-badge"
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
+                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
+                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
+                </span>
+            </label>
+            <input type="text" th:id="${'field_' + cfv.definition.id}" th:name="${'field_' + cfv.definition.id}"
+                   th:value="${cfv.freeTextValue}" th:required="${cfv.definition.required}"/>
+        </div>
+
+        <!-- SINGLE_SELECT: a radio group — the name is shared across options, so only one can ever be chosen -->
+        <fieldset th:if="${cfv.definition.fieldType.name()} == 'SINGLE_SELECT'">
+            <legend>
+                <span th:text="${cfv.definition.label}">Label</span>
+                <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
+                <span th:if="${showVisibility}" class="visibility-badge"
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
+                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
+                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
+                </span>
+            </legend>
+            <div th:each="option, iter : ${cfv.options}">
+                <label th:for="${'field_' + cfv.definition.id + '_' + iter.index}">
+                    <input type="radio" th:id="${'field_' + cfv.definition.id + '_' + iter.index}"
+                           th:name="${'field_' + cfv.definition.id}" th:value="${option.id}"
+                           th:checked="${#lists.contains(cfv.selectedOptionIds, option.id)}"/>
+                    <span th:text="${option.label}">Option</span>
+                </label>
+            </div>
+        </fieldset>
+
+        <!-- MULTI_SELECT: a checkbox group — zero or more of the same name may be chosen -->
+        <fieldset th:if="${cfv.definition.fieldType.name()} == 'MULTI_SELECT'">
+            <legend>
+                <span th:text="${cfv.definition.label}">Label</span>
+                <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
+                <span th:if="${showVisibility}" class="visibility-badge"
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
+                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
+                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
+                </span>
+            </legend>
+            <div th:each="option, iter : ${cfv.options}">
+                <label th:for="${'field_' + cfv.definition.id + '_' + iter.index}">
+                    <input type="checkbox" th:id="${'field_' + cfv.definition.id + '_' + iter.index}"
+                           th:name="${'field_' + cfv.definition.id}" th:value="${option.id}"
+                           th:checked="${#lists.contains(cfv.selectedOptionIds, option.id)}"/>
+                    <span th:text="${option.label}">Option</span>
+                </label>
+            </div>
+        </fieldset>
+
+        <!-- COUNTRY: an accessible combobox (FR-013, FR-045) — country-select.js filters the
+             server-rendered listbox client-side and writes the chosen alpha-2 code into the
+             hidden submit input; no server round-trip. -->
+        <div th:if="${cfv.definition.fieldType.name()} == 'COUNTRY'" class="country-field"
+             th:data-country-field="${cfv.definition.id}">
+            <label th:for="${'field_' + cfv.definition.id + '_search'}">
+                <span th:text="${cfv.definition.label}">Country</span>
+                <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
+                <span th:if="${showVisibility}" class="visibility-badge"
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
+                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
+                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
+                </span>
+            </label>
+            <input type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
+                   th:id="${'field_' + cfv.definition.id + '_search'}"
+                   th:aria-controls="${'field_' + cfv.definition.id + '_listbox'}"
+                   autocomplete="off"
+                   th:attr="data-selected-code=${cfv.freeTextValue}"/>
+            <ul role="listbox" th:id="${'field_' + cfv.definition.id + '_listbox'}" hidden="hidden">
+                <li th:each="country : ${countries}" role="option" th:data-code="${country.code}"
+                    th:id="${'field_' + cfv.definition.id + '_opt_' + country.code}"
+                    th:text="${country.name}"
+                    th:aria-selected="${country.code == cfv.freeTextValue}">Country name
+                </li>
+            </ul>
+            <input type="hidden" th:id="${'field_' + cfv.definition.id}" th:name="${'field_' + cfv.definition.id}"
+                   th:value="${cfv.freeTextValue}"/>
+        </div>
+    </div>
+
+    <fieldset>
+        <legend>
+            Skills
+            <span th:if="${showVisibility}" class="visibility-badge"
+                  th:classappend="${skillsVisibleToOthers} ? 'visibility-public' : 'visibility-private'">
+                <span aria-hidden="true" th:text="${skillsVisibleToOthers} ? '&#128065;' : '&#128274;'">*</span>
+                <span th:text="${skillsVisibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
+            </span>
+        </legend>
+        <div th:each="skill : ${skills}">
+            <label th:for="${'skill_' + skill.id}">
+                <input type="checkbox" th:id="${'skill_' + skill.id}" name="skillIds" th:value="${skill.id}"
+                       th:checked="${#lists.contains(selectedSkillIds, skill.id)}"/>
+                <span th:text="${skill.name}">Skill</span>
+            </label>
+        </div>
+    </fieldset>
+</div>
+</body>
+</html>

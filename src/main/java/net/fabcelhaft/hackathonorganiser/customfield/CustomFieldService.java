@@ -35,6 +35,17 @@ public class CustomFieldService {
         return definitionRepository.findAll();
     }
 
+    /**
+     * The fields presented on the registration/self-edit form (data-model.md; FR-002a): every
+     * non-{@code COUNTRY} definition, plus the {@code COUNTRY} definition only when its {@code
+     * enabled} column is {@code true} (research.md §1).
+     */
+    public Flux<CustomFieldDefinition> registrationFields() {
+        return definitionRepository
+                .findAll()
+                .filter(definition -> definition.getFieldType() != CustomFieldType.COUNTRY || definition.isEnabled());
+    }
+
     public Mono<CustomFieldDefinition> findById(UUID id) {
         return definitionRepository.findById(id);
     }
@@ -53,15 +64,28 @@ public class CustomFieldService {
     }
 
     /**
-     * Creates a new Custom Field Definition. A {@code MULTI_SELECT} definition MUST be submitted
-     * with at least one option (FR-012); its initial options are persisted alongside it.
+     * Creates a new Custom Field Definition, {@code public}/{@code overview} defaulting unchecked
+     * (FR-016). A {@code MULTI_SELECT}/{@code SINGLE_SELECT} definition MUST be submitted with at
+     * least one option (FR-012); its initial options are persisted alongside it. {@code field_type
+     * = COUNTRY} is rejected outright — that row is seeded once and never created by an Organiser
+     * (FR-013, research.md §1).
      */
     public Mono<CustomFieldDefinition> create(
-            String label, CustomFieldType fieldType, boolean required, List<String> optionLabels) {
+            String label,
+            CustomFieldType fieldType,
+            boolean required,
+            List<String> optionLabels,
+            boolean public_,
+            boolean overview) {
+        if (fieldType == CustomFieldType.COUNTRY) {
+            return Mono.error(new CustomFieldConflictException("The Country field cannot be created"));
+        }
         List<String> options = optionLabels == null ? List.of() : optionLabels;
-        if (fieldType == CustomFieldType.MULTI_SELECT && options.isEmpty()) {
+        boolean isSelectType =
+                fieldType == CustomFieldType.MULTI_SELECT || fieldType == CustomFieldType.SINGLE_SELECT;
+        if (isSelectType && options.isEmpty()) {
             return Mono.error(new CustomFieldConflictException(
-                    "A multi-select custom field requires at least one option"));
+                    "A single-select or multi-select custom field requires at least one option"));
         }
 
         Instant now = Instant.now();
@@ -69,12 +93,19 @@ public class CustomFieldService {
         definition.setLabel(label);
         definition.setFieldType(fieldType);
         definition.setRequired(required);
+        definition.setPublic_(public_);
+        definition.setOverview(overview);
+        // Every field type other than COUNTRY has no create/enable distinction — its row existing
+        // *is* "enabled" (research.md §1) — so a newly-created definition is always enabled=true
+        // regardless of the DB column's own DEFAULT true, since save() issues an explicit INSERT
+        // naming every mapped column (a Java boolean field is never left NULL for the DEFAULT to apply).
+        definition.setEnabled(true);
         definition.setCreatedAt(now);
         definition.setUpdatedAt(now);
 
         return definitionRepository.save(definition)
                 .flatMap(saved -> {
-                    if (fieldType != CustomFieldType.MULTI_SELECT || options.isEmpty()) {
+                    if (!isSelectType || options.isEmpty()) {
                         return Mono.just(saved);
                     }
                     return Flux.fromIterable(options)
@@ -84,18 +115,30 @@ public class CustomFieldService {
     }
 
     /**
-     * Updates a Custom Field Definition's {@code label}/{@code required} flag, and its
-     * {@code field_type} only when {@code requestedFieldType} is non-null and actually differs
-     * from the current type — in which case FR-012a's lock is enforced: the change is rejected
-     * with {@link CustomFieldConflictException} once any Participant value already exists.
-     * Completes empty if no definition exists with the given id.
+     * Updates a Custom Field Definition's {@code label}/{@code required} flag, its {@code
+     * field_type} only when {@code requestedFieldType} is non-null and actually differs from the
+     * current type — in which case FR-012a's lock is enforced: the change is rejected with {@link
+     * CustomFieldConflictException} once any Participant value already exists — and its {@code
+     * public}/{@code overview} visibility flags (FR-016), each applied independently of the
+     * {@code field_type} lock whenever the corresponding argument is non-null. A requested {@code
+     * field_type} change on the {@code COUNTRY} row is always rejected — its type is fixed
+     * (FR-013, research.md §1). Completes empty if no definition exists with the given id.
      */
     public Mono<CustomFieldDefinition> update(
-            UUID id, String label, boolean required, CustomFieldType requestedFieldType) {
+            UUID id,
+            String label,
+            boolean required,
+            CustomFieldType requestedFieldType,
+            Boolean public_,
+            Boolean overview) {
         return definitionRepository.findById(id)
                 .flatMap(definition -> {
                     boolean typeChangeRequested =
                             requestedFieldType != null && requestedFieldType != definition.getFieldType();
+                    if (typeChangeRequested && definition.getFieldType() == CustomFieldType.COUNTRY) {
+                        return Mono.error(
+                                new CustomFieldConflictException("The Country field's type cannot be changed"));
+                    }
                     Mono<Void> guard = typeChangeRequested
                             ? assertNoValuesExist(id)
                             : Mono.<Void>empty();
@@ -105,6 +148,12 @@ public class CustomFieldService {
                         if (typeChangeRequested) {
                             definition.setFieldType(requestedFieldType);
                         }
+                        if (public_ != null) {
+                            definition.setPublic_(public_);
+                        }
+                        if (overview != null) {
+                            definition.setOverview(overview);
+                        }
                         definition.setUpdatedAt(Instant.now());
                         return definitionRepository.save(definition);
                     }));
@@ -113,20 +162,47 @@ public class CustomFieldService {
 
     /**
      * Deletes a Custom Field Definition, blocked by {@link CustomFieldConflictException} while
-     * any Participant value still references it (FR-023). Its own options (if any) are removed
-     * first so the definition's row can be deleted without a foreign-key violation.
+     * any Participant value still references it (FR-023), or outright for the {@code COUNTRY} row
+     * — it is never deleted, only enabled/disabled via {@link #setCountryEnabled} (FR-013,
+     * research.md §1). Its own options (if any) are removed first so the definition's row can be
+     * deleted without a foreign-key violation.
      */
     public Mono<Void> deleteDefinition(UUID id) {
-        return valueReferenceCount(id)
-                .flatMap(count -> {
-                    if (count > 0) {
-                        return Mono.error(new CustomFieldConflictException(
-                                "Cannot delete this custom field: still referenced by " + count
-                                        + " Participant value(s)"));
-                    }
-                    return optionRepository.findByCustomFieldDefinitionId(id)
-                            .concatMap(option -> optionRepository.deleteById(option.getId()))
-                            .then(definitionRepository.deleteById(id));
+        return definitionRepository.findById(id).flatMap(definition -> {
+            if (definition.getFieldType() == CustomFieldType.COUNTRY) {
+                return Mono.error(new CustomFieldConflictException(
+                        "The Country field cannot be deleted — use Enable/Disable instead"));
+            }
+            return valueReferenceCount(id).flatMap(count -> {
+                if (count > 0) {
+                    return Mono.error(new CustomFieldConflictException(
+                            "Cannot delete this custom field: still referenced by " + count
+                                    + " Participant value(s)"));
+                }
+                return optionRepository
+                        .findByCustomFieldDefinitionId(id)
+                        .concatMap(option -> optionRepository.deleteById(option.getId()))
+                        .then(definitionRepository.deleteById(id));
+            });
+        });
+    }
+
+    /**
+     * Toggles the singleton {@code COUNTRY} definition's {@code enabled} column (FR-013, FR-015):
+     * enabling makes it appear on the next-rendered registration/self-edit form as the full ISO
+     * 3166 list; disabling removes it from those forms while any already-recorded Participant
+     * values remain stored and visible on that Participant's own existing record. Completes empty
+     * if no {@code COUNTRY} definition exists (defensive only — it is always seeded).
+     */
+    public Mono<CustomFieldDefinition> setCountryEnabled(boolean enabled) {
+        return definitionRepository
+                .findAll()
+                .filter(definition -> definition.getFieldType() == CustomFieldType.COUNTRY)
+                .next()
+                .flatMap(country -> {
+                    country.setEnabled(enabled);
+                    country.setUpdatedAt(Instant.now());
+                    return definitionRepository.save(country);
                 });
     }
 

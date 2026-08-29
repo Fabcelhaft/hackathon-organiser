@@ -222,3 +222,39 @@ CREATE TABLE IF NOT EXISTS content_images (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Feature 004: Custom Field Definition extensions — SINGLE_SELECT/COUNTRY field types (added as
+-- new field_type values, no column change), visibility flags, and the built-in Country field
+-- (data-model.md "Custom Field Definition", research.md §1, §3; FR-013-FR-017).
+ALTER TABLE custom_field_definitions ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false;
+ALTER TABLE custom_field_definitions ADD COLUMN IF NOT EXISTS overview boolean NOT NULL DEFAULT false;
+ALTER TABLE custom_field_definitions ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true;
+
+-- At most one COUNTRY-typed definition can ever exist (FR-013).
+CREATE UNIQUE INDEX IF NOT EXISTS custom_field_definitions_country_key
+    ON custom_field_definitions (field_type) WHERE field_type = 'COUNTRY';
+
+-- Seeded once, idempotently: an Organiser must explicitly enable it (private/off-by-default
+-- posture, data-model.md).
+INSERT INTO custom_field_definitions (label, field_type, required, public, overview, enabled)
+SELECT 'Country', 'COUNTRY', false, false, false, false
+WHERE NOT EXISTS (SELECT 1 FROM custom_field_definitions WHERE field_type = 'COUNTRY');
+
+-- Feature 004: Organiser Settings extensions — registration cap, self-edit gate, skill
+-- visibility, and the configurable Participants directory audience (data-model.md "Organiser
+-- Settings", research.md §5; FR-007, FR-018, FR-021, FR-025).
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS max_registrations integer;
+
+-- ALTER TABLE ... ADD CONSTRAINT has no native IF NOT EXISTS form in PostgreSQL, and this file's
+-- statements are split/executed one at a time by Spring's plain `;`-delimited script runner (no
+-- $$-quoted PL/pgSQL block support) — so idempotent re-runs use DROP CONSTRAINT IF EXISTS followed
+-- by a plain ADD CONSTRAINT instead, the same net effect with only single-line statements.
+ALTER TABLE organiser_settings DROP CONSTRAINT IF EXISTS organiser_settings_max_registrations_check;
+ALTER TABLE organiser_settings
+    ADD CONSTRAINT organiser_settings_max_registrations_check
+    CHECK (max_registrations IS NULL OR max_registrations >= 1);
+
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS self_edit_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS skill_visibility_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE organiser_settings
+    ADD COLUMN IF NOT EXISTS participants_directory_audience text NOT NULL DEFAULT 'ORGANISERS_ONLY';
