@@ -12,6 +12,15 @@
     }
   },
   "forwardPorts": [8080],
+  // The Debian-packaged `chromium` (not Playwright's own bundled browser download) is what the
+  // a11y.HomepageAccessibilityIT Playwright + axe-core suite (feature 003, SC-009) actually
+  // launches: this devcontainer's base image predates Playwright's list of officially supported
+  // Linux distributions, so its bundled Chromium build is missing several native shared
+  // libraries here (libicu, libjpeg, libwebp, etc.), while Debian's own `chromium` package
+  // already carries compatible ones via its own dependency chain. The test resolves
+  // /usr/bin/chromium automatically (or PLAYWRIGHT_CHROMIUM_EXECUTABLE, if set) and falls back to
+  // Playwright's bundled download when neither is present — e.g. on an officially-supported CI
+  // runner that doesn't use this devcontainer image at all.
   "postCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y -qq chromium",
   "runArgs": ["--add-host=host.docker.internal:host-gateway"],
   "customizations": {

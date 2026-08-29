@@ -162,3 +162,63 @@ CREATE TABLE IF NOT EXISTS group_members (
 
 CREATE UNIQUE INDEX IF NOT EXISTS group_members_participant_id_active_key
     ON group_members (participant_id) WHERE active;
+
+-- Feature 003: Organiser Settings — a single global row gating self-registration,
+-- self-revocation, and topic-approval (data-model.md "Organiser Settings", FR-023, FR-023a). The
+-- unique index on `singleton` (unconditional, not partial — there's only ever one row, full stop)
+-- guarantees exactly one row can ever exist (research.md §4), same pattern as the partial unique
+-- indexes above just applied unconditionally. Seeded once, idempotently, right here rather than
+-- via a CommandLineRunner (research.md §4).
+CREATE TABLE IF NOT EXISTS organiser_settings (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    singleton boolean NOT NULL DEFAULT true,
+    self_registration_enabled boolean NOT NULL DEFAULT true,
+    self_revocation_enabled boolean NOT NULL DEFAULT true,
+    topic_approval_required boolean NOT NULL DEFAULT false,
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS organiser_settings_singleton_key ON organiser_settings (singleton);
+
+INSERT INTO organiser_settings (singleton) VALUES (true) ON CONFLICT (singleton) DO NOTHING;
+
+-- Feature 003: Topic approval workflow (data-model.md "Topic", research.md §6, FR-013, FR-016) —
+-- set once at creation by TopicService.propose(...) from the current topic_approval_required
+-- setting; never bulk-updated when that setting later changes (FR-016 is not retroactive).
+ALTER TABLE topics ADD COLUMN IF NOT EXISTS approval_status text NOT NULL DEFAULT 'APPROVED';
+
+-- Feature 003: Content Pages (data-model.md "Content Page", research.md §5, §6, FR-018-FR-020a).
+-- The partial unique index guarantees "exactly one Content Page may be designated... the homepage
+-- page" (FR-019) at the database level; ContentPageService must un-set the previous is_homepage
+-- row in the same write or this index rejects it.
+CREATE TABLE IF NOT EXISTS content_pages (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    title text NOT NULL,
+    body_markdown text NOT NULL,
+    sort_index integer NOT NULL DEFAULT 0,
+    is_homepage boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS content_pages_is_homepage_key ON content_pages (is_homepage) WHERE is_homepage;
+
+-- FR-019a: fires only when the table is completely empty (first-ever startup) — an Organiser who
+-- later deletes this placeholder made a deliberate choice; it is not re-seeded on next restart.
+INSERT INTO content_pages (title, body_markdown, sort_index, is_homepage)
+SELECT 'Welcome', '# Welcome to the Hackathon', 0, true
+WHERE NOT EXISTS (SELECT 1 FROM content_pages);
+
+-- Feature 003: Content Images (data-model.md "Content Image", research.md §2, §3, FR-024-FR-029).
+-- No FK from content_pages to this table: the reference lives inside body_markdown as a literal
+-- /content-images/{id} path string, not a foreign key column (research.md §3) — deletion-blocking
+-- is a query-time substring search, entirely ContentImageService's responsibility.
+CREATE TABLE IF NOT EXISTS content_images (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    alt_text text NOT NULL,
+    content_type text NOT NULL,
+    byte_size integer NOT NULL,
+    data bytea NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);

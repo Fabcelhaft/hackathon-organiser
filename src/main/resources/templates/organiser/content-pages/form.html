@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Content Page')}">
+    <title>Content Page</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Content Page', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <form th:action="${pageId} != null ? @{/organiser/content-pages/{id}(id=${pageId})} : @{/organiser/content-pages}"
+              method="post">
+            <label for="title">Title</label>
+            <input type="text" id="title" name="title" th:value="${title}" required="required"/>
+
+            <label for="body_markdown">Body (Markdown)</label>
+            <textarea id="body_markdown" name="body_markdown" rows="12" required="required"
+                      th:text="${bodyMarkdown}"></textarea>
+
+            <label for="sort_index">Sort Index</label>
+            <input type="number" id="sort_index" name="sort_index" th:value="${sortIndex}"/>
+
+            <label for="is_homepage">
+                <input type="hidden" name="is_homepage" value="false"/>
+                <input type="checkbox" id="is_homepage" name="is_homepage" value="true" th:checked="${homepage}"/>
+                Designate as the homepage page
+            </label>
+
+            <button type="submit">Save</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

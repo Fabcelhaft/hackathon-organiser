@@ -129,6 +129,8 @@ public class TopicController {
                         .modelAttribute("description", detail.topic().getDescription())
                         .modelAttribute("allSkills", topicService.allSkills())
                         .modelAttribute("selectedSkillIds", detail.skillIds())
+                        .modelAttribute("availableUsers", topicService.allUsers())
+                        .modelAttribute("currentAuthorUserId", detail.topic().getCreatedByUserId())
                         .build())
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
@@ -139,8 +141,15 @@ public class TopicController {
             String name = form.getFirst("name");
             String description = form.getFirst("description");
             List<UUID> skillIds = toUuidList(form.get("skill_ids"));
+            UUID newAuthorUserId = parseUuidOrNull(form.getFirst("created_by_user_id"));
             return topicService
                     .update(id, name, description, skillIds)
+                    .flatMap(topic -> newAuthorUserId == null
+                            ? Mono.just(topic)
+                            // FR-015 supersedes 002's immutability for this one Organiser-only
+                            // route: a separate call to reassignAuthor, never a parameter on
+                            // update() itself (data-model.md "Topic").
+                            : topicService.reassignAuthor(id, newAuthorUserId))
                     .<Rendering>map(topic -> Rendering.redirectTo("/organiser/topics/" + id)
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -153,9 +162,21 @@ public class TopicController {
                                     .modelAttribute("description", description)
                                     .modelAttribute("allSkills", topicService.allSkills())
                                     .modelAttribute("selectedSkillIds", skillIds)
+                                    .modelAttribute("availableUsers", topicService.allUsers())
                                     .build()))
                     .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
         });
+    }
+
+    /** Approves a Pending Topic (FR-014); a no-op if already Approved. */
+    @PostMapping("/{id}/approve")
+    public Mono<Rendering> approve(@PathVariable UUID id) {
+        return topicService
+                .approve(id)
+                .<Rendering>map(topic -> Rendering.redirectTo("/organiser/topics/" + id)
+                        .status(HttpStatus.SEE_OTHER)
+                        .build())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 
     private static UUID parseUuidOrNull(String raw) {

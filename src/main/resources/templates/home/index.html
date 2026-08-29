@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Home')}">
+    <title>Home</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Home', content=~{::#content})}">
+<div id="content" class="home-grid">
+    <section id="status-section" aria-labelledby="status-heading">
+        <h2 id="status-heading">Your Status</h2>
+
+        <p th:if="${participant} == null">You are not currently registered.</p>
+        <p th:if="${participant} != null">
+            Status: <span class="status-badge" th:text="${participant.status}">ACTIVE</span>
+        </p>
+        <p th:if="${assignedTopic} != null">
+            Group topic: <span th:text="${assignedTopic.name}">Topic</span>
+        </p>
+
+        <form th:if="${canRegister}" th:action="@{/register}" method="post">
+            <p id="register-help">Registering makes you an Active Participant immediately — no approval needed.</p>
+            <button type="submit" aria-describedby="register-help">Register</button>
+        </form>
+
+        <form th:if="${canRevoke}" id="revoke-form" th:action="@{/revoke}" method="post">
+            <button type="button" id="revoke-open-button">Revoke Registration</button>
+        </form>
+
+        <dialog th:if="${canRevoke}" id="revoke-dialog" aria-labelledby="revoke-dialog-title">
+            <h2 id="revoke-dialog-title">Confirm Revoke Registration</h2>
+            <p>Revoking your registration will remove you from your current Group, if any, and cannot be
+                undone automatically — you would need to register again.</p>
+            <button type="button" id="revoke-cancel-button">Cancel</button>
+            <button type="submit" form="revoke-form">Confirm Revoke</button>
+        </dialog>
+    </section>
+
+    <section id="topics-section" aria-labelledby="topics-heading">
+        <h2 id="topics-heading">Topics</h2>
+        <p th:if="${canProposeTopic}"><a th:href="@{/topics/new}" role="button">Propose Topic</a></p>
+
+        <ul class="topic-list">
+            <li th:each="topic : ${topicList.ownPending()}">
+                <span class="badge-pending">Pending approval</span>
+                <strong th:text="${topic.name}">Name</strong> —
+                <span th:text="${topic.description}">Description</span>
+                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
+                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
+                <a th:href="@{/topics/{id}/edit(id=${topic.id})}">Edit</a>
+            </li>
+            <li th:each="topic : ${topicList.ownApproved()}">
+                <strong th:text="${topic.name}">Name</strong> —
+                <span th:text="${topic.description}">Description</span>
+                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
+                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
+                <a th:href="@{/topics/{id}/edit(id=${topic.id})}">Edit</a>
+            </li>
+            <li th:each="topic : ${topicList.others()}">
+                <span th:if="${topic.approvalStatus.name() == 'PENDING'}" class="badge-pending">Pending approval</span>
+                <strong th:text="${topic.name}">Name</strong> —
+                <span th:text="${topic.description}">Description</span>
+                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
+                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
+            </li>
+        </ul>
+    </section>
+
+    <section id="content-section" aria-labelledby="content-heading">
+        <h2 id="content-heading" th:text="${homepageContent != null ? homepageContent.page().getTitle() : 'Welcome'}">Welcome</h2>
+        <!--/* FR-036: the section heading above is the page's own top-level heading;
+             MarkdownRenderer already shifts markdown headings to <h2> or below. th:utext is
+             deliberate — bodyHtml is pre-sanitized by MarkdownRenderer (research.md §1). */-->
+        <div th:if="${homepageContent} != null" th:utext="${homepageContent.bodyHtml()}">Body</div>
+        <p th:if="${homepageContent} == null">No homepage content has been set yet.</p>
+    </section>
+</div>
+</th:block>
+<!--/* FR-004a, FR-035, research.md §8: native <dialog>.showModal() gives focus trapping and
+     Escape-to-close for free; the close handler returns focus to the button that opened it. */-->
+<script th:if="${canRevoke}">
+    (function () {
+        var dialog = document.getElementById('revoke-dialog');
+        var openButton = document.getElementById('revoke-open-button');
+        var cancelButton = document.getElementById('revoke-cancel-button');
+        if (!dialog || !openButton) {
+            return;
+        }
+        openButton.addEventListener('click', function () {
+            dialog.showModal();
+        });
+        if (cancelButton) {
+            cancelButton.addEventListener('click', function () {
+                dialog.close();
+            });
+        }
+        dialog.addEventListener('close', function () {
+            openButton.focus();
+        });
+    })();
+</script>
+</body>
+</html>

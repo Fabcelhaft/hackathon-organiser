@@ -53,7 +53,7 @@ convention, data-model.md) — no application-side ID generation anywhere in thi
 
 **⚠️ CRITICAL**: No foundational or user-story work can begin until this phase is complete.
 
-- [ ] T001 Add `org.commonmark:commonmark:0.24.0` and
+- [X] T001 Add `org.commonmark:commonmark:0.24.0` and
       `com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer:20240325.1` (main scope), and
       `com.microsoft.playwright:playwright:1.52.0` + `com.deque.html.axe-core:playwright:4.10.1` (test scope)
       to `pom.xml` (research.md §1, §9); confirm via `mvn dependency:tree` that none pulls in `spring-webmvc`
@@ -73,35 +73,35 @@ navigation (used by every template this feature adds, across every story).
 
 ### Tests (write first, confirm they fail)
 
-- [ ] T002 [P] Write failing unit tests for `OrganiserSettingsService` (reads the seeded singleton row via
+- [X] T002 [P] Write failing unit tests for `OrganiserSettingsService` (reads the seeded singleton row via
       `findBySingletonTrue()`; updates any combination of the three toggles; verified via `StepVerifier`) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettingsServiceTest.java`
-- [ ] T003 [P] Write failing unit tests for `CurrentUserModelAdvice` (resolves `currentUser`/`isOrganiser` from
+- [X] T003 [P] Write failing unit tests for `CurrentUserModelAdvice` (resolves `currentUser`/`isOrganiser` from
       an authenticated `HackathonOidcUser` in the reactive `SecurityContext`; `isOrganiser` is `false` for a
       non-Organiser; verified via `StepVerifier`) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/web/CurrentUserModelAdviceTest.java`
 
 ### Implementation
 
-- [ ] T004 Add `organiser_settings` table DDL (`id uuid PRIMARY KEY DEFAULT uuidv7()`, `singleton boolean NOT
+- [X] T004 Add `organiser_settings` table DDL (`id uuid PRIMARY KEY DEFAULT uuidv7()`, `singleton boolean NOT
       NULL DEFAULT true` with a unique index, the three toggle columns, `updated_at`) plus the
       `INSERT ... ON CONFLICT (singleton) DO NOTHING` seed statement to `src/main/resources/schema.sql`
       (data-model.md "Schema additions", research.md §4)
-- [ ] T005 [P] Create the `OrganiserSettings` entity (`id`, `singleton`, `selfRegistrationEnabled`,
+- [X] T005 [P] Create the `OrganiserSettings` entity (`id`, `singleton`, `selfRegistrationEnabled`,
       `selfRevocationEnabled`, `topicApprovalRequired`, `updatedAt`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettings.java`
-- [ ] T006 [P] Create `OrganiserSettingsRepository extends ReactiveCrudRepository<OrganiserSettings, UUID>`
+- [X] T006 [P] Create `OrganiserSettingsRepository extends ReactiveCrudRepository<OrganiserSettings, UUID>`
       with a derived `Mono<OrganiserSettings> findBySingletonTrue()` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettingsRepository.java`
-- [ ] T007 Implement `OrganiserSettingsService` (`current()` read; `update(...)` accepting any combination of
+- [X] T007 Implement `OrganiserSettingsService` (`current()` read; `update(...)` accepting any combination of
       the three toggles) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organisersettings/OrganiserSettingsService.java`,
       depends on T005, T006 — makes T002 pass
-- [ ] T008 [P] Implement `CurrentUserModelAdvice` (`@ControllerAdvice` with a reactive `@ModelAttribute`
+- [X] T008 [P] Implement `CurrentUserModelAdvice` (`@ControllerAdvice` with a reactive `@ModelAttribute`
       resolving `currentUser`/`isOrganiser` from `HackathonOidcUser` in the exchange's `SecurityContext`,
       research.md §7) in `src/main/java/net/fabcelhaft/hackathonorganiser/web/CurrentUserModelAdvice.java` —
       makes T003 pass
-- [ ] T009 Create the shared layout fragment at `src/main/resources/templates/fragments/layout.html` (brand;
+- [X] T009 Create the shared layout fragment at `src/main/resources/templates/fragments/layout.html` (brand;
       an Organiser nav link rendered only when `isOrganiser` is true, with an icon plus accessible text label
       per FR-008a — never color alone; an Info nav link, initially pointing at `/info` before that route exists
       in US5; a main content insertion point; a `role="status" aria-live="polite"` flash-message region for
@@ -121,7 +121,7 @@ confirm the homepage now shows Active status and "Revoke Registration" instead.
 
 ### Tests for User Story 1 ⚠️ write first, confirm they fail
 
-- [ ] T010 [P] [US1] Write failing `WebTestClient` integration tests covering: `GET /` with no Participant
+- [X] T010 [P] [US1] Write failing `WebTestClient` integration tests covering: `GET /` with no Participant
       record shows Register and no Revoke; with an Active record shows status + assigned Group/Topic + Revoke;
       `POST /register` creates an Active record immediately with no form (FR-003) and is idempotent on a
       double-submit (Edge Cases); `POST /register` for a caller whose *existing* Participant record is
@@ -132,7 +132,7 @@ confirm the homepage now shows Active status and "Revoke Registration" instead.
       one-way effect); both actions rejected when their setting is disabled regardless of what the page showed
       at load — per [contracts/registration-and-status.md](contracts/registration-and-status.md) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/home/HomeControllerIT.java`
-- [ ] T011 [P] [US1] Write failing unit tests for `ParticipantService.selfRegister`/`selfRevoke` (rejects when
+- [X] T011 [P] [US1] Write failing unit tests for `ParticipantService.selfRegister`/`selfRevoke` (rejects when
       the relevant `OrganiserSettings` toggle is disabled; no existing record → creates one with `ACTIVE`;
       existing record already `ACTIVE` → no-op, record unchanged, not an error; existing record `REVOKED` (or
       any non-`ACTIVE` status) → that same record's `status` is updated to `ACTIVE`, asserting no second row is
@@ -142,16 +142,16 @@ confirm the homepage now shows Active status and "Revoke Registration" instead.
       no current Group; verified via `StepVerifier`) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantServiceTest.java` (extends the
       existing file)
-- [ ] T012 [P] [US1] Write failing unit test for `GroupService.findActiveGroupForParticipant` (returns the
+- [X] T012 [P] [US1] Write failing unit test for `GroupService.findActiveGroupForParticipant` (returns the
       Participant's current active Group; empty if none; verified via `StepVerifier`) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/group/GroupServiceTest.java` (extends the existing file)
 
 ### Implementation for User Story 1
 
-- [ ] T013 [US1] Add a public `findActiveGroupForParticipant(UUID participantId)` to `GroupService`
+- [X] T013 [US1] Add a public `findActiveGroupForParticipant(UUID participantId)` to `GroupService`
       (research.md §10) in `src/main/java/net/fabcelhaft/hackathonorganiser/group/GroupService.java` — makes
       T012 pass
-- [ ] T014 [US1] Implement `ParticipantService.selfRegister(UUID userId)` and `selfRevoke(UUID participantId)`
+- [X] T014 [US1] Implement `ParticipantService.selfRegister(UUID userId)` and `selfRevoke(UUID participantId)`
       (re-reading `OrganiserSettingsService.current()` on every call, FR-006). `selfRegister` is a new method,
       not a thin wrapper around 002's `register(UUID userId)` (that method rejects any pre-existing record
       outright — correct for its own organiser-driven caller, wrong here): branch on
@@ -161,12 +161,12 @@ confirm the homepage now shows Active status and "Revoke Registration" instead.
       `GroupService.findActiveGroupForParticipant` + `removeMember`, FR-007a. In
       `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`, depends on T007,
       T013 — makes T011 pass
-- [ ] T015 [US1] Implement `HomeController` (`GET /`, `POST /register`, `POST /revoke`) per
+- [X] T015 [US1] Implement `HomeController` (`GET /`, `POST /register`, `POST /revoke`) per
       [contracts/registration-and-status.md](contracts/registration-and-status.md) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/home/HomeController.java`, depends on T014, T009 — makes
       T010 pass; the right-column content area renders a simple static placeholder for now, replaced by real
       Content Page rendering in US5
-- [ ] T016 [P] [US1] Create the Thymeleaf template `src/main/resources/templates/home/index.html` extending
+- [X] T016 [P] [US1] Create the Thymeleaf template `src/main/resources/templates/home/index.html` extending
       `fragments/layout.html`: two-column layout that stacks status → topics → content on narrow viewports
       (FR-001a), each area clearly labeled (FR-001a); status + assigned Group/Topic display with the
       explanatory line for Register (FR-003a); the Register/Revoke actions and every control in the `<dialog>`
@@ -174,7 +174,7 @@ confirm the homepage now shows Active status and "Revoke Registration" instead.
       Group-removal consequence, opened/closed via a few lines of vanilla JS that also returns focus to the
       triggering button (FR-004a, FR-035, research.md §8); the `aria-live` flash-message region focused on load
       after a redirect
-- [ ] T017 [P] [US1] Create `src/main/resources/static/css/app.css` (the two-column responsive grid; a
+- [X] T017 [P] [US1] Create `src/main/resources/static/css/app.css` (the two-column responsive grid; a
       `.visually-hidden` utility class; a reusable status-badge style conveying state via text/icon, never
       color alone, FR-034) and link it from `fragments/layout.html`, depends on T009
 
@@ -195,7 +195,7 @@ settings area, taking effect immediately for all users.
 
 ### Tests for User Story 2 ⚠️ write first, confirm they fail
 
-- [ ] T018 [P] [US2] Write failing `WebTestClient` integration tests: an Organiser disabling/enabling
+- [X] T018 [P] [US2] Write failing `WebTestClient` integration tests: an Organiser disabling/enabling
       self-registration and self-revocation via `/organiser/settings` changes what a subsequent `GET /`/
       `POST /register`/`POST /revoke` allows; each toggle displays its current on/off state plus a
       plain-language effect sentence (FR-005a); each toggle has a programmatically associated label (FR-032); a
@@ -206,11 +206,11 @@ settings area, taking effect immediately for all users.
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] Implement `OrganiserSettingsController` (`GET`/`POST /organiser/settings` for the
+- [X] T019 [US2] Implement `OrganiserSettingsController` (`GET`/`POST /organiser/settings` for the
       self-registration and self-revocation toggles, each with a plain-language effect sentence, FR-005a) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/settings/OrganiserSettingsController.java`,
       depends on T007 — makes T018 pass (the topic-approval toggle is added in US4, T031)
-- [ ] T020 [P] [US2] Create `src/main/resources/templates/organiser/settings/form.html` (toggle controls each
+- [X] T020 [P] [US2] Create `src/main/resources/templates/organiser/settings/form.html` (toggle controls each
       with a programmatically associated label — FR-032 — and its plain-language effect text, plus a save
       confirmation announced via the flash region) extending `fragments/layout.html`
 
@@ -232,7 +232,7 @@ setting read at proposal time).
 
 ### Tests for User Story 3 ⚠️ write first, confirm they fail
 
-- [ ] T021 [P] [US3] Write failing `WebTestClient` integration tests: the topic list shows name, description,
+- [X] T021 [P] [US3] Write failing `WebTestClient` integration tests: the topic list shows name, description,
       and the author's display name with OIDC subject in brackets (FR-009); `POST /topics` creates a Topic
       authored by the current Participant, starting `PENDING` or `APPROVED` per the current setting (FR-013); a
       Standard (non-Participant) user is denied `GET/POST /topics/new` (Edge Cases); the author can edit their
@@ -242,7 +242,7 @@ setting read at proposal time).
       with the error presented as text tied to the field/action, not a bare failure (FR-037) — per
       [contracts/topics-self-service-and-approval.md](contracts/topics-self-service-and-approval.md)
       — in `src/test/java/net/fabcelhaft/hackathonorganiser/topics/TopicSelfServiceManagementIT.java`
-- [ ] T022 [P] [US3] Write failing unit tests for `TopicService.propose` (sets `approvalStatus` from the
+- [X] T022 [P] [US3] Write failing unit tests for `TopicService.propose` (sets `approvalStatus` from the
       current `OrganiserSettings.topicApprovalRequired`) and the viewer-scoped 3-group visibility/ordering
       read model (FR-009a: viewer's-own-Pending, then viewer's-own-Approved, then all-other-Approved, each by
       creation date; a Topic appears in exactly one group; verified via `StepVerifier`) in
@@ -250,30 +250,30 @@ setting read at proposal time).
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Add `approval_status text NOT NULL DEFAULT 'APPROVED'` to the existing `topics` table via
+- [X] T023 [US3] Add `approval_status text NOT NULL DEFAULT 'APPROVED'` to the existing `topics` table via
       `ALTER TABLE topics ADD COLUMN IF NOT EXISTS ...` in `src/main/resources/schema.sql` (data-model.md)
-- [ ] T024 [P] [US3] Create the `TopicApprovalStatus` enum (`PENDING`, `APPROVED`) in
+- [X] T024 [P] [US3] Create the `TopicApprovalStatus` enum (`PENDING`, `APPROVED`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicApprovalStatus.java`
-- [ ] T025 [US3] Add an `approvalStatus` field + accessors to the `Topic` entity, and update its class-level
+- [X] T025 [US3] Add an `approvalStatus` field + accessors to the `Topic` entity, and update its class-level
       doc comment to note that `createdByUserId` is no longer strictly immutable — FR-015 (US4) supersedes
       002's original guarantee via one dedicated Organiser-only method, not this entity's mutability — in
       `src/main/java/net/fabcelhaft/hackathonorganiser/topic/Topic.java`, depends on T024
-- [ ] T026 [US3] Implement `TopicService.propose(UUID authorUserId, String name, String description)` (rejects
+- [X] T026 [US3] Implement `TopicService.propose(UUID authorUserId, String name, String description)` (rejects
       a blank `name`/`description` with a `TopicConflictException`, matching `create()`'s existing validation
       pattern, FR-037; reads `OrganiserSettingsService.current()` at creation time, FR-013) and the
       viewer-scoped 3-group visibility/ordering read model (FR-009a, FR-012a) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicService.java`, depends on T007, T025 — makes
       T022 pass (partial)
-- [ ] T027 [US3] Implement the author-only self-service update path on `TopicService` (rejects a non-author;
+- [X] T027 [US3] Implement the author-only self-service update path on `TopicService` (rejects a non-author;
       rejects a blank `name`/`description` with a `TopicConflictException`, FR-037; does not re-trigger
       approval, per spec Assumptions) in the same file, depends on T026 — makes T022 pass (fully)
-- [ ] T028 [US3] Implement `TopicSelfServiceController` (`GET/POST /topics/new`, `GET/POST /topics/{id}/edit`)
+- [X] T028 [US3] Implement `TopicSelfServiceController` (`GET/POST /topics/new`, `GET/POST /topics/{id}/edit`)
       per [contracts/topics-self-service-and-approval.md](contracts/topics-self-service-and-approval.md),
       catching `TopicConflictException` and re-rendering `topics/form` (200) with the error tied to the
       relevant field (FR-037), the same `onErrorResume` pattern 002's organiser `TopicController` already uses,
       in `src/main/java/net/fabcelhaft/hackathonorganiser/topics/TopicSelfServiceController.java`, depends on
       T026, T027 — makes T021 pass
-- [ ] T029 [US3] Update `HomeController` and `home/index.html` to render the real topic list (3 groups; author
+- [X] T029 [US3] Update `HomeController` and `home/index.html` to render the real topic list (3 groups; author
       display-name + `[oidc-subject]`; a "Propose Topic" action; an "Edit" action visible only on the viewer's
       own Topics; the "Pending approval" text badge from T017 on Pending entries, FR-012b/FR-034; every form
       control given a programmatically associated label, FR-032) in
@@ -298,7 +298,7 @@ Story 2 (the settings form this extends).
 
 ### Tests for User Story 4 ⚠️ write first, confirm they fail
 
-- [ ] T030 [P] [US4] Write failing `WebTestClient` integration test additions: enabling `topic_approval_required`
+- [X] T030 [P] [US4] Write failing `WebTestClient` integration test additions: enabling `topic_approval_required`
       via `/organiser/settings` makes every newly proposed Topic start `PENDING` (FR-013); disabling it stops
       that, without retroactively approving existing `PENDING` Topics (FR-016); `POST
       /organiser/topics/{id}/approve` moves a Pending Topic to Approved (FR-014); `POST /organiser/topics/{id}`
@@ -310,10 +310,10 @@ Story 2 (the settings form this extends).
 
 ### Implementation for User Story 4
 
-- [ ] T031 [US4] Extend `OrganiserSettingsController` and `organiser/settings/form.html` to add the
+- [X] T031 [US4] Extend `OrganiserSettingsController` and `organiser/settings/form.html` to add the
       `topic_approval_required` toggle with its own plain-language effect sentence (FR-005a), depends on T019,
       T020
-- [ ] T032 [US4] Add `TopicService.approve(UUID topicId)` (Pending → Approved, no-op if already Approved) and
+- [X] T032 [US4] Add `TopicService.approve(UUID topicId)` (Pending → Approved, no-op if already Approved) and
       `reassignAuthor(UUID topicId, UUID newAuthorUserId)` to
       `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicService.java`, depends on T026 — makes T030
       pass (partial). `reassignAuthor` MUST follow the exact pattern `TopicService.create()` already uses for
@@ -322,14 +322,14 @@ Story 2 (the settings form this extends).
       field-associated error (FR-037) instead of a bare 404 — see
       [contracts/topics-self-service-and-approval.md](contracts/topics-self-service-and-approval.md)
       Behavioral notes
-- [ ] T033 [US4] Extend `organiser/topic/TopicController`: add `POST /organiser/topics/{id}/approve`; extend
+- [X] T033 [US4] Extend `organiser/topic/TopicController`: add `POST /organiser/topics/{id}/approve`; extend
       `POST /organiser/topics/{id}` to accept `created_by_user_id` and apply it via `reassignAuthor`, catching
       `TopicConflictException` the same way the existing `create()`/`update()` handlers already do
       (`onErrorResume` → 200 re-render of `organiser/topics/form` with the error) rather than letting it 404;
       surface each Topic's Pending/Approved state in the list/detail model, in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/topic/TopicController.java`, depends on T032 —
       makes T030 pass (fully)
-- [ ] T034 [P] [US4] Update `organiser/topics/list.html`, `detail.html`, `form.html` (the "Pending approval"
+- [X] T034 [P] [US4] Update `organiser/topics/list.html`, `detail.html`, `form.html` (the "Pending approval"
       badge, an Approve action, and an author-reassignment dropdown on the edit form) in
       `src/main/resources/templates/organiser/topics/`
 
@@ -350,12 +350,12 @@ column and in the Info section, in the arranged order.
 
 ### Tests for User Story 5 ⚠️ write first, confirm they fail
 
-- [ ] T035 [P] [US5] Write failing unit tests for `MarkdownRenderer` (headings, lists, links, emphasis render
+- [X] T035 [P] [US5] Write failing unit tests for `MarkdownRenderer` (headings, lists, links, emphasis render
       correctly — FR-017; a submitted `<script>` tag / `on*` attribute is stripped from the output — FR-022; an
       `<img>` with `alt` renders inline — FR-026; a markdown `#` heading renders as `<h2>` and a `######`
       caps at `<h6>` — FR-036, research.md §1) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/content/MarkdownRendererTest.java`
-- [ ] T036 [P] [US5] Write failing `WebTestClient` integration tests: the homepage right column renders the
+- [X] T036 [P] [US5] Write failing `WebTestClient` integration tests: the homepage right column renders the
       designated Content Page's markdown as sanitized formatted HTML (never raw markdown syntax, SC-006);
       `GET /info` lists non-homepage pages ordered by `sort_index` (tie-broken by `created_at`), with an
       empty-state message when none exist (Edge Cases); `GET /info/{id}` renders one page with its title as the
@@ -365,38 +365,38 @@ column and in the Info section, in the arranged order.
 
 ### Implementation for User Story 5
 
-- [ ] T037 [US5] Add `content_pages` table DDL, the partial unique index `content_pages_is_homepage_key ON
+- [X] T037 [US5] Add `content_pages` table DDL, the partial unique index `content_pages_is_homepage_key ON
       content_pages (is_homepage) WHERE is_homepage`, and the default-page
       `INSERT ... WHERE NOT EXISTS (SELECT 1 FROM content_pages)` seed (FR-019a) to
       `src/main/resources/schema.sql` (data-model.md, research.md §5)
-- [ ] T038 [P] [US5] Create the `ContentPage` entity (`id`, `title`, `bodyMarkdown`, `sortIndex`, `isHomepage`,
+- [X] T038 [P] [US5] Create the `ContentPage` entity (`id`, `title`, `bodyMarkdown`, `sortIndex`, `isHomepage`,
       `createdAt`, `updatedAt`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentPage.java`
-- [ ] T039 [P] [US5] Create `ContentPageRepository extends ReactiveCrudRepository<ContentPage, UUID>` with
+- [X] T039 [P] [US5] Create `ContentPageRepository extends ReactiveCrudRepository<ContentPage, UUID>` with
       derived finders `findAllByOrderBySortIndexAscCreatedAtAsc()` and `findByIsHomepageTrue()` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentPageRepository.java`
-- [ ] T040 [US5] Implement `MarkdownRenderer` (commonmark parse; a custom `HtmlNodeRendererFactory` shifting
+- [X] T040 [US5] Implement `MarkdownRenderer` (commonmark parse; a custom `HtmlNodeRendererFactory` shifting
       heading levels by +1 capped at 6; OWASP sanitizer policy = `Sanitizers.FORMATTING.and(LINKS).and(IMAGES)`;
       research.md §1) in `src/main/java/net/fabcelhaft/hackathonorganiser/content/MarkdownRenderer.java` —
       makes T035 pass
-- [ ] T041 [US5] Implement `ContentPageService` read paths (`findHomepage()`, `findInfoList()`,
+- [X] T041 [US5] Implement `ContentPageService` read paths (`findHomepage()`, `findInfoList()`,
       `findRenderedDetail(UUID id)` returning sanitized HTML via `MarkdownRenderer`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentPageService.java`, depends on T038, T039,
       T040
-- [ ] T042 [US5] Implement `InfoController` (`GET /info`, `GET /info/{id}`) per
+- [X] T042 [US5] Implement `InfoController` (`GET /info`, `GET /info/{id}`) per
       [contracts/content-pages-and-info.md](contracts/content-pages-and-info.md) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/info/InfoController.java`, depends on T041 — makes T036
       pass (partial)
-- [ ] T043 [US5] Update `HomeController` to render the real designated homepage Content Page (replacing T015's
+- [X] T043 [US5] Update `HomeController` to render the real designated homepage Content Page (replacing T015's
       placeholder) via `ContentPageService.findHomepage()`, rendering a clear empty/unset state when none is
       designated, in
       `src/main/java/net/fabcelhaft/hackathonorganiser/home/HomeController.java` and
       `src/main/resources/templates/home/index.html` (right column now uses `th:utext` on the sanitized HTML,
       the single point in the codebase allowed to do so), depends on T041, T015, T016 — makes T036 pass (fully)
-- [ ] T044 [P] [US5] Create `src/main/resources/templates/info/list.html` and `info/detail.html` extending
+- [X] T044 [P] [US5] Create `src/main/resources/templates/info/list.html` and `info/detail.html` extending
       `fragments/layout.html`, each page's own title rendered as the top-level heading (FR-036), plus the
       empty-state markup for an empty Info list
-- [ ] T045 [US5] Verify the Info nav link's `th:href="@{/info}"` set back in T009 (a static URL expression that
+- [X] T045 [US5] Verify the Info nav link's `th:href="@{/info}"` set back in T009 (a static URL expression that
       needed no code change to "activate" — it simply 404'd until this phase) now resolves correctly with
       `InfoController` in place; no template edit is expected here — this is a checkpoint, not an
       implementation task — depends on T009, T042
@@ -417,7 +417,7 @@ order is reflected for all users.
 
 ### Tests for User Story 6 ⚠️ write first, confirm they fail
 
-- [ ] T046 [P] [US6] Write failing `WebTestClient` integration tests: create/edit/delete a Content Page; setting
+- [X] T046 [P] [US6] Write failing `WebTestClient` integration tests: create/edit/delete a Content Page; setting
       `sort_index` reorders `/info` for all users (FR-020a); designating a page as the homepage page
       un-designates the previous one (FR-019, the partial-unique-index invariant); deleting the currently
       designated homepage page leaves `/` showing the empty/unset state until a replacement is designated
@@ -429,20 +429,20 @@ order is reflected for all users.
 
 ### Implementation for User Story 6
 
-- [ ] T047 [US6] Create `ContentPageConflictException` (new, alongside the existing per-domain pattern —
+- [X] T047 [US6] Create `ContentPageConflictException` (new, alongside the existing per-domain pattern —
       `TopicConflictException`, `GroupConflictException`, etc.) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentPageConflictException.java`, and extend
       `ContentPageService` with `create`, `update` (including the sort-index field, FR-020a), and `delete`,
       rejecting a blank `title`/`body_markdown` with that exception (FR-037), with the homepage-designation
       swap (un-set the previous `is_homepage = true` row in the same write, FR-019) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentPageService.java`, depends on T039
-- [ ] T048 [US6] Implement `ContentPageController` (list/new/create/edit/update/delete +
+- [X] T048 [US6] Implement `ContentPageController` (list/new/create/edit/update/delete +
       homepage-designation) per [contracts/content-pages-and-info.md](contracts/content-pages-and-info.md),
       catching `ContentPageConflictException` and re-rendering the form (200) with the error tied to the
       relevant field (FR-037) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/content/ContentPageController.java`, depends
       on T047 — makes T046 pass
-- [ ] T049 [P] [US6] Create `src/main/resources/templates/organiser/content-pages/list.html` and `form.html`
+- [X] T049 [P] [US6] Create `src/main/resources/templates/organiser/content-pages/list.html` and `form.html`
       (title, markdown body textarea, sort-index field with a programmatically associated label — FR-032 —
       and homepage-designation checkbox) extending `fragments/layout.html`
 
@@ -463,7 +463,7 @@ library mechanics themselves are independently buildable once Foundational is do
 
 ### Tests for User Story 7 ⚠️ write first, confirm they fail
 
-- [ ] T050 [P] [US7] Write failing `WebTestClient` integration tests: uploading a PNG/JPEG/GIF/WebP succeeds and
+- [X] T050 [P] [US7] Write failing `WebTestClient` integration tests: uploading a PNG/JPEG/GIF/WebP succeeds and
       the library shows the copyable `![alt](/content-images/{id})` syntax (FR-025); a non-image or >5 MB
       upload is rejected without being stored (FR-029); an embedded image renders inline on a Content Page
       (FR-026); deleting a still-referenced image is blocked, naming the referencing page(s) (FR-028); deleting
@@ -472,7 +472,7 @@ library mechanics themselves are independently buildable once Foundational is do
       `GET /content-images/{id}` serves raw bytes with the correct `Content-Type` to any authenticated user —
       per [contracts/content-images.md](contracts/content-images.md) — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/organiser/content/ContentImageManagementIT.java`
-- [ ] T051 [P] [US7] Write failing unit tests for `ContentImageService` (rejects a non-PNG/JPEG/GIF/WebP
+- [X] T051 [P] [US7] Write failing unit tests for `ContentImageService` (rejects a non-PNG/JPEG/GIF/WebP
       content type or a size over 5 MB before any write, FR-029; rejects a blank `alt_text`, FR-025a; the
       delete-block substring search over `content_pages.body_markdown` correctly names every referencing
       page's title, FR-028; verified via `StepVerifier`) in
@@ -480,31 +480,31 @@ library mechanics themselves are independently buildable once Foundational is do
 
 ### Implementation for User Story 7
 
-- [ ] T052 [US7] Add `content_images` table DDL (`id`, `alt_text`, `content_type`, `byte_size`, `data bytea`,
+- [X] T052 [US7] Add `content_images` table DDL (`id`, `alt_text`, `content_type`, `byte_size`, `data bytea`,
       `created_at`, `updated_at`) to `src/main/resources/schema.sql` (data-model.md)
-- [ ] T053 [P] [US7] Create the `ContentImage` entity in
+- [X] T053 [P] [US7] Create the `ContentImage` entity in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentImage.java`
-- [ ] T054 [P] [US7] Create `ContentImageRepository extends ReactiveCrudRepository<ContentImage, UUID>` in
+- [X] T054 [P] [US7] Create `ContentImageRepository extends ReactiveCrudRepository<ContentImage, UUID>` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentImageRepository.java`
-- [ ] T055 [P] [US7] Create `ContentImageConflictException` in
+- [X] T055 [P] [US7] Create `ContentImageConflictException` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentImageConflictException.java`
-- [ ] T056 [US7] Raise `spring.codec.max-in-memory-size` in `src/main/resources/application.yml` so a 5 MB
+- [X] T056 [US7] Raise `spring.codec.max-in-memory-size` in `src/main/resources/application.yml` so a 5 MB
       multipart image upload isn't truncated/rejected by WebFlux's default (256 KB) in-memory buffer limit
       (needed for FR-029's cap to be the *only* size limit in effect)
-- [ ] T057 [US7] Implement `ContentImageService` (`upload` with format/size validation before any write and
+- [X] T057 [US7] Implement `ContentImageService` (`upload` with format/size validation before any write and
       required `alt_text`, FR-025a/FR-029; `updateAltText`, FR-025b; `delete` with the reference-block search
       over `content_pages.body_markdown`, FR-028, research.md §3) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/content/ContentImageService.java`, depends on T053,
       T054, T055 — makes T051 pass
-- [ ] T058 [US7] Implement `ContentImageController` (`/organiser/content-images` list/upload/alt-text-edit/
+- [X] T058 [US7] Implement `ContentImageController` (`/organiser/content-images` list/upload/alt-text-edit/
       delete) per [contracts/content-images.md](contracts/content-images.md) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/content/ContentImageController.java`, depends
       on T057, T056
-- [ ] T059 [US7] Implement `ContentImageStreamController` (`GET /content-images/{id}` — raw bytes, the stored
+- [X] T059 [US7] Implement `ContentImageStreamController` (`GET /content-images/{id}` — raw bytes, the stored
       `Content-Type`, a long-lived `Cache-Control` header, plain authentication only, research.md §2) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/web/ContentImageStreamController.java`, depends on T054
       — makes T050 pass
-- [ ] T060 [P] [US7] Create `src/main/resources/templates/organiser/content-images/list.html` (upload form
+- [X] T060 [P] [US7] Create `src/main/resources/templates/organiser/content-images/list.html` (upload form
       with a required, labeled alt-text field — FR-025a, FR-032; thumbnails via `<img src="/content-images/
       {id}">`; the copyable embed syntax per image; an inline alt-text edit form; a delete action that surfaces
       the FR-028 block message as text tied to the action, FR-037) extending `fragments/layout.html`
@@ -518,19 +518,19 @@ library mechanics themselves are independently buildable once Foundational is do
 **Purpose**: Consistency and verification that spans every story, including the automated accessibility gate
 (SC-009) that only makes sense once the screens it scans all exist.
 
-- [ ] T061 [P] Update `organiser/fragments/layout.html` to add the Info nav link, so an Organiser can reach
+- [X] T061 [P] Update `organiser/fragments/layout.html` to add the Info nav link, so an Organiser can reach
       Info content without leaving the admin area (Info is visible to every authenticated user, Organisers
       included — spec Assumptions)
-- [ ] T062 [P] Write `a11y.HomepageAccessibilityIT` (Playwright headless Chromium + Deque's `AxeBuilder`,
+- [X] T062 [P] Write `a11y.HomepageAccessibilityIT` (Playwright headless Chromium + Deque's `AxeBuilder`,
       `@SpringBootTest(webEnvironment = RANDOM_PORT)` + Testcontainers, research.md §9): scans the homepage, the
       topic propose/edit forms, the organiser settings screen, Content Page and Content Image management, and
       the Info section; asserts zero `critical`/`serious` WCAG 2.1 AA violations on each (SC-009); explicitly
       excludes 002's pre-existing organiser screens per FR-030's scope note — in
       `src/test/java/net/fabcelhaft/hackathonorganiser/a11y/HomepageAccessibilityIT.java`
-- [ ] T063 Review T062's results and adjust `src/main/resources/static/css/app.css` as needed so all new UI
+- [X] T063 Review T062's results and adjust `src/main/resources/static/css/app.css` as needed so all new UI
       meets WCAG 2.1 AA contrast minimums (4.5:1 normal text, 3:1 large text/UI component boundaries) in both
       the light and dark presentation (FR-038)
-- [ ] T064 Run `mvn verify` (full unit + `*ManagementIT`/`*IT` + `a11y.*IT` suite) and perform the
+- [X] T064 Run `mvn verify` (full unit + `*ManagementIT`/`*IT` + `a11y.*IT` suite) and perform the
       [quickstart.md](quickstart.md) manual visual smoke test end-to-end across all seven user stories
       (Constitution Development Workflow #3)
 

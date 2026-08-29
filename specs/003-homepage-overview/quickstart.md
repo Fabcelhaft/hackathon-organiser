@@ -9,10 +9,16 @@ evaluate a real accessibility tree.
 
 - Java 25, Maven, Docker (Testcontainers + `docker-compose.yml` Postgres) — unchanged from 001/002.
 - This feature's schema additions applied (extends `src/main/resources/schema.sql`, loaded automatically).
-- Playwright's headless Chromium browser binary, installed once via
-  `mvn -q exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium"` (or the
-  Playwright Maven plugin's install goal, wired up in Phase 2 tasks) — needed only for the `a11y.*IT` suite,
-  not for the `mvn verify` unit/`*ManagementIT` run.
+- A Chromium binary for the `a11y.*IT` Playwright suite — not needed for the `mvn verify` unit/`*ManagementIT`
+  run. The devcontainer's `postCreateCommand` installs the distribution's own `chromium` package for exactly
+  this reason: this devcontainer's base image isn't one of Playwright's officially supported Linux
+  distributions, so Playwright's own bundled browser download is missing several native shared libraries here,
+  while the distribution's `chromium` package already carries compatible ones. `HomepageAccessibilityIT`
+  resolves `/usr/bin/chromium` automatically (or `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, if set to a different path)
+  and falls back to Playwright's own bundled download when neither is found — e.g. on an officially-supported
+  CI runner. On such a runner, install Playwright's bundled browser once via
+  `mvn -q exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium"` (requires
+  `exec-maven-plugin`) instead.
 
 ## Running the automated validation suite
 

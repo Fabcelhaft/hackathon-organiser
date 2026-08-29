@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title th:fragment="head(title)" th:text="${title} + ' — Hackathon Organiser'">Hackathon Organiser</title>
+    <link rel="stylesheet" th:href="@{/css/pico.min.css}"/>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+</head>
+<body>
+<!--/*
+  Shared layout used by every participant-facing and organiser-facing page in this feature
+  (research.md §7): a single nav bar rather than two independent ones, so FR-008's conditional
+  Organiser link and the Info link render consistently everywhere. isOrganiser is injected into
+  every model by CurrentUserModelAdvice; no template here derives it itself.
+*/-->
+<div th:fragment="layout(title, content)">
+    <header class="container">
+        <nav>
+            <ul>
+                <li><strong><a th:href="@{/}">Hackathon Organiser</a></strong></li>
+            </ul>
+            <ul>
+                <li><a th:href="@{/info}">Info</a></li>
+                <!-- FR-008a: icon plus accessible text label, never color alone. -->
+                <li th:if="${isOrganiser}">
+                    <a th:href="@{/organiser/topics}"><span aria-hidden="true">&#9881;&#65039;</span> Organiser</a>
+                </li>
+            </ul>
+        </nav>
+        <!--/* FR-033: a status change (register/revoke/approve/settings toggle) is realized as a
+             full POST -> redirect -> GET navigation (Constitution III), so the redirect target's
+             initial HTML carries this banner; a small inline script below moves focus to it on
+             load so a screen-reader user lands on the confirmation immediately. */-->
+        <p th:if="${flash}" id="flash-message" role="status" aria-live="polite" tabindex="-1"
+           class="flash-message" th:text="${flash}">Flash message</p>
+    </header>
+    <main class="container">
+        <h1 th:text="${title}">Page title</h1>
+        <div th:replace="${content}">Page content</div>
+    </main>
+    <script th:if="${flash}">
+        document.addEventListener('DOMContentLoaded', function () {
+            var flash = document.getElementById('flash-message');
+            if (flash) {
+                flash.focus();
+            }
+        });
+    </script>
+</div>
+</body>
+</html>

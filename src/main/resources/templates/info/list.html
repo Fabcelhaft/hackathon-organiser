@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Info')}">
+    <title>Info</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Info', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${pages.isEmpty()}">No further pages have been added yet.</p>
+        <ul th:unless="${pages.isEmpty()}">
+            <li th:each="page : ${pages}">
+                <a th:href="@{/info/{id}(id=${page.id})}" th:text="${page.title}">Title</a>
+            </li>
+        </ul>
+    </div>
+</th:block>
+</body>
+</html>

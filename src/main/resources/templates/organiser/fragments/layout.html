@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title th:fragment="head(title)" th:text="${title} + ' — Hackathon Organiser'">Hackathon Organiser</title>
     <link rel="stylesheet" th:href="@{/css/pico.min.css}"/>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
 </head>
 <body>
 <div th:fragment="layout(title, content)">
@@ -20,13 +21,36 @@
                 <li><a th:href="@{/organiser/custom-fields}">Custom Fields</a></li>
                 <li><a th:href="@{/organiser/topics}">Topics</a></li>
                 <li><a th:href="@{/organiser/groups}">Groups</a></li>
+                <li><a th:href="@{/organiser/content-pages}">Content Pages</a></li>
+                <li><a th:href="@{/organiser/content-images}">Content Images</a></li>
+                <li><a th:href="@{/organiser/settings}">Settings</a></li>
+            </ul>
+            <ul>
+                <!-- Info is visible to every authenticated user, Organisers included (spec
+                     Assumptions) — this link lets an Organiser reach it without leaving the
+                     admin area (T061). -->
+                <li><a th:href="@{/info}">Info</a></li>
+                <li><a th:href="@{/}">Home</a></li>
             </ul>
         </nav>
+        <!--/* FR-033/FR-005a: a settings save is realized as a full POST -> redirect -> GET
+             navigation (Constitution III), so this banner is part of the redirect target's
+             initial HTML; the inline script below moves focus to it on load. */-->
+        <p th:if="${flash}" id="flash-message" role="status" aria-live="polite" tabindex="-1"
+           class="flash-message" th:text="${flash}">Flash message</p>
     </header>
     <main class="container">
         <h1 th:text="${title}">Page title</h1>
         <div th:replace="${content}">Page content</div>
     </main>
+    <script th:if="${flash}">
+        document.addEventListener('DOMContentLoaded', function () {
+            var flash = document.getElementById('flash-message');
+            if (flash) {
+                flash.focus();
+            }
+        });
+    </script>
 </div>
 </body>
 </html>

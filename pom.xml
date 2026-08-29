@@ -50,10 +50,38 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Markdown rendering & sanitization (research.md §1): the sole pipeline that ever
+             produces HTML placed into a Thymeleaf model via th:utext (FR-017, FR-022, FR-036). -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+            <version>0.24.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
+            <artifactId>owasp-java-html-sanitizer</artifactId>
+            <version>20240325.1</version>
+        </dependency>
+
         <!-- Test dependencies -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Automated WCAG 2.1 AA scanning for SC-009 (research.md §9): headless-Chromium
+             rendering + Deque's first-party axe-core binding for Playwright — WebTestClient never
+             builds a real accessibility tree, so it structurally cannot evaluate this. -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>1.52.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.deque.html.axe-core</groupId>
+            <artifactId>playwright</artifactId>
+            <version>4.10.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>

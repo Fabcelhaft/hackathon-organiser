@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Content Pages')}">
+    <title>Content Pages</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Content Pages', content=~{::#content})}">
+    <div id="content">
+        <p><a th:href="@{/organiser/content-pages/new}" role="button">New Content Page</a></p>
+        <table>
+            <thead>
+            <tr>
+                <th>Title</th>
+                <th>Sort Index</th>
+                <th>Homepage</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="page : ${pages}">
+                <td th:text="${page.title}">Title</td>
+                <td th:text="${page.sortIndex}">0</td>
+                <td th:text="${page.homepage} ? 'Yes' : 'No'">No</td>
+                <td>
+                    <a th:href="@{/organiser/content-pages/{id}/edit(id=${page.id})}">Edit</a>
+                    <form th:action="@{/organiser/content-pages/{id}/delete(id=${page.id})}" method="post"
+                          style="display:inline">
+                        <button type="submit">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

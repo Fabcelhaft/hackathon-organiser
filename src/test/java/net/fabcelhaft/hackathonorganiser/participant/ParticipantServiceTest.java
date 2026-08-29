@@ -18,6 +18,10 @@ import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionReposi
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
+import net.fabcelhaft.hackathonorganiser.group.Group;
+import net.fabcelhaft.hackathonorganiser.group.GroupService;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +67,12 @@ class ParticipantServiceTest {
     @Mock
     private DatabaseClient.GenericExecuteSpec executeSpec;
 
+    @Mock
+    private OrganiserSettingsService organiserSettingsService;
+
+    @Mock
+    private GroupService groupService;
+
     private ParticipantService participantService;
 
     @BeforeEach
@@ -73,7 +83,9 @@ class ParticipantServiceTest {
                 skillRepository,
                 customFieldDefinitionRepository,
                 customFieldOptionRepository,
-                databaseClient);
+                databaseClient,
+                organiserSettingsService,
+                groupService);
     }
 
     // --- register: single Participant per User (FR-006a), initial status ACTIVE (FR-006b) ------
@@ -285,7 +297,132 @@ class ParticipantServiceTest {
                 .verifyComplete();
     }
 
+    // --- selfRegister: honors OrganiserSettings, reactivates rather than duplicating (FR-006, FR-007) -
+
+    @Test
+    void selfRegisterRejectsWhenSelfRegistrationIsDisabled() {
+        UUID userId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false, true)));
+
+        StepVerifier.create(participantService.selfRegister(userId))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void selfRegisterCreatesANewActiveRecordWhenNoneExists() {
+        UUID userId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(participantService.selfRegister(userId))
+                .assertNext(participant -> {
+                    assertThat(participant.getUserId()).isEqualTo(userId);
+                    assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void selfRegisterIsANoOpWhenTheExistingRecordIsAlreadyActive() {
+        UUID userId = UUID.randomUUID();
+        Participant existing = participantOf(UUID.randomUUID(), userId, ParticipantStatus.ACTIVE);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(participantService.selfRegister(userId))
+                .expectNext(existing)
+                .verifyComplete();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void selfRegisterReactivatesAnExistingRevokedRecordInPlaceRatherThanInsertingANewRow() {
+        UUID userId = UUID.randomUUID();
+        Participant existing = participantOf(UUID.randomUUID(), userId, ParticipantStatus.REVOKED);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(participantService.selfRegister(userId))
+                .assertNext(participant -> {
+                    assertThat(participant.getId()).isEqualTo(existing.getId());
+                    assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
+                })
+                .verifyComplete();
+
+        verify(participantRepository, org.mockito.Mockito.times(1)).save(any(Participant.class));
+    }
+
+    // --- selfRevoke: honors OrganiserSettings, removes current Group membership (FR-006, FR-007a) --
+
+    @Test
+    void selfRevokeRejectsWhenSelfRevocationIsDisabled() {
+        UUID participantId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, false)));
+
+        StepVerifier.create(participantService.selfRevoke(participantId))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).save(any());
+    }
+
+    @Test
+    void selfRevokeSetsRevokedAndRemovesCurrentGroupMembership() {
+        UUID participantId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        Group group = new Group();
+        group.setId(groupId);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.just(group));
+        when(groupService.removeMember(groupId, participantId)).thenReturn(Mono.just(group));
+
+        StepVerifier.create(participantService.selfRevoke(participantId))
+                .assertNext(participant -> assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.REVOKED))
+                .verifyComplete();
+
+        verify(groupService).removeMember(groupId, participantId);
+    }
+
+    @Test
+    void selfRevokeIsANoOpOnTheGroupSideWhenTheParticipantHasNoCurrentGroup() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(participantService.selfRevoke(participantId))
+                .assertNext(participant -> assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.REVOKED))
+                .verifyComplete();
+
+        verify(groupService, never()).removeMember(any(UUID.class), any(UUID.class));
+    }
+
     // --- test helpers ------------------------------------------------------------------------------
+
+    private OrganiserSettings settingsOf(boolean selfRegistrationEnabled, boolean selfRevocationEnabled) {
+        OrganiserSettings settings = new OrganiserSettings();
+        settings.setId(UUID.randomUUID());
+        settings.setSingleton(true);
+        settings.setSelfRegistrationEnabled(selfRegistrationEnabled);
+        settings.setSelfRevocationEnabled(selfRevocationEnabled);
+        settings.setUpdatedAt(Instant.now());
+        return settings;
+    }
 
     private Participant participantOf(UUID id, UUID userId, ParticipantStatus status) {
         Participant participant = new Participant();

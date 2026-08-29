@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{organiser/fragments/layout :: head(title='Topics')}">
     <title>Topics</title>
 </head>
@@ -12,6 +12,7 @@
             <thead>
             <tr>
                 <th>Name</th>
+                <th>Status</th>
                 <th>Active Group</th>
                 <th></th>
             </tr>
@@ -19,6 +20,10 @@
             <tbody>
             <tr th:each="row : ${topics}">
                 <td th:text="${row.topic.name}">Name</td>
+                <td>
+                    <span th:if="${row.topic.approvalStatus.name()} == 'PENDING'" class="badge-pending">Pending approval</span>
+                    <span th:if="${row.topic.approvalStatus.name()} == 'APPROVED'">Approved</span>
+                </td>
                 <td>
                     <a th:if="${row.activeGroupId} != null"
                        th:href="@{/organiser/groups/{id}(id=${row.activeGroupId})}">Active</a>

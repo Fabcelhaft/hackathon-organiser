@@ -274,6 +274,31 @@ class GroupServiceTest {
                 .verifyComplete();
     }
 
+    // --- findActiveGroupForParticipant (research.md §10, FR-007a) --------------------------------
+
+    @Test
+    void findActiveGroupForParticipantReturnsTheParticipantsActiveGroup() {
+        UUID participantId = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID();
+        Group group = groupOf(groupId, UUID.randomUUID(), GroupStatus.ACTIVE);
+        stubActiveGroupIdForParticipant(participantId, groupId);
+        when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
+
+        StepVerifier.create(groupService.findActiveGroupForParticipant(participantId))
+                .expectNext(group)
+                .verifyComplete();
+    }
+
+    @Test
+    void findActiveGroupForParticipantCompletesEmptyWhenNoneExists() {
+        UUID participantId = UUID.randomUUID();
+        stubNoActiveGroupForParticipant(participantId);
+
+        StepVerifier.create(groupService.findActiveGroupForParticipant(participantId)).verifyComplete();
+
+        verify(groupRepository, never()).findById(any(UUID.class));
+    }
+
     // --- test helpers ------------------------------------------------------------------------------
 
     private Group groupOf(UUID id, UUID topicId, GroupStatus status) {
