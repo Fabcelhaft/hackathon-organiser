@@ -78,6 +78,8 @@ class SettingsManagementIT {
                     settings.setSelfRegistrationEnabled(true);
                     settings.setSelfRevocationEnabled(true);
                     settings.setTopicApprovalRequired(false);
+                    settings.setTopicJoiningEnabled(true);
+                    settings.setSkillDisplayMode(net.fabcelhaft.hackathonorganiser.organisersettings.SkillDisplayMode.STILL_NEEDED_ONLY);
                     settings.setUpdatedAt(Instant.now());
                     return organiserSettingsRepository.save(settings);
                 })
@@ -214,6 +216,69 @@ class SettingsManagementIT {
                 .returnResult()
                 .getResponseBody();
         assertThat(standardHome).doesNotContain("/organiser/topics");
+    }
+
+    // --- Topic joining enabled toggle (Story 4, FR-020a, FR-020d) --------------------------------
+
+    @Test
+    void topicJoiningEnabledDefaultsToOnAndCanBeToggled() {
+        User organiser = persistUser(true);
+
+        String body = webTestClient
+                .mutateWith(loginAs(organiser))
+                .get()
+                .uri("/organiser/settings")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(body).contains("for=\"topic_joining_enabled\"");
+
+        webTestClient
+                .mutateWith(loginAs(organiser))
+                .post()
+                .uri("/organiser/settings")
+                .body(BodyInserters.fromFormData("topic_joining_enabled", "false"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(organiserSettingsRepository.findBySingletonTrue().block().isTopicJoiningEnabled())
+                .isFalse();
+    }
+
+    // --- Skill Display Mode toggle (Story 8, FR-017, FR-018) --------------------------------------
+
+    @Test
+    void skillDisplayModeDefaultsToStillNeededOnlyAndCanBeSwitched() {
+        User organiser = persistUser(true);
+
+        String body = webTestClient
+                .mutateWith(loginAs(organiser))
+                .get()
+                .uri("/organiser/settings")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(body).contains("value=\"STILL_NEEDED_ONLY\"");
+        assertThat(body).contains("value=\"ALL_ASSOCIATED\"");
+
+        webTestClient
+                .mutateWith(loginAs(organiser))
+                .post()
+                .uri("/organiser/settings")
+                .body(BodyInserters.fromFormData("skill_display_mode", "ALL_ASSOCIATED"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(organiserSettingsRepository.findBySingletonTrue().block().getSkillDisplayMode().name())
+                .isEqualTo("ALL_ASSOCIATED");
     }
 
     // --- Test helpers ------------------------------------------------------------------------------

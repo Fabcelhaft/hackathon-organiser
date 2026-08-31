@@ -13,7 +13,34 @@
             <dd th:text="${detail.topicName}">Topic</dd>
             <dt>Status</dt>
             <dd th:text="${detail.group.status}">Status</dd>
+            <dt>Compliance</dt>
+            <dd>
+                <!--/* FR-025: text/icon, never color alone. */-->
+                <span th:if="${complianceStatus} == null">
+                    <span aria-hidden="true">&#10067;</span> No Group Yet
+                </span>
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT'">
+                    <span aria-hidden="true">&#9989;</span> Compliant
+                </span>
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'NOT_COMPLIANT'">
+                    <span aria-hidden="true">&#10060;</span> Not Compliant
+                </span>
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT_OVERRIDE'">
+                    <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
+                </span>
+            </dd>
         </dl>
+
+        <form th:if="${detail.group.complianceOverride}"
+              th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
+            <input type="hidden" name="override" value="false"/>
+            <button type="submit">Remove Compliance Override</button>
+        </form>
+        <form th:unless="${detail.group.complianceOverride}"
+              th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
+            <input type="hidden" name="override" value="true"/>
+            <button type="submit">Mark Compliant (Override)</button>
+        </form>
 
         <h2>Current Members</h2>
         <table>
@@ -64,7 +91,8 @@
         <div th:if="${detail.group.status.name()} == 'ACTIVE'">
             <h2>Add Member</h2>
             <form th:action="@{/organiser/groups/{id}/members(id=${detail.group.id})}" method="post">
-                <select name="participant_id" required="required">
+                <label for="participant_id">Participant</label>
+                <select id="participant_id" name="participant_id" required="required">
                     <option th:each="p : ${allParticipants}" th:value="${p.id}" th:text="${p.displayName}">
                         Name
                     </option>

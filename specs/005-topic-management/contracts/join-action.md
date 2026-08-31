@@ -2,9 +2,14 @@
 
 ## POST /topics/{id}/join — new route
 
-**New** (`topics.TopicJoinController`, self-service package). Single-click, no confirmation step (FR-007a).
+**New** (`topics.TopicJoinController`, self-service package). Single-click, no confirmation step (FR-007a). One
+route, rendered as a "Join" action on every eligible row wherever a Topic is listed — the Home Page
+(`home-and-topic-overview.md`) and, as of FR-006a, the Topic Overview too — with identical eligibility and
+outcome regardless of which page the form was submitted from; neither page's controller has its own join logic.
 Delegates to `TopicJoinService.join(topicId, requesterUserId)` (data-model.md), which gates eligibility before
-calling the race-safe `GroupService.join(...)` core (research.md §2).
+calling the race-safe `GroupService.join(...)` core (research.md §2). The reverse action — a current member
+voluntarily leaving — is `POST /topics/{id}/leave`, a sibling route on the same controller documented in
+`topic-details.md` (Story 11, FR-037–FR-037e, research.md §14), not covered here.
 
 **Eligibility gate, in order, each with a distinct rejection reason (FR-026):**
 

@@ -67,8 +67,9 @@ already differ, otherwise stays **Not Compliant** (the diversity requirement fro
 
 4. As a third Participant (bringing the Group to the configured Maximum of 3), join.
 
-**Expected**: succeeds — count `3`, now "full" and no longer shown on the Home Page (FR-003b) but still visible
-on the Topic Overview.
+**Expected**: succeeds — count `3`, now "full" and no longer shown on the Home Page for anyone *except* the
+Topic's author, who still sees it pinned above the fullness-sorted rows (FR-003b, FR-033, Story 10) — but
+always visible on the Topic Overview.
 
 5. As a fourth Participant, attempt to join the same Topic.
 
@@ -140,14 +141,93 @@ with no deployment required (FR-018).
 **Expected**: both denied (403/redirect-to-login per `SecurityConfig`'s existing `/organiser/**` rule) —
 no compliance-settings or override UI is reachable by a non-Organiser at all.
 
+## 8. Topic Details and own-Topic pinning (Stories 9, 10)
+
+1. As any authenticated user, on the Home Page or the Topic Overview, click **View Details** on the Topic from
+   step 3 (now at its configured Maximum of 3 members).
+
+**Expected**: a page opens showing the Topic's Name as a heading, a "Topic Info" table (Description, needed
+Skills, participant count `3`, Compliance status — Compliant/Not Compliant per steps 1–3's configuration) and,
+alongside it, a "Joined Participants" table listing all three joined Participants by display name (FR-030,
+FR-031, SC-011). The word "Group" does not appear anywhere on this page (FR-036).
+
+2. Compare what a Participant outside the joined Group sees in that list against what an Organiser (or one of
+   the joined members viewing their own row) sees.
+
+**Expected**: the non-member/non-organiser viewer sees each joined Participant's `public`-marked Custom Field
+values and Skills only if **Skill visibility** is currently enabled in Organiser Settings; the Organiser (and
+each member viewing themselves) sees every field and Skill regardless (FR-031, mirroring the Participants
+Directory's own detail-page rule, research.md §10).
+
+3. As a user who is outside the configured **Participants Directory audience** (Organiser → Settings) and thus
+   gets denied at `/participants`, open this same Topic Details page.
+
+**Expected**: still succeeds — the joined-Participants list still renders (FR-032, Story 9 Acceptance Scenario
+6); only `/participants` itself is gated by that audience setting.
+
+4. Propose a new Topic as a Participant (leave it unapproved, i.e. Pending) and, separately, note the
+   already-full Topic from step 3 (also authored by you, or use a Topic you separately authored and filled to
+   its Maximum).
+
+**Expected**: on both the Home Page and the Topic Overview, your Pending Topic and your full Topic both appear
+pinned above every other row (FR-033, FR-034); the Pending one shows **View Details** but no **Join** action
+(FR-035); nobody else sees your Pending Topic at all, pinned or otherwise.
+
+5. On the Home Page only, as a user who has authored more Topics than fit under the 10-row cap alongside the
+   normal fullness-sorted rows.
+
+**Expected**: every one of your own Topics is still shown; other Topics are pushed out of the visible 10 first
+(FR-033, Story 10 Acceptance Scenario 3). On the Topic Overview, nothing is ever hidden this way — pinning only
+reorders (FR-034).
+
+## 9. Leave a joined Topic (Story 11)
+
+1. As one of the three Participants who joined the Topic from step 3 (still at its configured Maximum of 3),
+   open its Topic Details view.
+
+**Expected**: alongside the Topic Info and Joined Participants tables, a **Leave** action is shown (FR-037) —
+not shown to a viewer who is not a member of this Topic's Group.
+
+2. Click **Leave**.
+
+**Expected**: immediate success confirmation, no confirmation dialog (FR-037a); the page reloads showing
+participant count `2` and this Participant no longer listed in the Joined Participants table; the Home
+Page/Topic Overview now show count `2`, and the Topic is no longer "full" (FR-003b) since it has dropped below
+the configured Maximum.
+
+3. As the same Participant (who no longer belongs to any active Group), join a *different* open Topic.
+
+**Expected**: succeeds immediately (FR-037d) — contrast with step 3.6 above, where a current member was
+rejected.
+
+4. Have the two remaining members leave one at a time, the second (last) one leaving.
+
+**Expected**: after the first leaves, count is `1`, Compliance status re-evaluates against the remaining
+member alone. After the last member leaves, the Group is disbanded (FR-037c): the Topic's Details view now
+shows an empty Joined Participants table ("no one has joined yet") and a blank Compliance value, and the Topic
+becomes joinable again from a fresh **Join** (FR-008) — reappearing on the Home Page with count `0`.
+
+5. As a user with no Participant record (or one who is not currently a member of this Topic), attempt `POST
+   /topics/{id}/leave` directly against a Topic they can view.
+
+**Expected**: rejected server-side (FR-037b), consistent with step 3.6's `POST /topics/{id}/join` denial for an
+ineligible requester.
+
+*(Concurrency edge case — exercised by the automated integration test, not manually: two simultaneous `POST
+/topics/{id}/leave` submissions where one is the Group's last remaining member must result in the Group being
+disbanded exactly once, never zero or twice — see `contracts/topic-details.md` and research.md §14.)*
+
 ## Automated checks
 
 - Unit: `mvn test -Dtest=TopicServiceTest,TopicDiscoveryServiceTest,TopicJoinServiceTest,GroupServiceTest,ComplianceServiceTest,OrganiserSettingsServiceTest,CustomFieldServiceTest`
-- Integration (`WebTestClient` + Testcontainers): `mvn verify` runs every `*ManagementIT` in `topics/`,
-  `organiser/compliance/`, `organiser/settings/`, `organiser/group/`, including the join-race concurrent-
-  submission test (research.md §2).
+  (`TopicJoinServiceTest`/`GroupServiceTest` now include `leave()` cases, research.md §14).
+- Integration (`WebTestClient` + Testcontainers): `mvn verify` runs every `*ManagementIT` in `topics/`
+  (including the new `TopicDetailManagementIT`), `organiser/compliance/`, `organiser/settings/`,
+  `organiser/group/`, including the join-race concurrent-submission test (research.md §2) and its matching
+  leave-race concurrent-submission test (research.md §14).
 - Accessibility (Playwright + axe-core, per research.md §9): `mvn verify` also runs the extended
-  `a11y.HomepageAccessibilityIT` plus new `a11y.TopicOverviewAccessibilityIT` and
-  `a11y.ComplianceSettingsAccessibilityIT`, asserting zero critical/serious WCAG 2.1 AA violations on the Home
-  Page topic table + Join action, the Topic proposal/edit Skill picker, the Topic Overview, and the Organiser's
-  compliance-settings and override screens (SC-008).
+  `a11y.HomepageAccessibilityIT` and `a11y.TopicOverviewAccessibilityIT`, plus new `a11y.TopicDetailAccessibilityIT`
+  and `a11y.ComplianceSettingsAccessibilityIT`, asserting zero critical/serious WCAG 2.1 AA violations on the
+  Home Page topic table + Join/View Details actions, the Topic proposal/edit Skill picker, the Topic Overview
+  (+ its Join/View Details actions), the Topic Details view (its Topic Info/Joined Participants tables and the
+  Join/Leave actions), and the Organiser's compliance-settings and override screens (SC-008).

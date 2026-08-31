@@ -48,6 +48,14 @@ Behavioral additions, in `GroupService`:
   group_id = :gid AND active`) used by both `join` (capacity check) and `TopicDiscoveryService`/
   `ComplianceService` (participant-count columns, rule evaluation) so there is exactly one query shape for
   "how many active members does this Group have" across the whole feature.
+- **`leave(UUID topicId, UUID participantId)`** — the race-safe entry point for Story 11 (FR-037–FR-037e,
+  research.md §14). Inside the *same* `TransactionalOperator` + per-Topic advisory lock `join` already
+  acquires: re-reads the Topic's active Group (empty → `GroupConflictException`, "not currently a member of
+  this Topic"), calls the **already-existing** `removeMember(groupId, participantId)` (empty → same
+  exception — the requester was not an active member), re-reads `activeMemberCount(groupId)`, and — only if
+  it is now `0` — calls the **already-existing** `disband(groupId)` (FR-037c); otherwise returns the Group
+  unchanged. No new SQL: both `removeMember` and `disband` are reused verbatim, unlike `join`, which needed a
+  new capacity/override check `addMember` didn't have.
 
 ### Organiser Settings (003/004's `organiser_settings` singleton row — FR-011, FR-011a–d, FR-017, FR-020a, FR-020d)
 
@@ -116,18 +124,50 @@ the union of Skills held by its current Group's active members (empty set if no 
 
 ## New value types (application-level only, no new tables)
 
-- **`TopicDiscoveryService.OpenTopicRow(Topic topic, int memberCount, List<Skill> viewerOfferedSkills)`** — one
-  Home Page row (FR-004): `viewerOfferedSkills` is the display-mode-filtered needed-Skill set intersected with
-  the viewing user's own `participant_skills` (empty list, never an error, for a viewer with no Participant
-  record or no matching Skills — FR-004 Acceptance Scenario 5).
+- **`TopicDiscoveryService.OpenTopicRow(Topic topic, int memberCount, List<Skill> viewerOfferedSkills, boolean
+  pinned)`** — one Home Page row (FR-004): `viewerOfferedSkills` is the display-mode-filtered needed-Skill set
+  intersected with the viewing user's own `participant_skills` (empty list, never an error, for a viewer with
+  no Participant record or no matching Skills — FR-004 Acceptance Scenario 5). **`pinned`** is **NEW** (FR-033,
+  research.md §11): `true` for a row shown only because it is the viewer's own Topic (would otherwise be
+  excluded as full or Pending, or would have fallen outside the fullness ranking); templates use it only to
+  group the pinned rows above the rest, not to change any other column's content.
 - **`TopicDiscoveryService.OverviewRow(Topic topic, String authorDisplayName, int memberCount, List<Skill>
-  neededSkills, Optional<ComplianceStatus> complianceStatus)`** — one Topic Overview row (FR-006); an empty
-  `complianceStatus` renders as "No Group Yet" (FR-014).
+  neededSkills, Optional<ComplianceStatus> complianceStatus, boolean pinned)`** — one Topic Overview row
+  (FR-006); an empty `complianceStatus` now renders as a blank Compliance cell (FR-014a, research.md §12,
+  supersedes the original "No Group Yet" text). **`pinned`** is **NEW** (FR-034, research.md §11), same meaning
+  as `OpenTopicRow.pinned`.
+- **`TopicDiscoveryService.TopicDetailView(Topic topic, List<Skill> neededSkills, int memberCount,
+  Optional<ComplianceStatus> complianceStatus, List<ParticipantService.ParticipantViewerDetail> members, boolean
+  isAuthor, boolean isMember)`** — **NEW** (FR-030–FR-032, FR-037, research.md §13–§14): the Topic Details
+  view's full read model, rendered as the "Topic Info" table (`topic`, `neededSkills`, `memberCount`,
+  `complianceStatus` — one row each, FR-030) plus the "Joined Participants" table (`members`, FR-031). `members`
+  is one `ParticipantViewerDetail` per currently-joined Participant (research.md §10 — each already carries only
+  the Custom Field values and Skills this specific viewer may see, via the *existing*
+  `ParticipantService.findDetailForViewer`, reused verbatim rather than re-derived). `isAuthor` drives whether
+  the template shows the existing edit-form link (Story 9 Acceptance Scenario 5). **`isMember`** is **NEW**
+  (FR-037, research.md §14): `true` when the viewer's own Participant record currently belongs to this Topic's
+  Group (set from the same `GroupService.findActiveGroupForParticipant` lookup `TopicJoinService.leave` uses),
+  driving whether the template shows the Leave form (Story 11) — `false` for a viewer with no Participant
+  record, no active Group, or an active Group for a *different* Topic. Nothing in this record, and
+  nothing `topics/detail.html` renders from it, names "Group" (FR-036) — `memberCount`/`complianceStatus` are
+  the same Topic-scoped figures `OverviewRow` already exposes, not a `Group` reference.
 - **`TopicJoinService`** *(new orchestrating service, `topic` package)* — composes the eligibility gate
   (`OrganiserSettings.topicJoiningEnabled`, FR-020b; the requester's `ParticipantStatus == ACTIVE`, FR-007b;
   the Topic's `approvalStatus == APPROVED`) in front of the race-safe `GroupService.join(...)` core
   (data-model.md "Group" above), translating each rejection reason into a distinct
-  `TopicJoinConflictException` message the controller can show inline (FR-026).
+  `TopicJoinConflictException` message the controller can show inline (FR-026). **Gains `leave(UUID topicId,
+  UUID requesterUserId)`** (Story 11, FR-037–FR-037e, research.md §14): a shorter gate — the requester must
+  have a Participant record with a currently-active Group whose `topicId` matches (FR-037b; no
+  `topicJoiningEnabled` or `ParticipantStatus` check, FR-037e) — in front of the equally race-safe
+  `GroupService.leave(...)` core.
+
+## Modified read-model methods (`TopicDiscoveryService` — research.md §11, §13)
+
+| Method | Change |
+|---|---|
+| `findOpenTopicsForHomePage(UUID viewerParticipantIdOrNull, int limit)` | **gains** a leading `UUID viewerUserId` parameter (FR-033): needed to identify the viewer's *authored* Topics (`topic.getCreatedByUserId()`), a different id than `viewerParticipantIdOrNull` (a Participant id, used only for the Skills-offered intersection, FR-004 — unchanged). `HomeController` passes both. |
+| `findTopicOverview(UUID viewerUserId, boolean viewerIsOrganiser)` | **unchanged signature** — `viewerUserId` already identifies authorship for FR-034's pinning; only the method body changes (research.md §11). |
+| `findTopicDetail(UUID topicId, UUID viewerUserId, boolean viewerIsOrganiser)` | **NEW** (FR-030–FR-032, FR-037): `Mono<TopicDetailView>`, empty (→ 404) for an unknown or Pending-and-invisible Topic, reusing the same package-private static `TopicService.isVisibleTo(...)` check `findTopicOverview` already calls (no new dependency for this part — `TopicDiscoveryService` and `TopicService` are already in the same `topic` package). Requires `TopicDiscoveryService` to gain `ParticipantService` as one new constructor dependency, for the per-member `findDetailForViewer` calls (research.md §10), and `GroupService.findActiveGroupForParticipant` (already a dependency, via `GroupService`) for the new `isMember` field (research.md §14). |
 
 ## Schema additions (illustrative DDL — final statements land in `schema.sql`)
 

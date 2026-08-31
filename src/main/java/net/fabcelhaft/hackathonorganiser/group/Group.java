@@ -29,6 +29,8 @@ public class Group {
 
     private Instant disbandedAt;
 
+    private boolean complianceOverride;
+
     private Instant createdAt;
 
     private Instant updatedAt;
@@ -63,6 +65,14 @@ public class Group {
 
     public void setDisbandedAt(Instant disbandedAt) {
         this.disbandedAt = disbandedAt;
+    }
+
+    public boolean isComplianceOverride() {
+        return complianceOverride;
+    }
+
+    public void setComplianceOverride(boolean complianceOverride) {
+        this.complianceOverride = complianceOverride;
     }
 
     public Instant getCreatedAt() {

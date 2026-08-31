@@ -8,7 +8,9 @@ import java.time.Instant;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
+import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
@@ -74,6 +76,24 @@ class GroupManagementIT {
 
     @Autowired
     DatabaseClient databaseClient;
+
+    @Autowired
+    GroupService groupService;
+
+    @Autowired
+    OrganiserSettingsRepository organiserSettingsRepository;
+
+    @BeforeEach
+    void resetMaxGroupMembers() {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setMaxGroupMembers(5);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
+    }
 
     // --- Create (FR-016a) --------------------------------------------------------------------------
 
@@ -328,6 +348,88 @@ class GroupManagementIT {
                 .post().uri("/organiser/groups/{id}/disband", group.getId())
                 .exchange()
                 .expectStatus().isOk(); // no-op error, not a second redirect
+    }
+
+    // --- Compliance override (Story 7, FR-015, FR-016, SC-006) -------------------------------------
+
+    @Test
+    void settingTheOverrideShowsTheOverrideBadgeAndAllowsAJoinBeyondMaximum() {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setMaxGroupMembers(1);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
+        Topic topic = persistTopic("Override Topic " + UUID.randomUUID());
+        Group group = persistActiveGroup(topic.getId());
+        Participant firstMember = persistParticipant("First Member " + UUID.randomUUID());
+        addMemberDirectly(group.getId(), firstMember.getId());
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/groups/{id}/compliance-override", group.getId())
+                .body(BodyInserters.fromFormData("override", "true"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(detailBody(group.getId())).contains("Compliant (Organiser Override)");
+
+        Participant secondMember = persistParticipant("Second Member " + UUID.randomUUID());
+        Group joined = groupService.join(topic.getId(), secondMember.getId()).block();
+        assertThat(joined.getId()).isEqualTo(group.getId());
+        assertThat(groupService.activeMemberCount(group.getId()).block()).isEqualTo(2);
+    }
+
+    @Test
+    void removingTheOverrideRevertsTheBadgeAndReenforcesTheMaximum() {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setMaxGroupMembers(1);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
+        Topic topic = persistTopic("Revert Override Topic " + UUID.randomUUID());
+        Group group = persistActiveGroup(topic.getId());
+        Participant firstMember = persistParticipant("Only Member " + UUID.randomUUID());
+        addMemberDirectly(group.getId(), firstMember.getId());
+        groupService.setComplianceOverride(group.getId(), true).block();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/groups/{id}/compliance-override", group.getId())
+                .body(BodyInserters.fromFormData("override", "false"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(detailBody(group.getId())).doesNotContain("Organiser Override");
+
+        Participant secondMember = persistParticipant("Rejected Member " + UUID.randomUUID());
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> groupService.join(topic.getId(), secondMember.getId()).block())
+                .hasMessageContaining("full");
+    }
+
+    @Test
+    void complianceOverrideOnAnUnknownGroupReturns404() {
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/groups/{id}/compliance-override", UUID.randomUUID())
+                .body(BodyInserters.fromFormData("override", "true"))
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void complianceOverrideIsDeniedToANonOrganiser() {
+        Topic topic = persistTopic("Guarded Override Topic " + UUID.randomUUID());
+        Group group = persistActiveGroup(topic.getId());
+
+        webTestClient.mutateWith(standardUser())
+                .post().uri("/organiser/groups/{id}/compliance-override", group.getId())
+                .body(BodyInserters.fromFormData("override", "true"))
+                .exchange()
+                .expectStatus().isForbidden();
     }
 
     // --- Non-Organiser denied on every route (FR-022, SC-004) -----------------------------------

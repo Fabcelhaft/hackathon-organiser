@@ -15,6 +15,17 @@
             <label for="description">Description</label>
             <textarea id="description" name="description" required="required" th:text="${description}"></textarea>
 
+            <fieldset>
+                <legend>Skills</legend>
+                <div th:each="skill : ${allSkills}">
+                    <label>
+                        <input type="checkbox" name="skillIds" th:value="${skill.id}"
+                               th:checked="${#lists.contains(selectedSkillIds, skill.id)}"/>
+                        <span th:text="${skill.name}">Skill</span>
+                    </label>
+                </div>
+            </fieldset>
+
             <button type="submit">Save</button>
         </form>
     </div>

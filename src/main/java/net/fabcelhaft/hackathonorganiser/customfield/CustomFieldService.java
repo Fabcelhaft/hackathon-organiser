@@ -177,7 +177,7 @@ public class CustomFieldService {
                 if (count > 0) {
                     return Mono.error(new CustomFieldConflictException(
                             "Cannot delete this custom field: still referenced by " + count
-                                    + " Participant value(s)"));
+                                    + " Participant value(s) or compliance rule(s)"));
                 }
                 return optionRepository
                         .findByCustomFieldDefinitionId(id)
@@ -258,19 +258,21 @@ public class CustomFieldService {
     }
 
     /**
-     * FR-012a/FR-023 guards, queried directly against {@code custom_field_values} and
-     * {@code custom_field_value_options} — the real table names User Story 3 (Participant Custom
-     * Field values) will add later in this feature. Until those tables exist, Postgres reports
-     * "relation does not exist" ({@link BadSqlGrammarException}); that is treated defensively as
-     * "no values recorded yet" so this story's create/update/delete flows work correctly today.
-     * Once those tables exist, the very same query starts returning real counts and these guards
-     * activate with no further code change required — writing the guard against the eventual
-     * schema now means it "just works" the moment the referencing tables land.
+     * FR-012a/FR-023 guards, queried directly against {@code custom_field_values}, {@code
+     * custom_field_value_options}, and (feature 005, research.md §8) {@code
+     * compliance_diversity_requirements} — the real table names later features add. Until a given
+     * table exists, Postgres reports "relation does not exist" ({@link BadSqlGrammarException});
+     * that is treated defensively as "no references yet" so this story's create/update/delete flows
+     * work correctly today. Once a table exists, the very same query starts returning real counts
+     * and this guard activates with no further code change required — writing the guard against the
+     * eventual schema now means it "just works" the moment the referencing table lands.
      */
     private Mono<Long> valueReferenceCount(UUID customFieldDefinitionId) {
         return countReferencing("custom_field_values", "custom_field_definition_id", customFieldDefinitionId)
                 .concatWith(countReferencing(
                         "custom_field_value_options", "custom_field_definition_id", customFieldDefinitionId))
+                .concatWith(countReferencing(
+                        "compliance_diversity_requirements", "custom_field_definition_id", customFieldDefinitionId))
                 .reduce(0L, Long::sum);
     }
 

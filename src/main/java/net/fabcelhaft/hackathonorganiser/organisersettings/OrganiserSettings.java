@@ -39,6 +39,14 @@ public class OrganiserSettings {
 
     private DirectoryAudience participantsDirectoryAudience;
 
+    private int maxGroupMembers;
+
+    private Integer minGroupMembers;
+
+    private boolean topicJoiningEnabled;
+
+    private SkillDisplayMode skillDisplayMode;
+
     private Instant updatedAt;
 
     public UUID getId() {
@@ -111,6 +119,38 @@ public class OrganiserSettings {
 
     public void setParticipantsDirectoryAudience(DirectoryAudience participantsDirectoryAudience) {
         this.participantsDirectoryAudience = participantsDirectoryAudience;
+    }
+
+    public int getMaxGroupMembers() {
+        return maxGroupMembers;
+    }
+
+    public void setMaxGroupMembers(int maxGroupMembers) {
+        this.maxGroupMembers = maxGroupMembers;
+    }
+
+    public Integer getMinGroupMembers() {
+        return minGroupMembers;
+    }
+
+    public void setMinGroupMembers(Integer minGroupMembers) {
+        this.minGroupMembers = minGroupMembers;
+    }
+
+    public boolean isTopicJoiningEnabled() {
+        return topicJoiningEnabled;
+    }
+
+    public void setTopicJoiningEnabled(boolean topicJoiningEnabled) {
+        this.topicJoiningEnabled = topicJoiningEnabled;
+    }
+
+    public SkillDisplayMode getSkillDisplayMode() {
+        return skillDisplayMode;
+    }
+
+    public void setSkillDisplayMode(SkillDisplayMode skillDisplayMode) {
+        this.skillDisplayMode = skillDisplayMode;
     }
 
     public Instant getUpdatedAt() {

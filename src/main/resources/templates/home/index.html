@@ -14,7 +14,7 @@
             Status: <span class="status-badge" th:text="${participant.status}">ACTIVE</span>
         </p>
         <p th:if="${assignedTopic} != null">
-            Group topic: <span th:text="${assignedTopic.name}">Topic</span>
+            Your Topic: <span th:text="${assignedTopic.name}">Topic</span>
         </p>
 
         <p th:if="${canRegister}">
@@ -31,7 +31,7 @@
 
         <dialog th:if="${canRevoke}" id="revoke-dialog" aria-labelledby="revoke-dialog-title">
             <h2 id="revoke-dialog-title">Confirm Revoke Registration</h2>
-            <p>Revoking your registration will remove you from your current Group, if any, and cannot be
+            <p>Revoking your registration will remove you from your current Topic's team, if any, and cannot be
                 undone automatically — you would need to register again.</p>
             <button type="button" id="revoke-cancel-button">Cancel</button>
             <button type="submit" form="revoke-form">Confirm Revoke</button>
@@ -42,30 +42,78 @@
         <h2 id="topics-heading">Topics</h2>
         <p th:if="${canProposeTopic}"><a th:href="@{/topics/new}" role="button">Propose Topic</a></p>
 
-        <ul class="topic-list">
-            <li th:each="topic : ${topicList.ownPending()}">
-                <span class="badge-pending">Pending approval</span>
-                <strong th:text="${topic.name}">Name</strong> —
-                <span th:text="${topic.description}">Description</span>
-                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
-                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
-                <a th:href="@{/topics/{id}/edit(id=${topic.id})}">Edit</a>
-            </li>
-            <li th:each="topic : ${topicList.ownApproved()}">
-                <strong th:text="${topic.name}">Name</strong> —
-                <span th:text="${topic.description}">Description</span>
-                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
-                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
-                <a th:href="@{/topics/{id}/edit(id=${topic.id})}">Edit</a>
-            </li>
-            <li th:each="topic : ${topicList.others()}">
-                <span th:if="${topic.approvalStatus.name() == 'PENDING'}" class="badge-pending">Pending approval</span>
-                <strong th:text="${topic.name}">Name</strong> —
-                <span th:text="${topic.description}">Description</span>
-                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
-                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
-            </li>
-        </ul>
+        <!--/* FR-033, FR-035: the viewer's own Topics (any status, any fullness) shown separately,
+             above the fullness-sorted table; a pinned Pending/full row shows View Details but never
+             Join (row.joinable() covers that). openTopics already carries every row this feature
+             needs on the Home Page, so both sections below select from that one list. */-->
+        <div th:if="${!#lists.isEmpty(openTopics.?[pinned])}">
+            <h3 id="your-topics-heading">Your Topics</h3>
+            <table aria-labelledby="your-topics-heading">
+                <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Participants</th>
+                    <th>Skills you offer</th>
+                    <th th:if="${canJoinTopics}"></th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${openTopics.?[pinned]}">
+                    <td th:text="${row.topic().name}">Name</td>
+                    <td th:text="${row.memberCount()}">0</td>
+                    <td>
+                        <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
+                            <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                        </span>
+                    </td>
+                    <td th:if="${canJoinTopics}">
+                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                            <button type="submit">Join</button>
+                        </form>
+                    </td>
+                    <td>
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}">View Details</a>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3 id="open-topics-heading">Open Topics</h3>
+        <table aria-labelledby="open-topics-heading">
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Participants</th>
+                <th>Skills you offer</th>
+                <th th:if="${canJoinTopics}"></th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${openTopics.?[!pinned]}">
+                <td th:text="${row.topic().name}">Name</td>
+                <td th:text="${row.memberCount()}">0</td>
+                <td>
+                    <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
+                        <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                    </span>
+                </td>
+                <td th:if="${canJoinTopics}">
+                    <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                        <button type="submit">Join</button>
+                    </form>
+                </td>
+                <td>
+                    <a th:href="@{/topics/{id}(id=${row.topic().id})}">View Details</a>
+                </td>
+            </tr>
+            <tr th:if="${openTopics.?[!pinned].isEmpty()}">
+                <td colspan="5">No open Topics right now.</td>
+            </tr>
+            </tbody>
+        </table>
     </section>
 
     <section id="content-section" aria-labelledby="content-heading">

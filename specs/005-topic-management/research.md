@@ -246,3 +246,149 @@ screens; reusing it a third time is the direct, expected payoff of that investme
 
 **Alternatives considered**: None seriously considered — re-litigating an already-justified, twice-reused
 testing decision for the same kind of requirement would be pure churn.
+
+## 10. Topic Details' joined-Participants list reuses `ParticipantService.findDetailForViewer` verbatim, once per member (FR-030, FR-031, FR-032)
+
+**Decision**: `TopicDiscoveryService.findTopicDetail(...)` (new method, §11) calls the already-public
+`ParticipantService.findDetailForViewer(participantId, viewerUserId, viewerIsOrganiser)` — the exact method the
+Participants Directory's own detail page (`ParticipantsDirectoryController#detail`) already calls — once per
+Group member returned by `GroupService.activeMemberParticipantIds(groupId)`, and reads its `fields()` (already
+filtered to `visibleToViewer`, which for a non-self/non-organiser caller means `definition.public == true`) and
+`skills()`/`skillsVisibleToViewer()` (already gated by `OrganiserSettings.skillVisibilityEnabled`) straight off
+the returned `ParticipantViewerDetail`. No new visibility computation is written.
+
+**Rationale**: `findDetailForViewer` is already exactly "one Participant's fields and Skills, resolved for one
+specific viewer, with self/Organiser full access and everyone else public-only" (data-model.md of feature 003) —
+precisely what FR-031 asks for. Calling it per member is a direct reuse of an existing, already-tested method
+rather than re-deriving the same `definition.public`/`skillVisibilityEnabled` branching a second time in
+`TopicDiscoveryService`, which would risk the two views drifting out of sync over time (the same reasoning §7
+already applied to avoid duplicating Skill-coverage logic across the Home Page and Topic Overview).
+
+**Deliberately not reused**: `ParticipantService.findDirectoryListing()` — the Directory *table's* read model,
+which selects columns by each Custom Field Definition's `overview` flag and never includes Skills at all. That
+flag answers a different question ("which columns does the Directory table show") from FR-031's ("what may
+*this* viewer see about *this* Participant"), so reusing it here would silently couple Topic Details' columns to
+an Organiser setting that has nothing to do with this feature.
+
+**Alternatives considered**: A new `ParticipantService` method computing only the public-field/skill subset,
+skipping the full `ParticipantViewerDetail` — rejected as a premature extraction; `findDetailForViewer` already
+returns exactly the fields FR-031 needs, and its self/Organiser branch is free correctness (a joined member who
+happens to be the viewer, or an Organiser browsing Topic Details, see full field detail with no extra code
+path).
+
+## 11. Own-Topic pinning is a second in-memory pass over the same `findAll()` results, not a new query (FR-033, FR-034)
+
+**Decision**: `TopicDiscoveryService.findOpenTopicsForHomePage` gains a `UUID viewerUserId` parameter (alongside
+the existing `viewerParticipantIdOrNull`) and, before applying FR-003's Approved/not-full filter, partitions
+`topicRepository.findAll()` into `own` (`topic.getCreatedByUserId().equals(viewerUserId)`, any approval status,
+any fullness — reusing the exact per-row assembly `withActiveGroupAndCount`/Skill-computation the fullness-sorted
+path already uses) and `others`. `own` is sorted fullest-first exactly like the existing list, then `others` is
+computed exactly as today (Approved, not-full, fullest-first) *excluding* any Topic id already present in `own`.
+The final row list is `own` followed by `others`, truncated to `limit` total (FR-033: `own` never gets truncated
+away — only `others` shrinks to make room). `findTopicOverview` applies the same own/others split (`viewerUserId`
+is already a parameter there), with no truncation on either part, since FR-006/FR-034 impose no cap.
+
+**Rationale**: Every Topic in this codebase is already loaded via `topicRepository.findAll()` and filtered
+in-memory (§7's existing pattern, sized for "Scale/Scope: single ongoing hackathon" — plan.md) — adding a second
+filter over the same already-fetched `Flux<Topic>` is strictly cheaper than a second round-trip, and keeps the
+per-row assembly logic (Group lookup, member count, Skill Display Mode) defined exactly once, reused by both the
+pinned and non-pinned branches, so a future change to that assembly can never update one branch and miss the
+other.
+
+**Alternatives considered**: A dedicated `TopicRepository.findByCreatedByUserId(UUID)` query, unioned with the
+existing fullness query at the SQL level — rejected: `TopicRepository` is a plain `ReactiveCrudRepository` with
+no custom queries today (every filter in this feature so far happens in `TopicDiscoveryService`, not the
+repository), and at this feature's data scale a second SQL round-trip buys nothing a second in-memory filter over
+already-fetched rows doesn't already provide, while adding a repository method this is the only caller of.
+
+## 12. The blank Compliance cell (FR-014a) needs no Java-level change — it is the existing `Optional.empty()` branch, rendered differently
+
+**Decision**: `TopicDiscoveryService.OverviewRow.complianceStatus()` and the new `TopicDetailView.complianceStatus()`
+(§13) keep the exact `Optional<ComplianceStatus>` shape §5/§7 already established — `Optional.empty()` still means
+"no Group yet," unchanged. Only `templates/topics/overview.html` and the new `templates/topics/detail.html`
+change: the `th:if="${row.complianceStatus().isEmpty()}"` branch that used to render the "❓ No Group Yet" text/icon
+now renders nothing (FR-014a) in those two participant-facing templates — in `detail.html` this is a `<td>` inside
+the "Topic Info" `<table>` row for Compliance (FR-030), not the `<dl>`/`<dd>` markup an earlier draft of this
+template used; `templates/organiser/groups/detail.html`
+is untouched, since FR-014 (the Organiser-facing rule) is unchanged and that view's `Optional` is unreachable
+empty anyway (a `Group` always exists by the time that page renders one — see data-model.md's Compliance Status
+section).
+
+**Rationale**: This is a presentation-only change (Clarifications, Session 2026-08-30) — the underlying compliance
+computation, its `Optional` return shape, and every non-empty branch (Compliant/Not Compliant/Override) are
+identical to what §5 already established; re-deriving a new signal for "blank" would only duplicate the
+already-correct "no Group yet" detection `OverviewRow`/`TopicDetailView` already carry.
+
+## 13. New value type `TopicDetailView` and one new method, in the same `TopicDiscoveryService` (FR-030–FR-032)
+
+**Decision**: `TopicDiscoveryService` gains `findTopicDetail(UUID topicId, UUID viewerUserId, boolean
+viewerIsOrganiser)` returning `Mono<TopicDetailView>` — `Mono.empty()` (→ 404) for an unknown or
+Pending-and-invisible Topic. It reuses the same package-private static `TopicService.isVisibleTo(...)` check
+`findTopicOverview` already calls (both classes live in the `topic` package, so no new dependency is needed for
+this part), the same Group/member-count/Skill-Display-Mode/Compliance assembly `buildOverviewRow` already
+performs for one Topic, and §10's per-member `findDetailForViewer` calls for the joined-Participants list —
+which does require `TopicDiscoveryService` to gain `ParticipantService` as one new constructor dependency.
+`TopicSelfServiceController` (not a new controller) gains `@GetMapping("/{id}")` rendering `topics/detail.html`
+— the natural home for a new `/topics/{id}` route alongside that controller's existing `/topics/{id}/edit` and
+`POST /topics/{id}`, requiring `TopicDiscoveryService` as one new constructor dependency there (that controller
+does not currently hold one).
+
+**Rationale**: Placing this on `TopicDiscoveryService` rather than a new service keeps every "Topic + Group +
+Skills + Compliance" read model in the one place §7 already established, and `TopicSelfServiceController` is
+already the controller that owns every other `/topics/{id}*` self-service route, so a new controller would only
+split one Topic's routes across two classes for no benefit.
+
+**Alternatives considered**: A new `TopicDetailController` (mirroring `TopicOverviewController`'s "new page, new
+controller" precedent) — rejected: `TopicOverviewController` earned its own class because `/topics/overview` is
+a page-level route with no natural existing controller, whereas `/topics/{id}` (GET) is a sibling of
+`/topics/{id}/edit` (GET) and `/topics/{id}` (POST), both already on `TopicSelfServiceController`.
+
+`TopicDetailView` also gains one new field, `boolean isMember`, alongside the existing `isAuthor` — set from
+the same `findActiveGroupForParticipant` lookup §14 introduces for `leave`, so `topics/detail.html` knows
+whether to render the new Leave form (§14) without a second query.
+
+## 14. Leave reuses the *existing* `GroupService.removeMember`/`disband` methods verbatim, guarded by the same per-Topic advisory lock as Join (Story 11, FR-037–FR-037e)
+
+**Decision**: `GroupService` gains one new atomic entry point, `leave(UUID topicId, UUID participantId)`,
+wrapped in the *same* `TransactionalOperator` + `pg_advisory_xact_lock(hashtext('topic-join:' || :topicId))`
+sequence §2 already established for `join` (the lock key is reused unchanged — Rationale below). Inside the
+lock: re-read the Topic's active Group, call the **already-existing** `removeMember(groupId, participantId)`
+(flips that one `group_members` row to `active = false` — no new SQL), then re-read
+`activeMemberCount(groupId)`; if it is now `0`, call the **already-existing** `disband(groupId)` (flips
+`status = DISBANDED`, sets `disbandedAt`, and — redundantly but harmlessly — re-flips every membership's
+`active`, all of which are already `false` by this point). `TopicJoinService` gains a matching `leave(UUID
+topicId, UUID requesterUserId)`: resolve the requester's Participant record (no record → `TopicJoinConflictException`,
+FR-037b), resolve their current active Group via the already-existing `GroupService.findActiveGroupForParticipant`,
+reject if it is empty or its `topicId` does not match the one being left (FR-037b), otherwise delegate to
+`GroupService.leave`. Unlike `join`, this gate does **not** consult `OrganiserSettings.topicJoiningEnabled`
+(FR-037e) and does **not** require `ParticipantStatus == ACTIVE` — a Participant whose status changed away from
+`ACTIVE` no longer has an active Group to begin with, since the existing self-revocation flow already removes
+that membership as a side effect (spec Assumptions), so `leave`'s own membership check already excludes them
+without a redundant status check. `TopicJoinController` gains a sibling `@PostMapping("/topics/{id}/leave")`,
+redirecting `303 → /topics/{id}?flash=You+left+<Topic+name>.` (deliberately the Topic Details page itself, not
+Home like `join`'s redirect — Leave's only entry point *is* that page, unlike Join's three).
+
+**Rationale**: `removeMember` and `disband` are not new — they already exist, fully tested, on `GroupService`
+today (originally for the Organiser-facing `/organiser/groups/{id}/members/{participantId}/remove` and
+`/organiser/groups/{id}/disband` routes), and their existing semantics are *exactly* what FR-037/FR-037c ask
+for: a single-member removal, and a Group-wide disband when membership hits zero, with disbandment's
+`ACTIVE → DISBANDED` transition already the codebase's one and only "a Topic becomes eligible for a fresh
+Group again" mechanism (research.md §2 of 002). Writing a second, parallel "self-service remove" that
+duplicates `removeMember`'s single `UPDATE group_members SET active = false ...` would be pure, unjustified
+duplication of a method that already does precisely this. Reusing the *same* advisory lock key as `join` (not
+a second, `leave`-specific lock) is what makes the Edge Cases' "two members leave at the same time, one of
+whom is last" scenario resolve to disbandment applied *exactly once*: without the lock, two concurrent
+`activeMemberCount` re-reads could each observe `1` (the other member's removal not yet committed) and neither
+would disband; the lock forces the second `leave` to wait for the first's full remove-then-recount-then-maybe-
+disband sequence to commit before it starts its own, so the second (and truly last) removal is the one that
+observes `0` and disbands — deterministically exactly once, never zero or twice. Reusing `join`'s lock key
+(rather than minting a `'topic-leave:'`-prefixed one) additionally serializes *join* and *leave* against each
+other for the same Topic, which is strictly safer than two independent locks for no extra code.
+
+**Alternatives considered**: A `leave`-specific advisory lock key (`'topic-leave:' || topicId`) — rejected: it
+would still race against a *concurrent join* re-reading the same Group's member count outside any shared lock,
+reintroducing exactly the TOCTOU gap §2 closes for join; reusing one lock key per Topic covers every
+membership-count-changing operation on that Topic with a single mechanism. Making `disband`'s already-idempotent-
+looking membership `UPDATE` the *only* guard (skip the lock, rely on `removeMember`'s own row-level update
+being atomic) — rejected: an individual row update is atomic, but the *read-then-decide-whether-to-disband*
+step is not, which is exactly the TOCTOU pattern §2 already identified and rejected for join.

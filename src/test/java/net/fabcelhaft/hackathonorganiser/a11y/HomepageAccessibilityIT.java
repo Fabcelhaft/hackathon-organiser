@@ -178,6 +178,37 @@ class HomepageAccessibilityIT {
         assertNoSeriousViolations(page, "/ (registered, with topics)");
     }
 
+    @Test
+    void homepageTopicTableWithAJoinActionHasNoCriticalOrSeriousViolations() {
+        // Feature 005 (US2, US3): the Home Page's 3-column topic table, including a rendered
+        // "Join" action for an eligible viewer with an open Topic to join.
+        User author = persistUser(false);
+        persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
+        persistTopic(author.getId(), "Joinable Topic", TopicApprovalStatus.APPROVED);
+        User viewer = persistUser(false);
+        persistParticipant(viewer.getId(), ParticipantStatus.ACTIVE);
+        loginAs(viewer);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/");
+        assertNoSeriousViolations(page, "/ (topic table with Join action)");
+    }
+
+    @Test
+    void homepageWithPinnedOwnTopicsAndViewDetailsLinksHasNoCriticalOrSeriousViolations() {
+        // Feature 005 (US9, US10): the viewer's own Pending and Approved Topics pinned above the
+        // fullness-sorted rows, each with a rendered "View Details" link.
+        User user = persistUser(false);
+        persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        persistTopic(user.getId(), "Pinned Pending Topic", TopicApprovalStatus.PENDING);
+        persistTopic(user.getId(), "Pinned Approved Topic", TopicApprovalStatus.APPROVED);
+        loginAs(user);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/");
+        assertNoSeriousViolations(page, "/ (pinned own Topics + View Details)");
+    }
+
     // --- Topic propose/edit forms (User Story 3) --------------------------------------------------
 
     @Test

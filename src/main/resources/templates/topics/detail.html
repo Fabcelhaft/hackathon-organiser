@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Topic Details')}">
+    <title>Topic Details</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Topic Details', content=~{::#content})}">
+    <div id="content">
+        <h2 th:text="${detail.topic.name}">Topic Name</h2>
+
+        <p th:if="${detail.author}">
+            <a th:href="@{/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit this Topic</a>
+        </p>
+
+        <form th:if="${detail.isMember()}" th:action="@{/topics/{id}/leave(id=${detail.topic.id})}" method="post">
+            <button type="submit" aria-label="Leave this Topic">Leave</button>
+        </form>
+
+        <table>
+            <caption>Topic Info</caption>
+            <tbody>
+                <tr>
+                    <th scope="row">Description</th>
+                    <td th:text="${detail.topic.description}">Description</td>
+                </tr>
+                <tr>
+                    <th scope="row">Needed Skills</th>
+                    <td>
+                        <span th:if="${detail.neededSkills.isEmpty()}">None</span>
+                        <span th:each="skill, iter : ${detail.neededSkills}">
+                            <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                        </span>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Participants</th>
+                    <td th:text="${detail.memberCount}">0</td>
+                </tr>
+                <tr>
+                    <th scope="row">Compliance</th>
+                    <td>
+                        <!--/* FR-014a: a blank cell when no Group yet, not a "No Group Yet" label. FR-025:
+                             text/icon, never color alone, for every non-blank state. */-->
+                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'COMPLIANT'">
+                            <span aria-hidden="true">&#9989;</span> Compliant
+                        </span>
+                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'NOT_COMPLIANT'">
+                            <span aria-hidden="true">&#10060;</span> Not Compliant
+                        </span>
+                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'">
+                            <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
+                        </span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Who's Joined</h3>
+        <p th:if="${detail.members.isEmpty()}">No one has joined yet.</p>
+        <table th:unless="${detail.members.isEmpty()}">
+            <caption>Joined Participants</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Fields</th>
+                    <th scope="col">Skills</th>
+                </tr>
+            </thead>
+            <!--/* FR-031, FR-036: each member's own visible fields/Skills (already filtered for this
+                 viewer by ParticipantService#findDetailForViewer) — the word "Group" never appears
+                 here or anywhere else on this page. */-->
+            <tbody>
+                <tr th:each="member : ${detail.members}">
+                    <td th:text="${member.userDisplayName}">Name</td>
+                    <td>
+                        <ul th:unless="${member.fields.isEmpty()}">
+                            <li th:each="cfv : ${member.fields}">
+                                <span th:text="${cfv.definition.label} + ': '">Label:</span>
+                                <span th:if="${cfv.definition.fieldType.name()} == 'FREE_TEXT'"
+                                      th:text="${cfv.freeTextValue}">Value</span>
+                                <span th:if="${cfv.definition.fieldType.name()} == 'COUNTRY'"
+                                      th:text="${cfv.freeTextValue}">Country</span>
+                                <span th:if="${cfv.definition.fieldType.name()} == 'SINGLE_SELECT' or ${cfv.definition.fieldType.name()} == 'MULTI_SELECT'">
+                                    <span th:each="option : ${cfv.options}" th:if="${#lists.contains(cfv.selectedOptionIds, option.id)}"
+                                          th:text="${option.label}">Option</span>
+                                </span>
+                            </li>
+                        </ul>
+                    </td>
+                    <td>
+                        <span th:if="${!member.skills.isEmpty()}" th:each="skill, iter : ${member.skills}">
+                            <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                        </span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

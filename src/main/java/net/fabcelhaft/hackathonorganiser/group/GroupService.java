@@ -3,6 +3,7 @@ package net.fabcelhaft.hackathonorganiser.group;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
@@ -10,6 +11,7 @@ import net.fabcelhaft.hackathonorganiser.user.User;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -38,18 +40,24 @@ public class GroupService {
     private final ParticipantRepository participantRepository;
     private final UserRepository userRepository;
     private final DatabaseClient databaseClient;
+    private final OrganiserSettingsService organiserSettingsService;
+    private final TransactionalOperator transactionalOperator;
 
     public GroupService(
             GroupRepository groupRepository,
             TopicRepository topicRepository,
             ParticipantRepository participantRepository,
             UserRepository userRepository,
-            DatabaseClient databaseClient) {
+            DatabaseClient databaseClient,
+            OrganiserSettingsService organiserSettingsService,
+            TransactionalOperator transactionalOperator) {
         this.groupRepository = groupRepository;
         this.topicRepository = topicRepository;
         this.participantRepository = participantRepository;
         this.userRepository = userRepository;
         this.databaseClient = databaseClient;
+        this.organiserSettingsService = organiserSettingsService;
+        this.transactionalOperator = transactionalOperator;
     }
 
     // --- Read views ----------------------------------------------------------------------------
@@ -142,6 +150,89 @@ public class GroupService {
         });
     }
 
+    // --- Join (Story 3, FR-007-FR-013a, research.md §2) -----------------------------------------
+
+    /**
+     * The race-safe self-service Join entry point: inside one {@link TransactionalOperator}-wrapped
+     * transaction, acquires a session-scoped Postgres advisory lock keyed on {@code topicId} —
+     * covering both the "first joiner creates the Group" and "joining an existing Group" races with
+     * one mechanism (research.md §2) — then either creates a new Group with {@code participantId}
+     * as its sole member (reusing {@link #create}'s existing "no active Group yet" path) or, for an
+     * existing active Group, adds the Participant once re-read capacity/override checks pass.
+     * Completes empty (404-mappable) for an unknown {@code topicId}; rejects with a friendly
+     * {@link GroupConflictException} ("This Topic is full") if the join would bring the Group's
+     * member count to or beyond {@code maxGroupMembers} and it carries no {@code
+     * complianceOverride} (FR-013), or if {@code participantId} already belongs to a different
+     * active Group (FR-010, reusing {@link #addMember}'s existing guard).
+     */
+    public Mono<Group> join(UUID topicId, UUID participantId) {
+        Mono<Group> chain = acquireTopicJoinLock(topicId)
+                .then(Mono.defer(() -> groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE)))
+                .flatMap(existing -> joinExistingGroup(existing, participantId))
+                .switchIfEmpty(Mono.defer(() -> create(topicId, List.of(participantId))));
+        return transactionalOperator.transactional(chain);
+    }
+
+    private Mono<Group> joinExistingGroup(Group group, UUID participantId) {
+        return activeMemberCount(group.getId())
+                .flatMap(count -> organiserSettingsService.current().flatMap(settings -> {
+                    boolean atOrAboveCapacity = count >= settings.getMaxGroupMembers();
+                    if (atOrAboveCapacity && !group.isComplianceOverride()) {
+                        return Mono.<Group>error(new GroupConflictException("This Topic is full"));
+                    }
+                    return addMember(group.getId(), participantId);
+                }));
+    }
+
+    // --- Leave (Story 11, FR-037-FR-037e, research.md §14) --------------------------------------
+
+    /**
+     * The race-safe self-service Leave entry point: inside the *same* {@link TransactionalOperator}-
+     * wrapped transaction and per-Topic advisory lock {@link #join} already acquires (not a second
+     * lock), re-reads the Topic's active Group, removes {@code participantId}'s membership via the
+     * already-existing {@link #removeMember}, and — only when {@link #activeMemberCount} is then
+     * {@code 0} — disbands the Group via the already-existing {@link #disband} (FR-037c). No new SQL
+     * is introduced by this method. Rejects with a friendly {@link GroupConflictException} if the
+     * Topic has no active Group, or {@code participantId} is not currently one of its active members
+     * (FR-037b).
+     */
+    public Mono<Group> leave(UUID topicId, UUID participantId) {
+        Mono<Group> chain = acquireTopicJoinLock(topicId)
+                .then(Mono.defer(() -> groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE)))
+                .switchIfEmpty(Mono.error(notCurrentlyAMember()))
+                .flatMap(group -> removeMember(group.getId(), participantId)
+                        .switchIfEmpty(Mono.error(notCurrentlyAMember()))
+                        .flatMap(removed -> activeMemberCount(removed.getId())
+                                .flatMap(count -> count == 0 ? disband(removed.getId()) : Mono.just(removed))));
+        return transactionalOperator.transactional(chain);
+    }
+
+    private static GroupConflictException notCurrentlyAMember() {
+        return new GroupConflictException("You are not currently a member of this Topic");
+    }
+
+    private Mono<Void> acquireTopicJoinLock(UUID topicId) {
+        return databaseClient
+                .sql("SELECT pg_advisory_xact_lock(hashtext('topic-join:' || :tid::text))")
+                .bind("tid", topicId)
+                .then();
+    }
+
+    // --- Compliance override (Story 7, FR-015, FR-016) ------------------------------------------
+
+    /**
+     * Sets or clears a Group's compliance override (FR-015, FR-016); completes empty (404) for an
+     * unknown {@code groupId}. No other guard: an Organiser may set or clear it regardless of
+     * current member count or automatic compliance outcome.
+     */
+    public Mono<Group> setComplianceOverride(UUID groupId, boolean override) {
+        return groupRepository.findById(groupId).flatMap(group -> {
+            group.setComplianceOverride(override);
+            group.setUpdatedAt(Instant.now());
+            return groupRepository.save(group);
+        });
+    }
+
     private Mono<Group> addInitialMembers(Group group, List<UUID> participantIds) {
         return Flux.fromIterable(participantIds)
                 .concatMap(participantId -> addMember(group.getId(), participantId))
@@ -228,6 +319,32 @@ public class GroupService {
                             .then()
                             .thenReturn(saved));
         });
+    }
+
+    /**
+     * The number of currently-active memberships for a Group (data-model.md "Group") — {@code 0}
+     * for an unknown or empty Group. The single query shape shared by the Join capacity check
+     * (research.md §2), {@code TopicDiscoveryService}'s participant-count columns, and {@code
+     * ComplianceService}'s Maximum/Minimum rule evaluation, so there is exactly one definition of
+     * "how many active members does this Group have" across the whole feature.
+     */
+    public Mono<Integer> activeMemberCount(UUID groupId) {
+        return databaseClient
+                .sql("SELECT count(*) FROM group_members WHERE group_id = :gid AND active")
+                .bind("gid", groupId)
+                .mapValue(Long.class)
+                .one()
+                .map(Long::intValue);
+    }
+
+    /** The participant ids of a Group's currently-active members — empty for an unknown/empty Group. */
+    public Mono<List<UUID>> activeMemberParticipantIds(UUID groupId) {
+        return databaseClient
+                .sql("SELECT participant_id FROM group_members WHERE group_id = :gid AND active")
+                .bind("gid", groupId)
+                .mapValue(UUID.class)
+                .all()
+                .collectList();
     }
 
     // --- DatabaseClient helpers against group_members -------------------------------------------
