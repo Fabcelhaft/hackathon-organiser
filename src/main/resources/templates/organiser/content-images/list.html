@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Content Images', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <form th:action="@{/organiser/content-images}" method="post" enctype="multipart/form-data">
             <label for="file">Image file (PNG, JPEG, GIF, or WebP; up to 5 MB)</label>
@@ -45,9 +45,9 @@
                         <button type="submit">Update</button>
                     </form>
                 </td>
-                <td>
+                <td class="actions">
                     <form th:action="@{/organiser/content-images/{id}/delete(id=${image.id})}" method="post">
-                        <button type="submit">Delete</button>
+                        <button type="submit" class="outline danger">Delete</button>
                     </form>
                 </td>
             </tr>

@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Settings', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="@{/organiser/settings}" method="post">
             <fieldset>
                 <label for="self_registration_enabled">

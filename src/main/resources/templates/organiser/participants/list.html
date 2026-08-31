@@ -6,8 +6,8 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Participants', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/participants/new}" role="button">Register Participant</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/participants/new}" role="button">Register Participant</a></div>
         <table>
             <thead>
             <tr>
@@ -22,10 +22,10 @@
                 <td th:text="${p.userDisplayName}">Name</td>
                 <td th:text="${p.status}">Status</td>
                 <td>
-                    <span th:if="${p.incomplete}" style="color:red;">Incomplete</span>
+                    <span th:if="${p.incomplete}" class="badge badge-sm badge-danger">Incomplete</span>
                     <span th:unless="${p.incomplete}">Complete</span>
                 </td>
-                <td><a th:href="@{/organiser/participants/{id}(id=${p.id})}">View</a></td>
+                <td class="actions"><a th:href="@{/organiser/participants/{id}(id=${p.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
             </tbody>
         </table>

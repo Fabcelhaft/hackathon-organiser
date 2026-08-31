@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Content Page', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="${pageId} != null ? @{/organiser/content-pages/{id}(id=${pageId})} : @{/organiser/content-pages}"
               method="post">
             <label for="title">Title</label>

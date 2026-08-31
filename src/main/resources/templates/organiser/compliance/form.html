@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Compliance', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <h2>Group Size</h2>
         <form th:action="@{/organiser/compliance}" method="post">
@@ -35,10 +35,10 @@
             <tr th:each="requirement : ${requirements}">
                 <td th:text="${fieldLabelsById.get(requirement.customFieldDefinitionId)}">Field</td>
                 <td th:text="${requirement.minimumDistinctValues}">2</td>
-                <td>
+                <td class="actions">
                     <form th:action="@{/organiser/compliance/diversity-requirements/{id}/delete(id=${requirement.id})}"
-                          method="post" style="display:inline">
-                        <button type="submit">Remove</button>
+                          method="post">
+                        <button type="submit" class="outline danger">Remove</button>
                     </form>
                 </td>
             </tr>
@@ -48,7 +48,7 @@
             </tbody>
         </table>
 
-        <h3>Add a Diversity Requirement</h3>
+        <h2>Add a Diversity Requirement</h2>
         <form th:action="@{/organiser/compliance/diversity-requirements}" method="post">
             <label for="custom_field_definition_id">Custom Field</label>
             <select id="custom_field_definition_id" name="custom_field_definition_id" required="required">

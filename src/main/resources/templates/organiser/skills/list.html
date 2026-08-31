@@ -6,8 +6,8 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Skills', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/skills/new}" role="button">New Skill</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/skills/new}" role="button">New Skill</a></div>
         <table>
             <thead>
             <tr>
@@ -18,10 +18,11 @@
             <tbody>
             <tr th:each="skill : ${skills}">
                 <td th:text="${skill.name}">Name</td>
-                <td>
-                    <a th:href="@{/organiser/skills/{id}/edit(id=${skill.id})}">Edit</a>
-                    <form th:action="@{/organiser/skills/{id}/delete(id=${skill.id})}" method="post" style="display:inline">
-                        <button type="submit">Delete</button>
+                <td class="actions">
+                    <a th:href="@{/organiser/skills/{id}/edit(id=${skill.id})}" role="button"
+                       class="outline secondary">Edit</a>
+                    <form th:action="@{/organiser/skills/{id}/delete(id=${skill.id})}" method="post">
+                        <button type="submit" class="outline danger">Delete</button>
                     </form>
                 </td>
             </tr>

@@ -1,20 +1,20 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{fragments/layout :: head(title='Topic Details')}">
+<!--/* The Topic's name is the <h1> the layout renders, so the page has one heading carrying its
+     subject rather than a generic "Topic Details" above a repeated name. */-->
+<head th:replace="~{fragments/layout :: head(title=${detail.topic.name})}">
     <title>Topic Details</title>
 </head>
 <body>
-<th:block th:replace="~{fragments/layout :: layout(title='Topic Details', content=~{::#content})}">
+<th:block th:replace="~{fragments/layout :: layout(title=${detail.topic.name}, content=~{::#content})}">
     <div id="content">
-        <h2 th:text="${detail.topic.name}">Topic Name</h2>
-
-        <p th:if="${detail.author}">
-            <a th:href="@{/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit this Topic</a>
-        </p>
-
-        <form th:if="${detail.isMember()}" th:action="@{/topics/{id}/leave(id=${detail.topic.id})}" method="post">
-            <button type="submit" aria-label="Leave this Topic">Leave</button>
-        </form>
+        <div class="actions" th:if="${detail.author} or ${detail.isMember()}">
+            <a th:if="${detail.author}" th:href="@{/topics/{id}/edit(id=${detail.topic.id})}"
+               role="button">Edit this Topic</a>
+            <form th:if="${detail.isMember()}" th:action="@{/topics/{id}/leave(id=${detail.topic.id})}" method="post">
+                <button type="submit" class="outline danger" aria-label="Leave this Topic">Leave</button>
+            </form>
+        </div>
 
         <table>
             <caption>Topic Info</caption>
@@ -55,7 +55,7 @@
             </tbody>
         </table>
 
-        <h3>Who's Joined</h3>
+        <h2>Who's Joined</h2>
         <p th:if="${detail.members.isEmpty()}">No one has joined yet.</p>
         <table th:unless="${detail.members.isEmpty()}">
             <caption>Joined Participants</caption>

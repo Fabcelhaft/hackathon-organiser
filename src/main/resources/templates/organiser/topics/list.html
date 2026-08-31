@@ -6,8 +6,8 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Topics', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/topics/new}" role="button">New Topic</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/topics/new}" role="button">New Topic</a></div>
         <table>
             <thead>
             <tr>
@@ -21,7 +21,7 @@
             <tr th:each="row : ${topics}">
                 <td th:text="${row.topic.name}">Name</td>
                 <td>
-                    <span th:if="${row.topic.approvalStatus.name()} == 'PENDING'" class="badge-pending">Pending approval</span>
+                    <span th:if="${row.topic.approvalStatus.name()} == 'PENDING'" class="badge badge-pending">Pending approval</span>
                     <span th:if="${row.topic.approvalStatus.name()} == 'APPROVED'">Approved</span>
                 </td>
                 <td>
@@ -29,7 +29,7 @@
                        th:href="@{/organiser/groups/{id}(id=${row.activeGroupId})}">Active</a>
                     <span th:if="${row.activeGroupId} == null">No active group</span>
                 </td>
-                <td><a th:href="@{/organiser/topics/{id}(id=${row.topic.id})}">View</a></td>
+                <td class="actions"><a th:href="@{/organiser/topics/{id}(id=${row.topic.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
             </tbody>
         </table>

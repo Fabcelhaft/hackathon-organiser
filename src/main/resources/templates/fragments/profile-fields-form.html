@@ -20,10 +20,8 @@
                 <span th:text="${cfv.definition.label}">Label</span>
                 <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
                 <span th:if="${showVisibility}" class="visibility-badge"
-                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
-                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
-                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
-                </span>
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'"
+                      th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
             </label>
             <input type="text" th:id="${'field_' + cfv.definition.id}" th:name="${'field_' + cfv.definition.id}"
                    th:value="${cfv.freeTextValue}" th:required="${cfv.definition.required}"/>
@@ -35,10 +33,8 @@
                 <span th:text="${cfv.definition.label}">Label</span>
                 <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
                 <span th:if="${showVisibility}" class="visibility-badge"
-                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
-                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
-                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
-                </span>
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'"
+                      th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
             </legend>
             <div th:each="option, iter : ${cfv.options}">
                 <label th:for="${'field_' + cfv.definition.id + '_' + iter.index}">
@@ -56,10 +52,8 @@
                 <span th:text="${cfv.definition.label}">Label</span>
                 <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
                 <span th:if="${showVisibility}" class="visibility-badge"
-                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
-                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
-                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
-                </span>
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'"
+                      th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
             </legend>
             <div th:each="option, iter : ${cfv.options}">
                 <label th:for="${'field_' + cfv.definition.id + '_' + iter.index}">
@@ -80,10 +74,8 @@
                 <span th:text="${cfv.definition.label}">Country</span>
                 <span th:if="${cfv.definition.required}" class="required-marker"> (required)</span>
                 <span th:if="${showVisibility}" class="visibility-badge"
-                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'">
-                    <span aria-hidden="true" th:text="${cfv.definition.public_} ? '&#128065;' : '&#128274;'">*</span>
-                    <span th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
-                </span>
+                      th:classappend="${cfv.definition.public_} ? 'visibility-public' : 'visibility-private'"
+                      th:text="${cfv.definition.public_} ? 'visible to others' : 'private'">visible to others</span>
             </label>
             <input type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
                    th:id="${'field_' + cfv.definition.id + '_search'}"
@@ -106,10 +98,8 @@
         <legend>
             Skills
             <span th:if="${showVisibility}" class="visibility-badge"
-                  th:classappend="${skillsVisibleToOthers} ? 'visibility-public' : 'visibility-private'">
-                <span aria-hidden="true" th:text="${skillsVisibleToOthers} ? '&#128065;' : '&#128274;'">*</span>
-                <span th:text="${skillsVisibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
-            </span>
+                  th:classappend="${skillsVisibleToOthers} ? 'visibility-public' : 'visibility-private'"
+                  th:text="${skillsVisibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
         </legend>
         <div th:each="skill : ${skills}">
             <label th:for="${'skill_' + skill.id}">

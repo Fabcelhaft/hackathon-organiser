@@ -11,36 +11,52 @@
 
         <p th:if="${participant} == null">You are not currently registered.</p>
         <p th:if="${participant} != null">
-            Status: <span class="status-badge" th:text="${participant.status}">ACTIVE</span>
+            Status: <span class="badge" th:text="${participant.status}">ACTIVE</span>
         </p>
         <p th:if="${assignedTopic} != null">
             Your Topic: <span th:text="${assignedTopic.name}">Topic</span>
         </p>
 
-        <p th:if="${canRegister}">
+        <div class="actions" th:if="${canRegister}">
             <a th:href="@{/register}" role="button">Register</a>
-        </p>
+        </div>
 
         <p th:if="${notParticipated}" role="status">
             Your participation status was set by an Organiser. Only an Organiser can change it.
         </p>
 
-        <form th:if="${canRevoke}" id="revoke-form" th:action="@{/revoke}" method="post">
-            <button type="button" id="revoke-open-button">Revoke Registration</button>
-        </form>
+        <!--/* The form carries the action; the dialog's Confirm button references it by id, so the
+             form itself renders only the opener. */-->
+        <div class="actions" th:if="${canRevoke}">
+            <form id="revoke-form" th:action="@{/revoke}" method="post">
+                <button type="button" id="revoke-open-button" class="outline danger">Revoke Registration</button>
+            </form>
+        </div>
 
+        <!--/* Structure matters here: Pico styles <dialog> itself as the full-viewport overlay
+             (position:fixed, inset:0, display:flex) and styles a single <article> child as the
+             card. Without that <article> the heading, body and buttons become direct flex items
+             of the overlay and lay themselves out in a row across the viewport. <header> and
+             <footer> are the hooks Pico uses for the heading row and the right-aligned button
+             row; .actions keeps both buttons at their natural width. */-->
         <dialog th:if="${canRevoke}" id="revoke-dialog" aria-labelledby="revoke-dialog-title">
-            <h2 id="revoke-dialog-title">Confirm Revoke Registration</h2>
-            <p>Revoking your registration will remove you from your current Topic's team, if any, and cannot be
-                undone automatically — you would need to register again.</p>
-            <button type="button" id="revoke-cancel-button">Cancel</button>
-            <button type="submit" form="revoke-form">Confirm Revoke</button>
+            <article>
+                <header>
+                    <h2 id="revoke-dialog-title">Confirm Revoke Registration</h2>
+                </header>
+                <p>Revoking your registration will remove you from your current Topic's team, if any, and cannot be
+                    undone automatically — you would need to register again.</p>
+                <footer class="actions actions-end">
+                    <button type="button" id="revoke-cancel-button" class="outline secondary">Cancel</button>
+                    <button type="submit" form="revoke-form" class="danger">Confirm Revoke</button>
+                </footer>
+            </article>
         </dialog>
     </section>
 
     <section id="topics-section" aria-labelledby="topics-heading">
         <h2 id="topics-heading">Topics</h2>
-        <p th:if="${canProposeTopic}"><a th:href="@{/topics/new}" role="button">Propose Topic</a></p>
+        <div class="actions" th:if="${canProposeTopic}"><a th:href="@{/topics/new}" role="button">Propose Topic</a></div>
 
         <!--/* FR-033, FR-035: the viewer's own Topics (any status, any fullness) shown separately,
              above the fullness-sorted table; a pinned Pending/full row shows View Details but never
@@ -67,13 +83,13 @@
                             <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
                         </span>
                     </td>
-                    <td th:if="${canJoinTopics}">
+                    <td class="actions" th:if="${canJoinTopics}">
                         <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                            <button type="submit">Join</button>
+                            <button type="submit" class="outline secondary">Join</button>
                         </form>
                     </td>
-                    <td>
-                        <a th:href="@{/topics/{id}(id=${row.topic().id})}">View Details</a>
+                    <td class="actions">
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
                     </td>
                 </tr>
                 </tbody>
@@ -100,13 +116,13 @@
                         <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
                     </span>
                 </td>
-                <td th:if="${canJoinTopics}">
+                <td class="actions" th:if="${canJoinTopics}">
                     <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                        <button type="submit">Join</button>
+                        <button type="submit" class="outline secondary">Join</button>
                     </form>
                 </td>
-                <td>
-                    <a th:href="@{/topics/{id}(id=${row.topic().id})}">View Details</a>
+                <td class="actions">
+                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
                 </td>
             </tr>
             <tr th:if="${openTopics.?[!pinned].isEmpty()}">

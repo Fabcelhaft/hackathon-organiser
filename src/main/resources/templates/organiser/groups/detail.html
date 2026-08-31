@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Group Detail', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <dl>
             <dt>Topic</dt>
@@ -31,16 +31,18 @@
             </dd>
         </dl>
 
-        <form th:if="${detail.group.complianceOverride}"
-              th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
-            <input type="hidden" name="override" value="false"/>
-            <button type="submit">Remove Compliance Override</button>
-        </form>
-        <form th:unless="${detail.group.complianceOverride}"
-              th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
-            <input type="hidden" name="override" value="true"/>
-            <button type="submit">Mark Compliant (Override)</button>
-        </form>
+        <div class="actions">
+            <form th:if="${detail.group.complianceOverride}"
+                  th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
+                <input type="hidden" name="override" value="false"/>
+                <button type="submit" class="outline secondary">Remove Compliance Override</button>
+            </form>
+            <form th:unless="${detail.group.complianceOverride}"
+                  th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
+                <input type="hidden" name="override" value="true"/>
+                <button type="submit" class="outline secondary">Mark Compliant (Override)</button>
+            </form>
+        </div>
 
         <h2>Current Members</h2>
         <table>
@@ -55,11 +57,11 @@
             <tr th:each="m : ${detail.currentMembers}">
                 <td th:text="${m.participantDisplayName}">Name</td>
                 <td th:text="${m.joinedAt}">Joined</td>
-                <td>
+                <td class="actions">
                     <form th:if="${detail.group.status.name()} == 'ACTIVE'"
                           th:action="@{/organiser/groups/{id}/members/{pid}/remove(id=${detail.group.id}, pid=${m.participantId})}"
                           method="post">
-                        <button type="submit">Remove</button>
+                        <button type="submit" class="outline danger">Remove</button>
                     </form>
                 </td>
             </tr>
@@ -101,9 +103,11 @@
             </form>
 
             <h2>Disband</h2>
-            <form th:action="@{/organiser/groups/{id}/disband(id=${detail.group.id})}" method="post">
-                <button type="submit">Disband</button>
-            </form>
+            <div class="actions">
+                <form th:action="@{/organiser/groups/{id}/disband(id=${detail.group.id})}" method="post">
+                    <button type="submit" class="outline danger">Disband</button>
+                </form>
+            </div>
         </div>
     </div>
 </th:block>

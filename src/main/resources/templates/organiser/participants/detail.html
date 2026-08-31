@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Participant Detail', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <dl>
             <dt>User</dt>
@@ -17,7 +17,7 @@
             <dd th:text="${detail.participant.status}">Status</dd>
             <dt>Complete</dt>
             <dd>
-                <span th:if="${detail.incomplete}" style="color:red;">Incomplete</span>
+                <span th:if="${detail.incomplete}" class="badge badge-sm badge-danger">Incomplete</span>
                 <span th:unless="${detail.incomplete}">Complete</span>
             </dd>
         </dl>

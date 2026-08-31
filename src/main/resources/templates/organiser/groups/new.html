@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='New Group', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="@{/organiser/groups}" method="post">
             <!-- Restricted to Topics with no current active Group (FR-016a). -->
             <label for="topic_id">Topic</label>

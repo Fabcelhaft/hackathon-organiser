@@ -6,8 +6,8 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Groups', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/groups/new}" role="button">New Group</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/groups/new}" role="button">New Group</a></div>
         <table>
             <thead>
             <tr>
@@ -20,7 +20,7 @@
             <tr th:each="g : ${groups}">
                 <td th:text="${g.topicName}">Topic</td>
                 <td th:text="${g.status}">Status</td>
-                <td><a th:href="@{/organiser/groups/{id}(id=${g.id})}">View</a></td>
+                <td class="actions"><a th:href="@{/organiser/groups/{id}(id=${g.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
             </tbody>
         </table>

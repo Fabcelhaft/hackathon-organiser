@@ -10,7 +10,7 @@
              pinning only reorders — every row from `rows` still appears in exactly one of the two
              tables below. */-->
         <div th:if="${!#lists.isEmpty(rows.?[pinned])}">
-            <h3 id="your-topics-heading">Your Topics</h3>
+            <h2 id="your-topics-heading">Your Topics</h2>
             <table aria-labelledby="your-topics-heading">
                 <thead>
                 <tr>
@@ -46,20 +46,20 @@
                             <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
                         </span>
                     </td>
-                    <td th:if="${canJoinTopics}">
+                    <td class="actions" th:if="${canJoinTopics}">
                         <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                            <button type="submit">Join</button>
+                            <button type="submit" class="outline secondary">Join</button>
                         </form>
                     </td>
-                    <td>
-                        <a th:href="@{/topics/{id}(id=${row.topic().id})}">View Details</a>
+                    <td class="actions">
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
                     </td>
                 </tr>
                 </tbody>
             </table>
         </div>
 
-        <h3 id="all-topics-heading">All Topics</h3>
+        <h2 id="all-topics-heading">All Topics</h2>
         <table aria-labelledby="all-topics-heading">
             <thead>
             <tr>
@@ -95,13 +95,13 @@
                         <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
                     </span>
                 </td>
-                <td th:if="${canJoinTopics}">
+                <td class="actions" th:if="${canJoinTopics}">
                     <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                        <button type="submit">Join</button>
+                        <button type="submit" class="outline secondary">Join</button>
                     </form>
                 </td>
-                <td>
-                    <a th:href="@{/topics/{id}(id=${row.topic().id})}">View Details</a>
+                <td class="actions">
+                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
                 </td>
             </tr>
             <tr th:if="${rows.isEmpty()}">

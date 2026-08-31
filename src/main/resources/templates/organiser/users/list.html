@@ -20,7 +20,7 @@
                 <td th:text="${user.displayName}">Name</td>
                 <td th:text="${user.email}">Email</td>
                 <td th:text="${user.organiser} ? 'Yes' : 'No'">Organiser</td>
-                <td><a th:href="@{/organiser/users/{id}(id=${user.id})}">View</a></td>
+                <td class="actions"><a th:href="@{/organiser/users/{id}(id=${user.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
             </tbody>
         </table>
