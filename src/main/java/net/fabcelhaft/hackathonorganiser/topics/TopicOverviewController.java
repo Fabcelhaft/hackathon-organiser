@@ -51,10 +51,14 @@ public class TopicOverviewController {
         boolean isOrganiser = oidcUser.getUser().isOrganiser();
         return Mono.zip(
                         topicDiscoveryService.findTopicOverview(userId, isOrganiser).collectList(),
-                        viewerCanJoinTopics(userId))
+                        viewerCanJoinTopics(userId),
+                        organiserSettingsService.current())
                 .map(tuple -> Rendering.view("topics/overview")
                         .modelAttribute("rows", tuple.getT1())
                         .modelAttribute("canJoinTopics", tuple.getT2())
+                        .modelAttribute(
+                                "complianceVisible",
+                                isOrganiser || tuple.getT3().isComplianceVisibleToParticipants())
                         .build());
     }
 

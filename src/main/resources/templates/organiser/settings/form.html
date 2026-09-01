@@ -95,6 +95,15 @@
             </fieldset>
 
             <fieldset>
+                <label for="compliance_visible_to_participants">
+                    <input type="hidden" name="compliance_visible_to_participants" value="false"/>
+                    <input type="checkbox" id="compliance_visible_to_participants" name="compliance_visible_to_participants"
+                           value="true" th:checked="${settings.complianceVisibleToParticipants}"/>
+                    Show Compliance status to participants
+                </label>
+            </fieldset>
+
+            <fieldset>
                 <legend>Skill Display Mode</legend>
                 <label>
                     <input type="radio" name="skill_display_mode" value="STILL_NEEDED_ONLY"

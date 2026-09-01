@@ -82,7 +82,8 @@ public class OrganiserSettingsController {
                             null,
                             null,
                             checkboxValue(form, "topic_joining_enabled"),
-                            skillDisplayModeValue(form))
+                            skillDisplayModeValue(form),
+                            checkboxValue(form, "compliance_visible_to_participants"))
                     .<Rendering>map(settings -> Rendering.redirectTo(
                                     "/organiser/settings?flash=" + encode("Settings updated."))
                             .status(HttpStatus.SEE_OTHER)

@@ -36,20 +36,19 @@
                     <th scope="row">Participants</th>
                     <td th:text="${detail.memberCount}">0</td>
                 </tr>
-                <tr>
+                <tr th:if="${complianceVisible}">
                     <th scope="row">Compliance</th>
                     <td>
                         <!--/* FR-014a: a blank cell when no Group yet, not a "No Group Yet" label. FR-025:
-                             text/icon, never color alone, for every non-blank state. */-->
-                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'COMPLIANT'">
-                            <span aria-hidden="true">&#9989;</span> Compliant
-                        </span>
-                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'NOT_COMPLIANT'">
-                            <span aria-hidden="true">&#10060;</span> Not Compliant
-                        </span>
-                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'">
-                            <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
-                        </span>
+                             text/icon, never color alone, for every non-blank state. The icon carries its
+                             meaning via aria-label rather than a visible text sibling; COMPLIANT and
+                             COMPLIANT_OVERRIDE render identically here since whether compliance was reached
+                             naturally or via Organiser override is organiser-space-only information (see
+                             organiser/groups/detail.html). */-->
+                        <span th:if="${detail.complianceStatus().isPresent()} and (${detail.complianceStatus().get().name()} == 'COMPLIANT' or ${detail.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')"
+                              role="img" aria-label="Compliant">&#9989;</span>
+                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'NOT_COMPLIANT'"
+                              role="img" aria-label="Not Compliant">&#10060;</span>
                     </td>
                 </tr>
             </tbody>

@@ -6,7 +6,18 @@
 <body>
 <th:block th:replace="~{fragments/layout :: layout(title='Home', content=~{::#content})}">
 <div id="content" class="home-grid">
-    <section id="status-section" aria-labelledby="status-heading">
+    <!--/* <article> is Pico's card element, so the panel's background, radius, shadow and padding
+         come from the framework's own tokens — no new colour enters the palette.
+         FR-036: the markdown body carries its own heading, and MarkdownRenderer already shifts
+         markdown headings to <h2> or below, so the page still has exactly one <h1> (the layout's)
+         and no title is duplicated above the content. th:utext is deliberate — bodyHtml is
+         pre-sanitized by MarkdownRenderer (research.md §1). */-->
+    <article id="content-section">
+        <div th:if="${homepageContent} != null" th:utext="${homepageContent.bodyHtml()}">Body</div>
+        <p th:if="${homepageContent} == null">No homepage content has been set yet.</p>
+    </article>
+
+    <section id="status-section" class="card" aria-labelledby="status-heading">
         <h2 id="status-heading">Your Status</h2>
 
         <p th:if="${participant} == null">You are not currently registered.</p>
@@ -14,7 +25,8 @@
             Status: <span class="badge" th:text="${participant.status}">ACTIVE</span>
         </p>
         <p th:if="${assignedTopic} != null">
-            Your Topic: <span th:text="${assignedTopic.name}">Topic</span>
+            Your Topic: <a th:href="@{/topics/{id}(id=${assignedTopic.id})}"
+                           th:text="${assignedTopic.name}">Topic</a>
         </p>
 
         <div class="actions" th:if="${canRegister}">
@@ -54,9 +66,12 @@
         </dialog>
     </section>
 
-    <section id="topics-section" aria-labelledby="topics-heading">
+    <section id="topics-section" class="card" aria-labelledby="topics-heading">
         <h2 id="topics-heading">Topics</h2>
-        <div class="actions" th:if="${canProposeTopic}"><a th:href="@{/topics/new}" role="button">Propose Topic</a></div>
+        <div class="actions">
+            <a th:if="${canProposeTopic}" th:href="@{/topics/new}" role="button">Propose Topic</a>
+            <a th:href="@{/topics/overview}" role="button" class="outline secondary">All Topics</a>
+        </div>
 
         <!--/* FR-033, FR-035: the viewer's own Topics (any status, any fullness) shown separately,
              above the fullness-sorted table; a pinned Pending/full row shows View Details but never
@@ -64,19 +79,29 @@
              needs on the Home Page, so both sections below select from that one list. */-->
         <div th:if="${!#lists.isEmpty(openTopics.?[pinned])}">
             <h3 id="your-topics-heading">Your Topics</h3>
+            <div class="table-scroll">
             <table aria-labelledby="your-topics-heading">
                 <thead>
                 <tr>
                     <th>Name</th>
                     <th>Participants</th>
-                    <th>Skills you offer</th>
+                    <th>Your Skills</th>
                     <th th:if="${canJoinTopics}"></th>
                     <th></th>
                 </tr>
                 </thead>
                 <tbody>
                 <tr th:each="row : ${openTopics.?[pinned]}">
-                    <td th:text="${row.topic().name}">Name</td>
+                    <!--/* FR-035: a pinned Topic may still be awaiting an Organiser, and only its
+                         author ever sees it here — the same wording and token the Organiser UI
+                         uses, so the state is carried by text, not colour alone. */-->
+                    <td>
+                        <span class="name-with-badge">
+                            <span th:text="${row.topic().name}">Name</span>
+                            <span th:if="${row.topic().approvalStatus.name()} == 'PENDING'"
+                                  class="badge badge-sm badge-pending">Pending approval</span>
+                        </span>
+                    </td>
                     <td th:text="${row.memberCount()}">0</td>
                     <td>
                         <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
@@ -89,20 +114,25 @@
                         </form>
                     </td>
                     <td class="actions">
-                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
+                        <!--/* FR-004a: the label is short so it stays on one line in the narrow
+                             Home column; the aria-label carries the full purpose. */-->
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary"
+                           th:aria-label="|View details for ${row.topic().name}|">View</a>
                     </td>
                 </tr>
                 </tbody>
             </table>
+            </div>
         </div>
 
         <h3 id="open-topics-heading">Open Topics</h3>
+        <div class="table-scroll">
         <table aria-labelledby="open-topics-heading">
             <thead>
             <tr>
                 <th>Name</th>
                 <th>Participants</th>
-                <th>Skills you offer</th>
+                <th>Your Skills</th>
                 <th th:if="${canJoinTopics}"></th>
                 <th></th>
             </tr>
@@ -130,15 +160,7 @@
             </tr>
             </tbody>
         </table>
-    </section>
-
-    <section id="content-section" aria-labelledby="content-heading">
-        <h2 id="content-heading" th:text="${homepageContent != null ? homepageContent.page().getTitle() : 'Welcome'}">Welcome</h2>
-        <!--/* FR-036: the section heading above is the page's own top-level heading;
-             MarkdownRenderer already shifts markdown headings to <h2> or below. th:utext is
-             deliberate — bodyHtml is pre-sanitized by MarkdownRenderer (research.md §1). */-->
-        <div th:if="${homepageContent} != null" th:utext="${homepageContent.bodyHtml()}">Body</div>
-        <p th:if="${homepageContent} == null">No homepage content has been set yet.</p>
+        </div>
     </section>
 </div>
 </th:block>

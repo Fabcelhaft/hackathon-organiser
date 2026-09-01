@@ -160,10 +160,32 @@ nav ul {
 
 .badge {
     display: inline-block;
+    vertical-align: middle;
     font-weight: bold;
     border: 1px solid currentColor;
     border-radius: var(--pico-border-radius);
     padding: 0.1rem 0.5rem;
+}
+
+/* Keeps a topic name and its trailing badge (e.g. "Pending approval") on one line instead of the
+   badge wrapping onto its own line in a narrow table cell, which otherwise makes that row taller
+   than its badge-less siblings. white-space: nowrap is the important part: a flex item shrinks
+   below its content width by default, and without it the browser "solves" the space shortage by
+   word-wrapping the topic name itself (e.g. "pizza" / "backen") rather than keeping the badge on
+   its own line — worse than the problem being fixed. Pairs with .table-scroll below, which gives
+   the row somewhere to go if the name+badge still don't fit the column. */
+.name-with-badge {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    gap: calc(var(--pico-spacing) * 0.5);
+}
+
+/* A table whose natural (unwrapped) width may exceed a narrow card column scrolls horizontally
+   instead of forcing its content to wrap or bleeding out of the card. */
+.table-scroll {
+    overflow-x: auto;
 }
 
 /* Feature 004 (FR-020, FR-041): the inline "visible to others"/"private" marker sits beside a
@@ -272,14 +294,29 @@ nav ul {
     border: 0;
 }
 
+/* Reproduces Pico's own <article> card treatment (background, radius, shadow, padding) for a
+   non-<article> element, so a plain <section> can carry the same visual weight as a real card
+   without picking up <article>'s non-landmark ARIA role. margin-bottom is zeroed rather than
+   inherited from Pico's article rule, since every current caller lives inside a gapped grid where
+   that margin would only push the card off the row edge. */
+.card {
+    margin-bottom: 0;
+    padding: var(--pico-block-spacing-vertical) var(--pico-block-spacing-horizontal);
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-card-background-color);
+    box-shadow: var(--pico-card-box-shadow);
+}
+
 /* ------------------------------------------------------------ home page */
 
+/* Welcome content spans a full-width row on top; Status and Topics sit side by side below it, so
+   neither column can end up far taller than an empty sibling the way a fixed two-row sidebar can. */
 .home-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     grid-template-areas:
-        "status content"
-        "topics content";
+        "content content"
+        "status topics";
     gap: var(--app-gap);
     align-items: start;
 }
@@ -292,17 +329,20 @@ nav ul {
     grid-area: topics;
 }
 
+/* Pico's <article> card carries a bottom margin meant for stacked flow content; inside the grid
+   it would only push the card away from the row edge, so it is zeroed here. */
 #content-section {
     grid-area: content;
+    margin-bottom: 0;
 }
 
-/* FR-001a: stacks status -> topics -> content on narrow viewports. */
+/* FR-001a: stacks content -> status -> topics on narrow viewports. */
 @media (max-width: 768px) {
     .home-grid {
         grid-template-columns: 1fr;
         grid-template-areas:
+            "content"
             "status"
-            "topics"
-            "content";
+            "topics";
     }
 }

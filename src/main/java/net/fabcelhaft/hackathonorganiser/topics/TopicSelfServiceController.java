@@ -2,6 +2,7 @@ package net.fabcelhaft.hackathonorganiser.topics;
 
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -37,14 +38,17 @@ public class TopicSelfServiceController {
     private final TopicService topicService;
     private final ParticipantService participantService;
     private final TopicDiscoveryService topicDiscoveryService;
+    private final OrganiserSettingsService organiserSettingsService;
 
     public TopicSelfServiceController(
             TopicService topicService,
             ParticipantService participantService,
-            TopicDiscoveryService topicDiscoveryService) {
+            TopicDiscoveryService topicDiscoveryService,
+            OrganiserSettingsService organiserSettingsService) {
         this.topicService = topicService;
         this.participantService = participantService;
         this.topicDiscoveryService = topicDiscoveryService;
+        this.organiserSettingsService = organiserSettingsService;
     }
 
     /**
@@ -57,9 +61,16 @@ public class TopicSelfServiceController {
     @GetMapping("/{id}")
     public Mono<Rendering> detail(@PathVariable UUID id, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         UUID userId = oidcUser.getUser().getId();
+        boolean isOrganiser = oidcUser.getUser().isOrganiser();
         return topicDiscoveryService
-                .findTopicDetail(id, userId, oidcUser.getUser().isOrganiser())
-                .map(detail -> Rendering.view("topics/detail").modelAttribute("detail", detail).build())
+                .findTopicDetail(id, userId, isOrganiser)
+                .zipWith(organiserSettingsService.current())
+                .map(tuple -> Rendering.view("topics/detail")
+                        .modelAttribute("detail", tuple.getT1())
+                        .modelAttribute(
+                                "complianceVisible",
+                                isOrganiser || tuple.getT2().isComplianceVisibleToParticipants())
+                        .build())
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 

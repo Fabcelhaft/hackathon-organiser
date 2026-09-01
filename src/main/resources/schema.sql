@@ -270,6 +270,11 @@ ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS topic_joining_enabled bo
 ALTER TABLE organiser_settings
     ADD COLUMN IF NOT EXISTS skill_display_mode text NOT NULL DEFAULT 'STILL_NEEDED_ONLY';
 
+-- Whether the Compliance indicator is shown to non-Organiser viewers on the shared Topic overview
+-- and Topic detail pages; Organisers always see it regardless of this toggle.
+ALTER TABLE organiser_settings
+    ADD COLUMN IF NOT EXISTS compliance_visible_to_participants boolean NOT NULL DEFAULT true;
+
 ALTER TABLE organiser_settings DROP CONSTRAINT IF EXISTS organiser_settings_max_group_members_check;
 ALTER TABLE organiser_settings
     ADD CONSTRAINT organiser_settings_max_group_members_check CHECK (max_group_members >= 1);

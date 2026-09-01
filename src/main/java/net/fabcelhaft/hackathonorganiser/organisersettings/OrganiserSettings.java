@@ -47,6 +47,8 @@ public class OrganiserSettings {
 
     private SkillDisplayMode skillDisplayMode;
 
+    private boolean complianceVisibleToParticipants;
+
     private Instant updatedAt;
 
     public UUID getId() {
@@ -151,6 +153,14 @@ public class OrganiserSettings {
 
     public void setSkillDisplayMode(SkillDisplayMode skillDisplayMode) {
         this.skillDisplayMode = skillDisplayMode;
+    }
+
+    public boolean isComplianceVisibleToParticipants() {
+        return complianceVisibleToParticipants;
+    }
+
+    public void setComplianceVisibleToParticipants(boolean complianceVisibleToParticipants) {
+        this.complianceVisibleToParticipants = complianceVisibleToParticipants;
     }
 
     public Instant getUpdatedAt() {

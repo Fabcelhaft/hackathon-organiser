@@ -18,7 +18,7 @@
                     <th>Author</th>
                     <th>Participants</th>
                     <th>Needed Skills</th>
-                    <th>Compliance</th>
+                    <th th:if="${complianceVisible}">Compliance</th>
                     <th th:if="${canJoinTopics}"></th>
                     <th></th>
                 </tr>
@@ -33,18 +33,17 @@
                             <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
                         </span>
                     </td>
-                    <td>
+                    <td th:if="${complianceVisible}">
                         <!--/* FR-014a: a blank cell when no Group yet, not a "No Group Yet" label.
-                             FR-025: text/icon, never color alone, for every non-blank state. */-->
-                        <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT'">
-                            <span aria-hidden="true">&#9989;</span> Compliant
-                        </span>
-                        <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'">
-                            <span aria-hidden="true">&#10060;</span> Not Compliant
-                        </span>
-                        <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'">
-                            <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
-                        </span>
+                             FR-025: text/icon, never color alone, for every non-blank state. The
+                             icon carries its meaning via aria-label rather than a visible text
+                             sibling; COMPLIANT and COMPLIANT_OVERRIDE render identically here since
+                             whether compliance was reached naturally or via Organiser override is
+                             organiser-space-only information (see organiser/groups/detail.html). */-->
+                        <span th:if="${row.complianceStatus().isPresent()} and (${row.complianceStatus().get().name()} == 'COMPLIANT' or ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')"
+                              role="img" aria-label="Compliant">&#9989;</span>
+                        <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'"
+                              role="img" aria-label="Not Compliant">&#10060;</span>
                     </td>
                     <td class="actions" th:if="${canJoinTopics}">
                         <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
@@ -67,7 +66,7 @@
                 <th>Author</th>
                 <th>Participants</th>
                 <th>Needed Skills</th>
-                <th>Compliance</th>
+                <th th:if="${complianceVisible}">Compliance</th>
                 <th th:if="${canJoinTopics}"></th>
                 <th></th>
             </tr>
@@ -82,18 +81,17 @@
                         <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
                     </span>
                 </td>
-                <td>
+                <td th:if="${complianceVisible}">
                     <!--/* FR-014a: a blank cell when no Group yet, not a "No Group Yet" label.
-                         FR-025: text/icon, never color alone, for every non-blank state. */-->
-                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT'">
-                        <span aria-hidden="true">&#9989;</span> Compliant
-                    </span>
-                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'">
-                        <span aria-hidden="true">&#10060;</span> Not Compliant
-                    </span>
-                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'">
-                        <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
-                    </span>
+                         FR-025: text/icon, never color alone, for every non-blank state. The icon
+                         carries its meaning via aria-label rather than a visible text sibling;
+                         COMPLIANT and COMPLIANT_OVERRIDE render identically here since whether
+                         compliance was reached naturally or via Organiser override is
+                         organiser-space-only information (see organiser/groups/detail.html). */-->
+                    <span th:if="${row.complianceStatus().isPresent()} and (${row.complianceStatus().get().name()} == 'COMPLIANT' or ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')"
+                          role="img" aria-label="Compliant">&#9989;</span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'"
+                          role="img" aria-label="Not Compliant">&#10060;</span>
                 </td>
                 <td class="actions" th:if="${canJoinTopics}">
                     <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
