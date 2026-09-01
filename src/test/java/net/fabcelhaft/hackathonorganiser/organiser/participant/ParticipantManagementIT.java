@@ -11,11 +11,16 @@ import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionReposi
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
+import net.fabcelhaft.hackathonorganiser.group.Group;
+import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
+import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
+import net.fabcelhaft.hackathonorganiser.topic.Topic;
+import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
 import net.fabcelhaft.hackathonorganiser.user.User;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +30,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.OidcLoginMutator;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -75,6 +81,15 @@ class ParticipantManagementIT {
 
     @Autowired
     CustomFieldOptionRepository customFieldOptionRepository;
+
+    @Autowired
+    TopicRepository topicRepository;
+
+    @Autowired
+    GroupRepository groupRepository;
+
+    @Autowired
+    DatabaseClient databaseClient;
 
     // --- Registration (FR-006a, FR-006b) ---------------------------------------------------------
 
@@ -331,6 +346,70 @@ class ParticipantManagementIT {
                 .expectStatus().isNotFound();
     }
 
+    // --- Delete (Participant only, blocked while in a Group) -----------------------------------
+
+    @Test
+    void organiserCanDeleteAParticipantNotInAGroup() {
+        User user = persistUser("Deletable Target " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/delete", participant.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader().valueEquals("Location", "/organiser/participants");
+
+        assertThat(participantRepository.findById(participant.getId()).block()).isNull();
+        // The User account itself must survive the Participant's deletion.
+        assertThat(userRepository.findById(user.getId()).block()).isNotNull();
+    }
+
+    @Test
+    void deletingAParticipantWhoIsInAGroupIsBlocked() {
+        User user = persistUser("Grouped Target " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        Topic topic = persistTopic("Delete Guard Topic " + UUID.randomUUID());
+        Group group = persistActiveGroup(topic.getId());
+        addMemberDirectly(group.getId(), participant.getId());
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/delete", participant.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT);
+
+        assertThat(participantRepository.findById(participant.getId()).block()).isNotNull();
+    }
+
+    @Test
+    void deletingAnUnknownParticipantRedirectsWithoutError() {
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/delete", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+    }
+
+    @Test
+    void listViewHidesDeleteForAParticipantCurrentlyInAGroup() {
+        User user = persistUser("List Grouped Target " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        Topic topic = persistTopic("Delete Guard List Topic " + UUID.randomUUID());
+        Group group = persistActiveGroup(topic.getId());
+        addMemberDirectly(group.getId(), participant.getId());
+
+        String row = listRowFor(user.getDisplayName());
+        assertThat(row).doesNotContain("delete-open-button");
+        assertThat(row).contains("In a Group");
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/participants")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(body).doesNotContain("/organiser/participants/" + participant.getId() + "/delete");
+    }
+
     // --- Incomplete indicator on the list view (FR-027, SC-007) -------------------------------------
 
     @Test
@@ -406,6 +485,11 @@ class ParticipantManagementIT {
                 .body(BodyInserters.fromFormData("value", "Nope"))
                 .exchange()
                 .expectStatus().isForbidden();
+
+        webTestClient.mutateWith(standardUser())
+                .post().uri("/organiser/participants/{id}/delete", participant.getId())
+                .exchange()
+                .expectStatus().isForbidden();
     }
 
     // --- Test helpers ----------------------------------------------------------------------------
@@ -477,6 +561,37 @@ class ParticipantManagementIT {
         definition.setCreatedAt(Instant.now());
         definition.setUpdatedAt(Instant.now());
         return customFieldDefinitionRepository.save(definition).block();
+    }
+
+    private Topic persistTopic(String name) {
+        User creator = persistUser("Creator for " + name);
+        Topic topic = new Topic();
+        topic.setName(name);
+        topic.setDescription("Desc");
+        topic.setCreatedByUserId(creator.getId());
+        topic.setCreatedAt(Instant.now());
+        topic.setUpdatedAt(Instant.now());
+        return topicRepository.save(topic).block();
+    }
+
+    private Group persistActiveGroup(UUID topicId) {
+        Group group = new Group();
+        group.setTopicId(topicId);
+        group.setStatus(GroupStatus.ACTIVE);
+        group.setCreatedAt(Instant.now());
+        group.setUpdatedAt(Instant.now());
+        return groupRepository.save(group).block();
+    }
+
+    private void addMemberDirectly(UUID groupId, UUID participantId) {
+        databaseClient
+                .sql("INSERT INTO group_members (group_id, participant_id, active, joined_at)"
+                        + " VALUES (:gid, :pid, true, :now)")
+                .bind("gid", groupId)
+                .bind("pid", participantId)
+                .bind("now", Instant.now())
+                .then()
+                .block();
     }
 
     private CustomFieldOption persistOption(UUID definitionId, String label) {

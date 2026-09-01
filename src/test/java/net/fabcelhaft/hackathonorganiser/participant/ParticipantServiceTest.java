@@ -673,6 +673,48 @@ class ParticipantServiceTest {
         verify(groupService, never()).removeMember(any(UUID.class), any(UUID.class));
     }
 
+    // --- delete: only the Participant, blocked while it belongs to an active Group -------------
+
+    @Test
+    void deleteRemovesTheParticipantWhenNotInAGroup() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.empty());
+        when(participantRepository.deleteById(participantId)).thenReturn(Mono.empty());
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(participantService.delete(participantId)).verifyComplete();
+
+        verify(participantRepository).deleteById(participantId);
+    }
+
+    @Test
+    void deleteRejectsAParticipantWhoIsInAGroup() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        Group group = new Group();
+        group.setId(UUID.randomUUID());
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.just(group));
+
+        StepVerifier.create(participantService.delete(participantId))
+                .expectError(ParticipantConflictException.class)
+                .verify();
+
+        verify(participantRepository, never()).deleteById(any(UUID.class));
+    }
+
+    @Test
+    void deleteIsANoOpForAnUnknownParticipant() {
+        UUID participantId = UUID.randomUUID();
+        when(participantRepository.findById(participantId)).thenReturn(Mono.empty());
+
+        StepVerifier.create(participantService.delete(participantId)).verifyComplete();
+
+        verify(participantRepository, never()).deleteById(any(UUID.class));
+    }
+
     // --- findDirectoryListing: only ACTIVE, alphabetical by display name (FR-027, FR-027a) -------
     // Field-level Public/Overview resolution is exercised end-to-end against a real database by
     // ParticipantsDirectoryManagementIT — these unit tests use zero Overview-marked definitions so

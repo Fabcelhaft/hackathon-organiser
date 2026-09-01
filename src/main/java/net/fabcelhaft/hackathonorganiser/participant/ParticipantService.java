@@ -671,13 +671,63 @@ public class ParticipantService {
                 .findAll()
                 .concatMap(participant -> userRepository
                         .findById(participant.getUserId())
-                        .flatMap(user -> isIncomplete(participant.getId())
-                                .map(incomplete -> new ParticipantSummary(
+                        .flatMap(user -> Mono.zip(
+                                        isIncomplete(participant.getId()),
+                                        groupService
+                                                .findActiveGroupForParticipant(participant.getId())
+                                                .hasElement())
+                                .map(tuple -> new ParticipantSummary(
                                         participant.getId(),
                                         participant.getUserId(),
                                         user.getDisplayName(),
                                         participant.getStatus(),
-                                        incomplete))));
+                                        tuple.getT1(),
+                                        tuple.getT2()))));
+    }
+
+    // --- Delete ------------------------------------------------------------------------------------
+
+    /**
+     * Deletes a Participant record — the Participant only, never the underlying {@link
+     * net.fabcelhaft.hackathonorganiser.user.User} account. Rejects with a friendly {@link
+     * ParticipantConflictException} if the Participant currently belongs to an active Group (it
+     * must be removed from the Group first, {@link GroupService#findActiveGroupForParticipant}); a
+     * no-op for an unknown {@code id}, matching {@code SkillService.delete}'s convention. Cleans up
+     * every child row referencing this Participant first — {@code custom_field_value_options},
+     * {@code custom_field_values}, {@code participant_skills}, and any historical (inactive)
+     * {@code group_members} rows — since none of those foreign keys cascade (schema.sql).
+     */
+    public Mono<Void> delete(UUID id) {
+        Mono<Void> chain = participantRepository.findById(id).flatMap(participant -> groupService
+                .findActiveGroupForParticipant(id)
+                .hasElement()
+                .flatMap(inGroup -> {
+                    if (inGroup) {
+                        return Mono.<Void>error(new ParticipantConflictException(
+                                "Cannot delete this participant: still a member of a Group"));
+                    }
+                    return deleteAssociatedData(id).then(participantRepository.deleteById(id));
+                }));
+        return transactionalOperator.transactional(chain);
+    }
+
+    private Mono<Void> deleteAssociatedData(UUID participantId) {
+        return databaseClient
+                .sql("DELETE FROM custom_field_value_options WHERE participant_id = :pid")
+                .bind("pid", participantId)
+                .then()
+                .then(Mono.defer(() -> databaseClient
+                        .sql("DELETE FROM custom_field_values WHERE participant_id = :pid")
+                        .bind("pid", participantId)
+                        .then()))
+                .then(Mono.defer(() -> databaseClient
+                        .sql("DELETE FROM participant_skills WHERE participant_id = :pid")
+                        .bind("pid", participantId)
+                        .then()))
+                .then(Mono.defer(() -> databaseClient
+                        .sql("DELETE FROM group_members WHERE participant_id = :pid")
+                        .bind("pid", participantId)
+                        .then()));
     }
 
     public Mono<ParticipantDetail> findDetail(UUID participantId) {
@@ -857,7 +907,12 @@ public class ParticipantService {
     // --- Read-model view types -------------------------------------------------------------------
 
     public record ParticipantSummary(
-            UUID id, UUID userId, String userDisplayName, ParticipantStatus status, boolean incomplete) {}
+            UUID id,
+            UUID userId,
+            String userDisplayName,
+            ParticipantStatus status,
+            boolean incomplete,
+            boolean inGroup) {}
 
     public record CustomFieldValueView(
             CustomFieldDefinition definition,

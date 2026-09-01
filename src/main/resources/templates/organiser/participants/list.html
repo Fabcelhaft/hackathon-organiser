@@ -25,11 +25,63 @@
                     <span th:if="${p.incomplete}" class="badge badge-sm badge-danger"><svg th:replace="~{fragments/icons :: xCircle(null)}"/> Incomplete</span>
                     <span th:unless="${p.incomplete}" class="badge-success"><svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Complete</span>
                 </td>
-                <td class="actions"><a th:href="@{/organiser/participants/{id}(id=${p.id})}" role="button" class="outline secondary">View</a></td>
+                <td class="actions">
+                    <a th:href="@{/organiser/participants/{id}(id=${p.id})}" role="button" class="outline secondary">View</a>
+                    <button type="button" th:if="${!p.inGroup}" class="outline danger delete-open-button"
+                            th:attr="data-dialog-id=${'delete-dialog-' + p.id}">Delete</button>
+                    <span th:if="${p.inGroup}" class="badge badge-sm" title="Remove this participant from their Group before deleting">In a Group</span>
+                </td>
             </tr>
             </tbody>
         </table>
+
+        <!--/* One form/dialog pair per deletable row (home/index.html's revoke dialog is the single-
+             instance version of this same Pico <dialog> pattern) — a distinct id per participant so
+             each row's confirmation targets only that row's own delete form. */-->
+        <th:block th:each="p : ${participants}" th:if="${!p.inGroup}">
+            <form method="post" th:attr="id=${'delete-form-' + p.id}"
+                  th:action="@{/organiser/participants/{id}/delete(id=${p.id})}"></form>
+            <dialog th:attr="id=${'delete-dialog-' + p.id}, aria-labelledby=${'delete-dialog-title-' + p.id}">
+                <article>
+                    <header>
+                        <h2 th:attr="id=${'delete-dialog-title-' + p.id}">Confirm Delete Participant</h2>
+                    </header>
+                    <p>Delete <strong th:text="${p.userDisplayName}">Name</strong>'s participant record? This
+                        cannot be undone. The underlying user account is not affected.</p>
+                    <footer class="actions actions-end">
+                        <button type="button" class="outline secondary delete-cancel-button">Cancel</button>
+                        <button type="submit" class="danger" th:attr="form=${'delete-form-' + p.id}">Confirm
+                            Delete</button>
+                    </footer>
+                </article>
+            </dialog>
+        </th:block>
     </div>
 </th:block>
+<!--/* Mirrors home/index.html's single-dialog revoke script, generalised over every per-row dialog:
+     native <dialog>.showModal() gives focus trapping and Escape-to-close for free; the close
+     handler returns focus to the button that opened it (research.md §8). */-->
+<script th:if="${!#lists.isEmpty(participants)}">
+    (function () {
+        document.querySelectorAll('.delete-open-button').forEach(function (openButton) {
+            var dialog = document.getElementById(openButton.getAttribute('data-dialog-id'));
+            if (!dialog) {
+                return;
+            }
+            openButton.addEventListener('click', function () {
+                dialog.showModal();
+            });
+            dialog.addEventListener('close', function () {
+                openButton.focus();
+            });
+            var cancelButton = dialog.querySelector('.delete-cancel-button');
+            if (cancelButton) {
+                cancelButton.addEventListener('click', function () {
+                    dialog.close();
+                });
+            }
+        });
+    })();
+</script>
 </body>
 </html>

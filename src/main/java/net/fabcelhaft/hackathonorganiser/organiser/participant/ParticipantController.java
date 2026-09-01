@@ -98,6 +98,22 @@ public class ParticipantController {
         });
     }
 
+    @PostMapping("/{id}/delete")
+    public Mono<Rendering> delete(@PathVariable UUID id) {
+        return participantService
+                .delete(id)
+                .then(Mono.just(Rendering.redirectTo("/organiser/participants")
+                        .status(HttpStatus.SEE_OTHER)
+                        .build()))
+                .onErrorResume(
+                        ParticipantConflictException.class,
+                        ex -> Mono.just(Rendering.view("organiser/participants/list")
+                                .modelAttribute("participants", participantService.findAllSummaries())
+                                .modelAttribute("error", ex.getMessage())
+                                .status(HttpStatus.CONFLICT)
+                                .build()));
+    }
+
     @PostMapping("/{id}/custom-fields/{fieldId}")
     public Mono<Rendering> setCustomFieldValue(
             @PathVariable UUID id, @PathVariable UUID fieldId, ServerWebExchange exchange) {
