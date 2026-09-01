@@ -1,27 +1,29 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{organiser/fragments/layout :: head(title='User Detail')}">
+<head th:replace="~{organiser/fragments/layout :: head(title=${user.displayName})}">
     <title>User Detail</title>
 </head>
 <body>
-<th:block th:replace="~{organiser/fragments/layout :: layout(title='User Detail', content=~{::#content})}">
+<th:block th:replace="~{organiser/fragments/layout :: layout(title=${user.displayName}, content=~{::#content})}">
     <div id="content">
         <dl>
-            <dt>Display Name</dt>
-            <dd th:text="${user.displayName}">Name</dd>
             <dt>Email</dt>
             <dd th:text="${user.email}">Email</dd>
             <dt>Organiser</dt>
             <dd th:text="${user.organiser} ? 'Yes' : 'No'">Organiser</dd>
         </dl>
-        <form th:action="@{/organiser/users/{id}/organiser(id=${user.id})}" method="post" th:if="${!user.organiser}">
-            <input type="hidden" name="organiser" value="true"/>
-            <button type="submit">Grant Organiser</button>
-        </form>
-        <form th:action="@{/organiser/users/{id}/organiser(id=${user.id})}" method="post" th:if="${user.organiser}">
-            <input type="hidden" name="organiser" value="false"/>
-            <button type="submit">Revoke Organiser</button>
-        </form>
+        <div class="actions">
+            <form th:action="@{/organiser/users/{id}/organiser(id=${user.id})}" method="post"
+                  th:if="${!user.organiser}">
+                <input type="hidden" name="organiser" value="true"/>
+                <button type="submit" class="outline secondary">Grant Organiser</button>
+            </form>
+            <form th:action="@{/organiser/users/{id}/organiser(id=${user.id})}" method="post"
+                  th:if="${user.organiser}">
+                <input type="hidden" name="organiser" value="false"/>
+                <button type="submit" class="outline danger">Revoke Organiser</button>
+            </form>
+        </div>
     </div>
 </th:block>
 </body>

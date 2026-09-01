@@ -6,14 +6,15 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Topics', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/topics/new}" role="button">New Topic</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/topics/new}" role="button">New Topic</a></div>
         <table>
             <thead>
             <tr>
                 <th>Name</th>
                 <th>Status</th>
                 <th>Active Group</th>
+                <th>Compliance</th>
                 <th></th>
             </tr>
             </thead>
@@ -21,7 +22,7 @@
             <tr th:each="row : ${topics}">
                 <td th:text="${row.topic.name}">Name</td>
                 <td>
-                    <span th:if="${row.topic.approvalStatus.name()} == 'PENDING'" class="badge-pending">Pending approval</span>
+                    <span th:if="${row.topic.approvalStatus.name()} == 'PENDING'" class="badge badge-pending">Pending approval</span>
                     <span th:if="${row.topic.approvalStatus.name()} == 'APPROVED'">Approved</span>
                 </td>
                 <td>
@@ -29,7 +30,22 @@
                        th:href="@{/organiser/groups/{id}(id=${row.activeGroupId})}">Active</a>
                     <span th:if="${row.activeGroupId} == null">No active group</span>
                 </td>
-                <td><a th:href="@{/organiser/topics/{id}(id=${row.topic.id})}">View</a></td>
+                <td>
+                    <!--/* FR-025: text/icon, never color alone. */-->
+                    <span th:if="${row.complianceStatus().isEmpty()}">
+                        <svg th:replace="~{fragments/icons :: circleHelp(null)}"/> No Group Yet
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT'" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                        <svg th:replace="~{fragments/icons :: xCircle(null)}"/> Not Compliant
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant (Organiser Override)
+                    </span>
+                </td>
+                <td class="actions"><a th:href="@{/organiser/topics/{id}(id=${row.topic.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
             </tbody>
         </table>

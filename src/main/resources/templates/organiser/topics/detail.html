@@ -1,29 +1,29 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{organiser/fragments/layout :: head(title='Topic Detail')}">
+<!--/* The Topic's name is the <h1> the layout renders, so it is not repeated as a <dl> row. */-->
+<head th:replace="~{organiser/fragments/layout :: head(title=${detail.topic.name})}">
     <title>Topic Detail</title>
 </head>
 <body>
-<th:block th:replace="~{organiser/fragments/layout :: layout(title='Topic Detail', content=~{::#content})}">
+<th:block th:replace="~{organiser/fragments/layout :: layout(title=${detail.topic.name}, content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <dl>
-            <dt>Name</dt>
-            <dd th:text="${detail.topic.name}">Name</dd>
             <dt>Description</dt>
             <dd th:text="${detail.topic.description}">Description</dd>
             <dt>Creator</dt>
             <dd th:text="${detail.creatorDisplayName}">Creator</dd>
             <dt>Approval Status</dt>
             <dd>
-                <span th:if="${detail.topic.approvalStatus.name()} == 'PENDING'" class="badge-pending">Pending approval</span>
-                <span th:if="${detail.topic.approvalStatus.name()} == 'APPROVED'">Approved</span>
-                <form th:if="${detail.topic.approvalStatus.name()} == 'PENDING'"
-                      th:action="@{/organiser/topics/{id}/approve(id=${detail.topic.id})}" method="post"
-                      style="display:inline">
-                    <button type="submit">Approve</button>
-                </form>
+                <span class="actions">
+                    <span th:if="${detail.topic.approvalStatus.name()} == 'PENDING'" class="badge badge-pending">Pending approval</span>
+                    <span th:if="${detail.topic.approvalStatus.name()} == 'APPROVED'">Approved</span>
+                    <form th:if="${detail.topic.approvalStatus.name()} == 'PENDING'"
+                          th:action="@{/organiser/topics/{id}/approve(id=${detail.topic.id})}" method="post">
+                        <button type="submit" class="outline secondary">Approve</button>
+                    </form>
+                </span>
             </dd>
             <dt>Skills</dt>
             <dd>
@@ -38,7 +38,7 @@
             </dd>
         </dl>
 
-        <p><a th:href="@{/organiser/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit</a></p>
+        <div class="actions"><a th:href="@{/organiser/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit</a></div>
     </div>
 </th:block>
 </body>

@@ -6,13 +6,14 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Groups', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/groups/new}" role="button">New Group</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/groups/new}" role="button">New Group</a></div>
         <table>
             <thead>
             <tr>
                 <th>Topic</th>
                 <th>Status</th>
+                <th>Compliance</th>
                 <th></th>
             </tr>
             </thead>
@@ -20,7 +21,20 @@
             <tr th:each="g : ${groups}">
                 <td th:text="${g.topicName}">Topic</td>
                 <td th:text="${g.status}">Status</td>
-                <td><a th:href="@{/organiser/groups/{id}(id=${g.id})}">View</a></td>
+                <td>
+                    <!--/* FR-025: text/icon, never color alone. Blank for a DISBANDED Group — see
+                         GroupService#complianceStatusForSummary. */-->
+                    <span th:if="${g.complianceStatus().isPresent()} and ${g.complianceStatus().get().name()} == 'COMPLIANT'" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant
+                    </span>
+                    <span th:if="${g.complianceStatus().isPresent()} and ${g.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                        <svg th:replace="~{fragments/icons :: xCircle(null)}"/> Not Compliant
+                    </span>
+                    <span th:if="${g.complianceStatus().isPresent()} and ${g.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant (Organiser Override)
+                    </span>
+                </td>
+                <td class="actions"><a th:href="@{/organiser/groups/{id}(id=${g.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
             </tbody>
         </table>

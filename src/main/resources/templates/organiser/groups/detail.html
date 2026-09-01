@@ -6,14 +6,43 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Group Detail', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <dl>
             <dt>Topic</dt>
             <dd th:text="${detail.topicName}">Topic</dd>
             <dt>Status</dt>
             <dd th:text="${detail.group.status}">Status</dd>
+            <dt>Compliance</dt>
+            <dd>
+                <!--/* FR-025: text/icon, never color alone. */-->
+                <span th:if="${complianceStatus} == null">
+                    <svg th:replace="~{fragments/icons :: circleHelp(null)}"/> No Group Yet
+                </span>
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT'" class="badge-success">
+                    <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant
+                </span>
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                    <svg th:replace="~{fragments/icons :: xCircle(null)}"/> Not Compliant
+                </span>
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT_OVERRIDE'" class="badge-success">
+                    <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant (Organiser Override)
+                </span>
+            </dd>
         </dl>
+
+        <div class="actions">
+            <form th:if="${detail.group.complianceOverride}"
+                  th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
+                <input type="hidden" name="override" value="false"/>
+                <button type="submit" class="outline secondary">Remove Compliance Override</button>
+            </form>
+            <form th:unless="${detail.group.complianceOverride}"
+                  th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
+                <input type="hidden" name="override" value="true"/>
+                <button type="submit" class="outline secondary">Mark Compliant (Override)</button>
+            </form>
+        </div>
 
         <h2>Current Members</h2>
         <table>
@@ -28,11 +57,11 @@
             <tr th:each="m : ${detail.currentMembers}">
                 <td th:text="${m.participantDisplayName}">Name</td>
                 <td th:text="${m.joinedAt}">Joined</td>
-                <td>
+                <td class="actions">
                     <form th:if="${detail.group.status.name()} == 'ACTIVE'"
                           th:action="@{/organiser/groups/{id}/members/{pid}/remove(id=${detail.group.id}, pid=${m.participantId})}"
                           method="post">
-                        <button type="submit">Remove</button>
+                        <button type="submit" class="outline danger">Remove</button>
                     </form>
                 </td>
             </tr>
@@ -64,7 +93,8 @@
         <div th:if="${detail.group.status.name()} == 'ACTIVE'">
             <h2>Add Member</h2>
             <form th:action="@{/organiser/groups/{id}/members(id=${detail.group.id})}" method="post">
-                <select name="participant_id" required="required">
+                <label for="participant_id">Participant</label>
+                <select id="participant_id" name="participant_id" required="required">
                     <option th:each="p : ${allParticipants}" th:value="${p.id}" th:text="${p.displayName}">
                         Name
                     </option>
@@ -73,9 +103,11 @@
             </form>
 
             <h2>Disband</h2>
-            <form th:action="@{/organiser/groups/{id}/disband(id=${detail.group.id})}" method="post">
-                <button type="submit">Disband</button>
-            </form>
+            <div class="actions">
+                <form th:action="@{/organiser/groups/{id}/disband(id=${detail.group.id})}" method="post">
+                    <button type="submit" class="outline danger">Disband</button>
+                </form>
+            </div>
         </div>
     </div>
 </th:block>

@@ -227,7 +227,7 @@ class TopicServiceTest {
 
     @Test
     void proposeRejectsMissingName() {
-        StepVerifier.create(topicService.propose(UUID.randomUUID(), null, "Description"))
+        StepVerifier.create(topicService.propose(UUID.randomUUID(), null, "Description", List.of()))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -236,7 +236,7 @@ class TopicServiceTest {
 
     @Test
     void proposeRejectsMissingDescription() {
-        StepVerifier.create(topicService.propose(UUID.randomUUID(), "Name", null))
+        StepVerifier.create(topicService.propose(UUID.randomUUID(), "Name", null, List.of()))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -248,8 +248,9 @@ class TopicServiceTest {
         UUID authorId = UUID.randomUUID();
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true)));
         when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description"))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of()))
                 .assertNext(topic -> {
                     assertThat(topic.getApprovalStatus()).isEqualTo(TopicApprovalStatus.PENDING);
                     assertThat(topic.getCreatedByUserId()).isEqualTo(authorId);
@@ -262,10 +263,144 @@ class TopicServiceTest {
         UUID authorId = UUID.randomUUID();
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false)));
         when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description"))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of()))
                 .assertNext(topic -> assertThat(topic.getApprovalStatus()).isEqualTo(TopicApprovalStatus.APPROVED))
                 .verifyComplete();
+    }
+
+    // --- propose/updateAsAuthor: Skill selection (FR-001, FR-002, research.md §6) ------------------
+
+    @Test
+    void proposeRejectsAnUnknownSkillId() {
+        UUID authorId = UUID.randomUUID();
+        UUID unknownSkillId = UUID.randomUUID();
+        when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.empty());
+
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(unknownSkillId)))
+                .expectError(TopicConflictException.class)
+                .verify();
+
+        verify(topicRepository, never()).save(any());
+    }
+
+    @Test
+    void proposeSucceedsWithNoSkillsSelected() {
+        UUID authorId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false)));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> {
+            Topic topic = invocation.getArgument(0);
+            topic.setId(UUID.randomUUID());
+            return Mono.just(topic);
+        });
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of()))
+                .assertNext(topic -> assertThat(topic.getCreatedByUserId()).isEqualTo(authorId))
+                .verifyComplete();
+
+        verify(skillRepository, never()).findAllById((Iterable<UUID>) any());
+    }
+
+    @Test
+    void proposePersistsTheSelectedSkills() {
+        UUID authorId = UUID.randomUUID();
+        UUID skillId = UUID.randomUUID();
+        Skill skill = skillOf(skillId);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false)));
+        when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.just(skill));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> {
+            Topic topic = invocation.getArgument(0);
+            topic.setId(UUID.randomUUID());
+            return Mono.just(topic);
+        });
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(skillId)))
+                .assertNext(topic -> assertThat(topic.getCreatedByUserId()).isEqualTo(authorId))
+                .verifyComplete();
+
+        verify(databaseClient).sql(org.mockito.ArgumentMatchers.contains("INSERT INTO topic_skills"));
+    }
+
+    // --- updateAsAuthor: author-only, Skill replace (FR-002) ----------------------------------------
+
+    @Test
+    void updateAsAuthorRejectsMissingName() {
+        StepVerifier.create(
+                        topicService.updateAsAuthor(UUID.randomUUID(), UUID.randomUUID(), null, "Description", List.of()))
+                .expectError(TopicConflictException.class)
+                .verify();
+
+        verify(topicRepository, never()).findById(any(UUID.class));
+    }
+
+    @Test
+    void updateAsAuthorOfAnUnknownTopicCompletesEmpty() {
+        UUID id = UUID.randomUUID();
+        UUID requesterId = UUID.randomUUID();
+        when(topicRepository.findById(id)).thenReturn(Mono.empty());
+
+        StepVerifier.create(topicService.updateAsAuthor(id, requesterId, "Name", "Description", List.of()))
+                .verifyComplete();
+
+        verify(topicRepository, never()).save(any());
+    }
+
+    @Test
+    void updateAsAuthorRejectsANonAuthorRequester() {
+        UUID id = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID otherUserId = UUID.randomUUID();
+        Topic existing = topicOf(id, "Name", "Description", authorId);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
+
+        StepVerifier.create(topicService.updateAsAuthor(id, otherUserId, "New Name", "New Description", List.of()))
+                .expectError(TopicConflictException.class)
+                .verify();
+
+        verify(topicRepository, never()).save(any());
+    }
+
+    @Test
+    void updateAsAuthorRejectsAnUnknownSkillId() {
+        UUID id = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID unknownSkillId = UUID.randomUUID();
+        Topic existing = topicOf(id, "Name", "Description", authorId);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.empty());
+
+        StepVerifier.create(
+                        topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(unknownSkillId)))
+                .expectError(TopicConflictException.class)
+                .verify();
+
+        verify(topicRepository, never()).save(any());
+    }
+
+    @Test
+    void updateAsAuthorReplacesNameDescriptionAndSkillSelection() {
+        UUID id = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID skillId = UUID.randomUUID();
+        Skill skill = skillOf(skillId);
+        Topic existing = topicOf(id, "Old Name", "Old Description", authorId);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.just(skill));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(skillId)))
+                .assertNext(topic -> {
+                    assertThat(topic.getName()).isEqualTo("New Name");
+                    assertThat(topic.getDescription()).isEqualTo("New Description");
+                })
+                .verifyComplete();
+
+        verify(databaseClient).sql(org.mockito.ArgumentMatchers.contains("DELETE FROM topic_skills"));
+        verify(databaseClient).sql(org.mockito.ArgumentMatchers.contains("INSERT INTO topic_skills"));
     }
 
     // --- findVisibleTopicsFor: viewer-scoped 3-group visibility/ordering (FR-009a, FR-012a) ------

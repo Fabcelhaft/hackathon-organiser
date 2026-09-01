@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Custom Field', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
         <form th:action="${customFieldId} != null ? @{/organiser/custom-fields/{id}(id=${customFieldId})} : @{/organiser/custom-fields}"
               method="post">
@@ -58,11 +58,11 @@
         <div th:if="${customFieldId} != null">
             <h2>Options</h2>
             <ul>
-                <li th:each="option : ${existingOptions}">
+                <li th:each="option : ${existingOptions}" class="actions">
                     <span th:text="${option.label}">Option</span>
                     <form th:action="@{/organiser/custom-fields/{id}/options/{optionId}/delete(id=${customFieldId}, optionId=${option.id})}"
-                          method="post" style="display:inline">
-                        <button type="submit">Remove</button>
+                          method="post">
+                        <button type="submit" class="outline danger">Remove</button>
                     </form>
                 </li>
             </ul>

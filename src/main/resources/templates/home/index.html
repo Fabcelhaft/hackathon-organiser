@@ -6,75 +6,161 @@
 <body>
 <th:block th:replace="~{fragments/layout :: layout(title='Home', content=~{::#content})}">
 <div id="content" class="home-grid">
-    <section id="status-section" aria-labelledby="status-heading">
+    <!--/* <article> is Pico's card element, so the panel's background, radius, shadow and padding
+         come from the framework's own tokens — no new colour enters the palette.
+         FR-036: the markdown body carries its own heading, and MarkdownRenderer already shifts
+         markdown headings to <h2> or below, so the page still has exactly one <h1> (the layout's)
+         and no title is duplicated above the content. th:utext is deliberate — bodyHtml is
+         pre-sanitized by MarkdownRenderer (research.md §1). */-->
+    <article id="content-section">
+        <div th:if="${homepageContent} != null" th:utext="${homepageContent.bodyHtml()}">Body</div>
+        <p th:if="${homepageContent} == null">No homepage content has been set yet.</p>
+    </article>
+
+    <section id="status-section" class="card" aria-labelledby="status-heading">
         <h2 id="status-heading">Your Status</h2>
 
         <p th:if="${participant} == null">You are not currently registered.</p>
         <p th:if="${participant} != null">
-            Status: <span class="status-badge" th:text="${participant.status}">ACTIVE</span>
+            Status: <span class="badge" th:text="${participant.status}">ACTIVE</span>
         </p>
         <p th:if="${assignedTopic} != null">
-            Group topic: <span th:text="${assignedTopic.name}">Topic</span>
+            Your Topic: <a th:href="@{/topics/{id}(id=${assignedTopic.id})}"
+                           th:text="${assignedTopic.name}">Topic</a>
         </p>
 
-        <p th:if="${canRegister}">
+        <div class="actions" th:if="${canRegister}">
             <a th:href="@{/register}" role="button">Register</a>
-        </p>
+        </div>
 
         <p th:if="${notParticipated}" role="status">
             Your participation status was set by an Organiser. Only an Organiser can change it.
         </p>
 
-        <form th:if="${canRevoke}" id="revoke-form" th:action="@{/revoke}" method="post">
-            <button type="button" id="revoke-open-button">Revoke Registration</button>
-        </form>
+        <!--/* The form carries the action; the dialog's Confirm button references it by id, so the
+             form itself renders only the opener. */-->
+        <div class="actions" th:if="${canRevoke}">
+            <form id="revoke-form" th:action="@{/revoke}" method="post">
+                <button type="button" id="revoke-open-button" class="outline danger">Revoke Registration</button>
+            </form>
+        </div>
 
+        <!--/* Structure matters here: Pico styles <dialog> itself as the full-viewport overlay
+             (position:fixed, inset:0, display:flex) and styles a single <article> child as the
+             card. Without that <article> the heading, body and buttons become direct flex items
+             of the overlay and lay themselves out in a row across the viewport. <header> and
+             <footer> are the hooks Pico uses for the heading row and the right-aligned button
+             row; .actions keeps both buttons at their natural width. */-->
         <dialog th:if="${canRevoke}" id="revoke-dialog" aria-labelledby="revoke-dialog-title">
-            <h2 id="revoke-dialog-title">Confirm Revoke Registration</h2>
-            <p>Revoking your registration will remove you from your current Group, if any, and cannot be
-                undone automatically — you would need to register again.</p>
-            <button type="button" id="revoke-cancel-button">Cancel</button>
-            <button type="submit" form="revoke-form">Confirm Revoke</button>
+            <article>
+                <header>
+                    <h2 id="revoke-dialog-title">Confirm Revoke Registration</h2>
+                </header>
+                <p>Revoking your registration will remove you from your current Topic's team, if any, and cannot be
+                    undone automatically — you would need to register again.</p>
+                <footer class="actions actions-end">
+                    <button type="button" id="revoke-cancel-button" class="outline secondary">Cancel</button>
+                    <button type="submit" form="revoke-form" class="danger">Confirm Revoke</button>
+                </footer>
+            </article>
         </dialog>
     </section>
 
-    <section id="topics-section" aria-labelledby="topics-heading">
+    <section id="topics-section" class="card" aria-labelledby="topics-heading">
         <h2 id="topics-heading">Topics</h2>
-        <p th:if="${canProposeTopic}"><a th:href="@{/topics/new}" role="button">Propose Topic</a></p>
+        <div class="actions">
+            <a th:if="${canProposeTopic}" th:href="@{/topics/new}" role="button">Propose Topic</a>
+            <a th:href="@{/topics/overview}" role="button" class="outline secondary">All Topics</a>
+        </div>
 
-        <ul class="topic-list">
-            <li th:each="topic : ${topicList.ownPending()}">
-                <span class="badge-pending">Pending approval</span>
-                <strong th:text="${topic.name}">Name</strong> —
-                <span th:text="${topic.description}">Description</span>
-                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
-                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
-                <a th:href="@{/topics/{id}/edit(id=${topic.id})}">Edit</a>
-            </li>
-            <li th:each="topic : ${topicList.ownApproved()}">
-                <strong th:text="${topic.name}">Name</strong> —
-                <span th:text="${topic.description}">Description</span>
-                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
-                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
-                <a th:href="@{/topics/{id}/edit(id=${topic.id})}">Edit</a>
-            </li>
-            <li th:each="topic : ${topicList.others()}">
-                <span th:if="${topic.approvalStatus.name() == 'PENDING'}" class="badge-pending">Pending approval</span>
-                <strong th:text="${topic.name}">Name</strong> —
-                <span th:text="${topic.description}">Description</span>
-                (<span th:text="${authorsById.get(topic.createdByUserId).displayName}">Author</span>
-                [<span th:text="${authorsById.get(topic.createdByUserId).oidcSubject}">sub</span>])
-            </li>
-        </ul>
-    </section>
+        <!--/* FR-033, FR-035: the viewer's own Topics (any status, any fullness) shown separately,
+             above the fullness-sorted table; a pinned Pending/full row shows View Details but never
+             Join (row.joinable() covers that). openTopics already carries every row this feature
+             needs on the Home Page, so both sections below select from that one list. */-->
+        <div th:if="${!#lists.isEmpty(openTopics.?[pinned])}">
+            <h3 id="your-topics-heading">Your Topics</h3>
+            <div class="table-scroll">
+            <table aria-labelledby="your-topics-heading">
+                <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Participants</th>
+                    <th>Your Skills</th>
+                    <th th:if="${canJoinTopics}"></th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${openTopics.?[pinned]}">
+                    <!--/* FR-035: a pinned Topic may still be awaiting an Organiser, and only its
+                         author ever sees it here — the same wording and token the Organiser UI
+                         uses, so the state is carried by text, not colour alone. */-->
+                    <td>
+                        <span class="name-with-badge">
+                            <span th:text="${row.topic().name}">Name</span>
+                            <span th:if="${row.topic().approvalStatus.name()} == 'PENDING'"
+                                  class="badge badge-sm badge-pending">Pending approval</span>
+                        </span>
+                    </td>
+                    <td th:text="${row.memberCount()}">0</td>
+                    <td>
+                        <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
+                            <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                        </span>
+                    </td>
+                    <td class="actions" th:if="${canJoinTopics}">
+                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                            <button type="submit" class="outline secondary">Join</button>
+                        </form>
+                    </td>
+                    <td class="actions">
+                        <!--/* FR-004a: the label is short so it stays on one line in the narrow
+                             Home column; the aria-label carries the full purpose. */-->
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary"
+                           th:aria-label="|View details for ${row.topic().name}|">View</a>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
 
-    <section id="content-section" aria-labelledby="content-heading">
-        <h2 id="content-heading" th:text="${homepageContent != null ? homepageContent.page().getTitle() : 'Welcome'}">Welcome</h2>
-        <!--/* FR-036: the section heading above is the page's own top-level heading;
-             MarkdownRenderer already shifts markdown headings to <h2> or below. th:utext is
-             deliberate — bodyHtml is pre-sanitized by MarkdownRenderer (research.md §1). */-->
-        <div th:if="${homepageContent} != null" th:utext="${homepageContent.bodyHtml()}">Body</div>
-        <p th:if="${homepageContent} == null">No homepage content has been set yet.</p>
+        <h3 id="open-topics-heading">Open Topics</h3>
+        <div class="table-scroll">
+        <table aria-labelledby="open-topics-heading">
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Participants</th>
+                <th>Your Skills</th>
+                <th th:if="${canJoinTopics}"></th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${openTopics.?[!pinned]}">
+                <td th:text="${row.topic().name}">Name</td>
+                <td th:text="${row.memberCount()}">0</td>
+                <td>
+                    <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
+                        <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                    </span>
+                </td>
+                <td class="actions" th:if="${canJoinTopics}">
+                    <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                        <button type="submit" class="outline secondary">Join</button>
+                    </form>
+                </td>
+                <td class="actions">
+                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
+                </td>
+            </tr>
+            <tr th:if="${openTopics.?[!pinned].isEmpty()}">
+                <td colspan="5">No open Topics right now.</td>
+            </tr>
+            </tbody>
+        </table>
+        </div>
     </section>
 </div>
 </th:block>

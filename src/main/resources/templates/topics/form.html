@@ -7,13 +7,24 @@
 <th:block
         th:replace="~{fragments/layout :: layout(title=${topicId} != null ? 'Edit Topic' : 'Propose Topic', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="${topicId} != null ? @{/topics/{id}(id=${topicId})} : @{/topics}" method="post">
             <label for="name">Name</label>
             <input type="text" id="name" name="name" th:value="${name}" required="required"/>
 
             <label for="description">Description</label>
             <textarea id="description" name="description" required="required" th:text="${description}"></textarea>
+
+            <fieldset>
+                <legend>Skills</legend>
+                <div th:each="skill : ${allSkills}">
+                    <label>
+                        <input type="checkbox" name="skillIds" th:value="${skill.id}"
+                               th:checked="${#lists.contains(selectedSkillIds, skill.id)}"/>
+                        <span th:text="${skill.name}">Skill</span>
+                    </label>
+                </div>
+            </fieldset>
 
             <button type="submit">Save</button>
         </form>

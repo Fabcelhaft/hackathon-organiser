@@ -258,3 +258,55 @@ ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS self_edit_enabled boolea
 ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS skill_visibility_enabled boolean NOT NULL DEFAULT false;
 ALTER TABLE organiser_settings
     ADD COLUMN IF NOT EXISTS participants_directory_audience text NOT NULL DEFAULT 'ORGANISERS_ONLY';
+
+-- Feature 005: Organiser Settings extensions — Compliance Ruleset (max/min Group Members),
+-- Topic-joining toggle, and Skill Display Mode (data-model.md "Organiser Settings", research.md
+-- §3; FR-011, FR-011a-d, FR-017, FR-020a, FR-020d). The DEFAULT clause on max_group_members is
+-- what "seeds" a Compliance Ruleset for every existing and future singleton row (FR-011c) — no
+-- CommandLineRunner or extra seed INSERT needed (research.md §3).
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS max_group_members integer NOT NULL DEFAULT 5;
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS min_group_members integer;
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS topic_joining_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE organiser_settings
+    ADD COLUMN IF NOT EXISTS skill_display_mode text NOT NULL DEFAULT 'STILL_NEEDED_ONLY';
+
+-- Whether the Compliance indicator is shown to non-Organiser viewers on the shared Topic overview
+-- and Topic detail pages; Organisers always see it regardless of this toggle.
+ALTER TABLE organiser_settings
+    ADD COLUMN IF NOT EXISTS compliance_visible_to_participants boolean NOT NULL DEFAULT true;
+
+ALTER TABLE organiser_settings DROP CONSTRAINT IF EXISTS organiser_settings_max_group_members_check;
+ALTER TABLE organiser_settings
+    ADD CONSTRAINT organiser_settings_max_group_members_check CHECK (max_group_members >= 1);
+
+ALTER TABLE organiser_settings DROP CONSTRAINT IF EXISTS organiser_settings_min_le_max_group_members_check;
+ALTER TABLE organiser_settings
+    ADD CONSTRAINT organiser_settings_min_le_max_group_members_check
+    CHECK (min_group_members IS NULL OR min_group_members <= max_group_members);
+
+-- Feature 005: Group compliance override (data-model.md "Group", research.md §4; FR-014, FR-015,
+-- FR-016) — a single boolean, set/cleared only by GroupService.setComplianceOverride, that lets
+-- ComplianceService.evaluate short-circuit to COMPLIANT_OVERRIDE and GroupService.join skip the
+-- Maximum Group Members cap for this specific Group.
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS compliance_override boolean NOT NULL DEFAULT false;
+
+-- Feature 005: Custom Field Diversity Requirements — one row per configured requirement
+-- (data-model.md "Custom Field Diversity Requirement", research.md §3; FR-011, FR-011d, FR-012a).
+-- A real one-to-many collection with its own payload (minimum_distinct_values), not a pure
+-- association table, so it gets its own table + repository rather than a DatabaseClient-backed
+-- composite-key table. The unique index caps it to at most one requirement per Custom Field.
+CREATE TABLE IF NOT EXISTS compliance_diversity_requirements (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    custom_field_definition_id uuid NOT NULL REFERENCES custom_field_definitions (id),
+    minimum_distinct_values integer NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE compliance_diversity_requirements
+    DROP CONSTRAINT IF EXISTS compliance_diversity_requirements_minimum_check;
+ALTER TABLE compliance_diversity_requirements
+    ADD CONSTRAINT compliance_diversity_requirements_minimum_check CHECK (minimum_distinct_values >= 2);
+
+CREATE UNIQUE INDEX IF NOT EXISTS compliance_diversity_requirements_field_key
+    ON compliance_diversity_requirements (custom_field_definition_id);

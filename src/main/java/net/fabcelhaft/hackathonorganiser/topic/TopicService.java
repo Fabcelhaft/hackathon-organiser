@@ -124,27 +124,39 @@ public class TopicService {
     // --- Self-service propose/edit (FR-009-FR-013, FR-016, research.md §6) -----------------------
 
     /**
-     * Creates a Topic authored by a Participant (FR-010), rejecting a blank {@code name}/
-     * {@code description} with a {@link TopicConflictException} (FR-037, matching {@link #create}'s
-     * existing validation pattern). {@code approvalStatus} is set once, at creation, from the
-     * current {@code OrganiserSettings.topicApprovalRequired} value (FR-013) — never re-derived
-     * later, so disabling that setting afterward is not retroactive (FR-016).
+     * Creates a Topic authored by a Participant with its Skill selections (FR-001, FR-010),
+     * rejecting a blank {@code name}/{@code description} with a {@link TopicConflictException}
+     * (FR-037, matching {@link #create}'s existing validation pattern) or an unknown {@code
+     * skillIds} entry the same way {@link #create} already does (research.md §6). {@code
+     * approvalStatus} is set once, at creation, from the current {@code
+     * OrganiserSettings.topicApprovalRequired} value (FR-013) — never re-derived later, so
+     * disabling that setting afterward is not retroactive (FR-016).
      */
-    public Mono<Topic> propose(UUID authorUserId, String name, String description) {
+    public Mono<Topic> propose(UUID authorUserId, String name, String description, List<UUID> skillIds) {
+        List<UUID> ids = distinct(skillIds);
         if (isBlank(name) || isBlank(description)) {
             return Mono.error(new TopicConflictException("name and description are required"));
         }
-        return organiserSettingsService.current().flatMap(settings -> {
-            Topic topic = new Topic();
-            topic.setName(name);
-            topic.setDescription(description);
-            topic.setCreatedByUserId(authorUserId);
-            topic.setApprovalStatus(
-                    settings.isTopicApprovalRequired() ? TopicApprovalStatus.PENDING : TopicApprovalStatus.APPROVED);
-            Instant now = Instant.now();
-            topic.setCreatedAt(now);
-            topic.setUpdatedAt(now);
-            return topicRepository.save(topic);
+        return allSkillIdsExist(ids).flatMap(allExist -> {
+            if (!allExist) {
+                return Mono.error(new TopicConflictException("One or more selected skills do not exist"));
+            }
+            return organiserSettingsService.current().flatMap(settings -> {
+                Topic topic = new Topic();
+                topic.setName(name);
+                topic.setDescription(description);
+                topic.setCreatedByUserId(authorUserId);
+                topic.setApprovalStatus(
+                        settings.isTopicApprovalRequired()
+                                ? TopicApprovalStatus.PENDING
+                                : TopicApprovalStatus.APPROVED);
+                Instant now = Instant.now();
+                topic.setCreatedAt(now);
+                topic.setUpdatedAt(now);
+                return topicRepository
+                        .save(topic)
+                        .flatMap(saved -> replaceTopicSkills(saved.getId(), ids).thenReturn(saved));
+            });
         });
     }
 
@@ -159,14 +171,17 @@ public class TopicService {
     }
 
     /**
-     * Author-only self-service update of {@code name}/{@code description} (FR-011); does not
-     * re-trigger approval (spec Assumptions) — {@code approvalStatus} is left untouched. Rejects a
-     * non-author with a {@link TopicConflictException} (callers are expected to have already
-     * translated the full 404/403 rule via {@link #findVisibleTo} plus their own authorship check
-     * — this is a defensive second check, not the primary authorization gate). Completes empty if
-     * no Topic exists with the given id.
+     * Author-only self-service update of {@code name}/{@code description}/Skill selections
+     * (FR-002, FR-011); does not re-trigger approval (spec Assumptions) — {@code approvalStatus} is
+     * left untouched. Rejects a non-author with a {@link TopicConflictException} (callers are
+     * expected to have already translated the full 404/403 rule via {@link #findVisibleTo} plus
+     * their own authorship check — this is a defensive second check, not the primary authorization
+     * gate), or an unknown {@code skillIds} entry the same way {@link #update} already does
+     * (research.md §6). Completes empty if no Topic exists with the given id.
      */
-    public Mono<Topic> updateAsAuthor(UUID id, UUID requesterUserId, String name, String description) {
+    public Mono<Topic> updateAsAuthor(
+            UUID id, UUID requesterUserId, String name, String description, List<UUID> skillIds) {
+        List<UUID> ids = distinct(skillIds);
         if (isBlank(name) || isBlank(description)) {
             return Mono.error(new TopicConflictException("name and description are required"));
         }
@@ -174,10 +189,17 @@ public class TopicService {
             if (!topic.getCreatedByUserId().equals(requesterUserId)) {
                 return Mono.error(new TopicConflictException("You may only edit your own Topic"));
             }
-            topic.setName(name);
-            topic.setDescription(description);
-            topic.setUpdatedAt(Instant.now());
-            return topicRepository.save(topic);
+            return allSkillIdsExist(ids).flatMap(allExist -> {
+                if (!allExist) {
+                    return Mono.error(new TopicConflictException("One or more selected skills do not exist"));
+                }
+                topic.setName(name);
+                topic.setDescription(description);
+                topic.setUpdatedAt(Instant.now());
+                return topicRepository
+                        .save(topic)
+                        .flatMap(saved -> replaceTopicSkills(id, ids).thenReturn(saved));
+            });
         });
     }
 
@@ -260,7 +282,8 @@ public class TopicService {
                 }));
     }
 
-    private static boolean isVisibleTo(Topic topic, UUID viewerUserId, boolean viewerIsOrganiser) {
+    /** Package-visible (not {@code private}) so {@link TopicDiscoveryService} can reuse this exact rule (research.md §7). */
+    static boolean isVisibleTo(Topic topic, UUID viewerUserId, boolean viewerIsOrganiser) {
         return topic.getApprovalStatus() != TopicApprovalStatus.PENDING
                 || viewerIsOrganiser
                 || isOwn(topic, viewerUserId);

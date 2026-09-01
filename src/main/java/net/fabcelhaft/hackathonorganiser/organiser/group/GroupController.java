@@ -1,7 +1,11 @@
 package net.fabcelhaft.hackathonorganiser.organiser.group;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
+import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupConflictException;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import org.springframework.http.HttpStatus;
@@ -30,9 +34,11 @@ import reactor.core.publisher.Mono;
 public class GroupController {
 
     private final GroupService groupService;
+    private final ComplianceService complianceService;
 
-    public GroupController(GroupService groupService) {
+    public GroupController(GroupService groupService, ComplianceService complianceService) {
         this.groupService = groupService;
+        this.complianceService = complianceService;
     }
 
     @GetMapping
@@ -95,6 +101,20 @@ public class GroupController {
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 
+    @PostMapping("/{id}/compliance-override")
+    public Mono<Rendering> setComplianceOverride(@PathVariable UUID id, ServerWebExchange exchange) {
+        return exchange.getFormData().flatMap(form -> {
+            boolean override = "true".equalsIgnoreCase(form.getFirst("override"));
+            return groupService
+                    .setComplianceOverride(id, override)
+                    .<Rendering>map(group -> Rendering.redirectTo("/organiser/groups/" + id + "?flash="
+                                    + (override ? "Compliance+override+set." : "Compliance+override+removed."))
+                            .status(HttpStatus.SEE_OTHER)
+                            .build())
+                    .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+        });
+    }
+
     @PostMapping("/{id}/disband")
     public Mono<Rendering> disband(@PathVariable UUID id) {
         return groupService
@@ -119,16 +139,30 @@ public class GroupController {
     private Mono<Rendering> renderDetail(UUID id, String error) {
         return groupService
                 .findDetail(id)
-                .map(detail -> {
+                .flatMap(detail -> complianceStatusFor(detail.group()).map(complianceStatus -> {
                     Rendering.Builder<?> builder = Rendering.view("organiser/groups/detail")
                             .modelAttribute("detail", detail)
+                            .modelAttribute("complianceStatus", complianceStatus.orElse(null))
                             .modelAttribute("allParticipants", groupService.allParticipants());
                     if (error != null) {
                         builder = builder.modelAttribute("error", error);
                     }
                     return builder.build();
-                })
+                }))
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+    }
+
+    /**
+     * The Group detail view's Compliance badge (FR-014, FR-015): {@link Optional#empty()} renders
+     * as "No Group Yet" — unreachable here since every {@code Group} row already exists, but the
+     * same {@link ComplianceService#evaluate} contract as the Topic Overview (research.md §5) is
+     * reused verbatim so the two views can never disagree.
+     */
+    private Mono<Optional<ComplianceStatus>> complianceStatusFor(Group group) {
+        return groupService
+                .activeMemberParticipantIds(group.getId())
+                .flatMap(memberIds -> complianceService.evaluate(group, memberIds))
+                .map(Optional::of);
     }
 
     private static UUID parseUuidOrNull(String raw) {

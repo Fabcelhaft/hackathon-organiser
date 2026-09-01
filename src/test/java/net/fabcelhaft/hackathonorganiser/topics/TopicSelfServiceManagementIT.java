@@ -12,9 +12,12 @@ import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
+import net.fabcelhaft.hackathonorganiser.skill.Skill;
+import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
+import net.fabcelhaft.hackathonorganiser.topic.TopicService;
 import net.fabcelhaft.hackathonorganiser.user.User;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
@@ -70,12 +74,35 @@ class TopicSelfServiceManagementIT {
     @Autowired
     OrganiserSettingsRepository organiserSettingsRepository;
 
+    @Autowired
+    SkillRepository skillRepository;
+
+    @Autowired
+    TopicService topicService;
+
+    @Autowired
+    DatabaseClient databaseClient;
+
     @BeforeEach
     void setUpWebTestClient() {
         webTestClient = WebTestClient.bindToApplicationContext(applicationContext)
                 .apply(springSecurity())
                 .configureClient()
                 .build();
+    }
+
+    /**
+     * The Home Page's fullness-sorted rows and own-Topic pinning (Story 10) are both computed over
+     * every Topic in the database — without this cleanup, Topics accumulated from earlier tests in
+     * this class would compete for the 10-row cap, mirroring the same fix already applied to {@code
+     * HomeControllerIT}. Deleted in FK-dependency order (no {@code ON DELETE CASCADE} in schema.sql).
+     */
+    @BeforeEach
+    void resetTopicsAndGroupsBetweenTests() {
+        databaseClient.sql("DELETE FROM group_members").then().block();
+        databaseClient.sql("DELETE FROM groups").then().block();
+        databaseClient.sql("DELETE FROM topic_skills").then().block();
+        databaseClient.sql("DELETE FROM topics").then().block();
     }
 
     @BeforeEach
@@ -93,7 +120,9 @@ class TopicSelfServiceManagementIT {
     }
 
     @Test
-    void homepageTopicListShowsNameDescriptionAndAuthorDisplayNameWithOidcSubject() {
+    void homepageTopicTableShowsNameAndParticipantCount() {
+        // Feature 005 (FR-003, FR-004): the Home Page table shows Name/participant count/Skills
+        // you offer only — author and description moved to GET /topics/overview (US5).
         User author = persistUser(false);
         persistParticipant(author.getId());
         Topic topic = persistTopic(author.getId(), "Robotics", "Build a robot", TopicApprovalStatus.APPROVED);
@@ -101,9 +130,6 @@ class TopicSelfServiceManagementIT {
         String body = homeBody(author);
 
         assertThat(body).contains(topic.getName());
-        assertThat(body).contains(topic.getDescription());
-        assertThat(body).contains(author.getDisplayName());
-        assertThat(body).contains(author.getOidcSubject());
     }
 
     @Test
@@ -207,17 +233,35 @@ class TopicSelfServiceManagementIT {
     }
 
     @Test
-    void authorsOwnPendingTopicSortsToTheTopLabeledPendingApproval() {
+    void aPendingTopicNeverAppearsOnTheHomePageForAnyoneOtherThanItsOwnAuthor() {
+        // Feature 005 (spec Assumptions, updated 2026-08-30 — FR-033, Story 10): a Pending Topic is
+        // still invisible on the Home Page to everyone except its author, but its author now sees
+        // it pinned above the fullness-sorted rows (see
+        // aPendingTopicIsPinnedAboveTheFullnessSortedRowsForItsOwnAuthorButNeverShowsAJoinAction
+        // below) — it just never appears there for anyone else, mirroring GET /topics/overview's
+        // existing Pending-visibility rule.
         User author = persistUser(false);
         persistParticipant(author.getId());
-        persistTopic(author.getId(), "Already Approved", "Desc", TopicApprovalStatus.APPROVED);
+        User otherViewer = persistUser(false);
+        persistParticipant(otherViewer.getId());
+        Topic pending = persistTopic(author.getId(), "My Pending Topic", "Desc", TopicApprovalStatus.PENDING);
+
+        assertThat(homeBody(otherViewer)).doesNotContain(pending.getName());
+    }
+
+    @Test
+    void aPendingTopicIsPinnedAboveTheFullnessSortedRowsForItsOwnAuthorButNeverShowsAJoinAction() {
+        // FR-033, FR-035, Story 10: the author's own Pending Topic is pinned above the
+        // fullness-sorted rows on the Home Page, but — unlike an Approved pinned Topic — it never
+        // offers a "Join" action, since a Pending Topic cannot be joined.
+        User author = persistUser(false);
+        persistParticipant(author.getId());
         Topic pending = persistTopic(author.getId(), "My Pending Topic", "Desc", TopicApprovalStatus.PENDING);
 
         String body = homeBody(author);
 
-        assertThat(body).contains("Pending approval");
         assertThat(body).contains(pending.getName());
-        assertThat(body.indexOf(pending.getName())).isLessThan(body.indexOf("Already Approved"));
+        assertThat(body).doesNotContain("/topics/" + pending.getId() + "/join");
     }
 
     @Test
@@ -259,6 +303,114 @@ class TopicSelfServiceManagementIT {
                 .getResponseBody();
 
         assertThat(body).contains("required");
+    }
+
+    // --- Skill selections on propose/edit (Story 1, FR-001, FR-002) -----------------------------
+
+    @Test
+    void proposeWithSkillIdsCreatesTheTopicWithExactlyThoseSkillsAttached() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Skill python = persistSkill("Python");
+        Skill rust = persistSkill("Rust");
+        String name = "Skilled Topic " + UUID.randomUUID();
+
+        webTestClient
+                .mutateWith(loginAs(author))
+                .post()
+                .uri("/topics")
+                .body(BodyInserters.fromFormData("name", name)
+                        .with("description", "A description")
+                        .with("skillIds", python.getId().toString())
+                        .with("skillIds", rust.getId().toString()))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        Topic saved = findByName(name);
+        String editBody = webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/{id}/edit", saved.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(editBody).containsPattern("(?s)value=\"" + python.getId() + "\".*?checked=\"checked\"");
+        assertThat(editBody).containsPattern("(?s)value=\"" + rust.getId() + "\".*?checked=\"checked\"");
+    }
+
+    @Test
+    void proposeWithNoSkillIdsSucceedsWithAnEmptySkillList() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        String name = "No Skill Topic " + UUID.randomUUID();
+
+        webTestClient
+                .mutateWith(loginAs(author))
+                .post()
+                .uri("/topics")
+                .body(BodyInserters.fromFormData("name", name).with("description", "A description"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        Topic saved = findByName(name);
+        assertThat(topicService.findDetail(saved.getId()).block().skillIds()).isEmpty();
+    }
+
+    @Test
+    void proposeWithAnUnknownSkillIdIsRejectedAndPreservesTheSubmittedSelection() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Skill python = persistSkill("Python " + UUID.randomUUID());
+        UUID unknownSkillId = UUID.randomUUID();
+
+        String body = webTestClient
+                .mutateWith(loginAs(author))
+                .post()
+                .uri("/topics")
+                .body(BodyInserters.fromFormData("name", "Unknown Skill Topic")
+                        .with("description", "A description")
+                        .with("skillIds", python.getId().toString())
+                        .with("skillIds", unknownSkillId.toString()))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).containsPattern("(?s)value=\"" + python.getId() + "\".*?checked=\"checked\"");
+    }
+
+    @Test
+    void updateReplacesTheSkillSetAddingAndRemoving() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Skill python = persistSkill("Python " + UUID.randomUUID());
+        Skill rust = persistSkill("Rust " + UUID.randomUUID());
+        Topic topic = persistTopic(author.getId(), "Old Name", "Old Desc", TopicApprovalStatus.APPROVED);
+        topicService
+                .updateAsAuthor(topic.getId(), author.getId(), "Old Name", "Old Desc", List.of(python.getId()))
+                .block();
+
+        webTestClient
+                .mutateWith(loginAs(author))
+                .post()
+                .uri("/topics/{id}", topic.getId())
+                .body(BodyInserters.fromFormData("name", "New Name")
+                        .with("description", "New Desc")
+                        .with("skillIds", rust.getId().toString()))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        List<UUID> skillIds = topicService.findDetail(topic.getId()).block().skillIds();
+        assertThat(skillIds).containsExactly(rust.getId());
     }
 
     // --- Test helpers ------------------------------------------------------------------------------
@@ -310,6 +462,15 @@ class TopicSelfServiceManagementIT {
         participant.setCreatedAt(now);
         participant.setUpdatedAt(now);
         return participantRepository.save(participant).block();
+    }
+
+    private Skill persistSkill(String name) {
+        Skill skill = new Skill();
+        skill.setName(name);
+        Instant now = Instant.now();
+        skill.setCreatedAt(now);
+        skill.setUpdatedAt(now);
+        return skillRepository.save(skill).block();
     }
 
     private Topic persistTopic(UUID creatorUserId, String name, String description, TopicApprovalStatus status) {

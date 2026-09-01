@@ -25,16 +25,20 @@ public class OrganiserSettingsService {
     }
 
     /**
-     * Updates any combination of the seven fields in one call. For the six boolean/enum fields, a
+     * Updates any combination of the twelve fields in one call. For most boolean/enum fields, a
      * {@code null} argument leaves that field unchanged — the existing convention (an entirely
-     * absent form field means "don't touch this one"). {@code maxRegistrations} is deliberately
-     * different: its own domain range already includes {@code null} as a meaningful value ("no
-     * limit", data-model.md), so a submitted blank number field MUST be able to clear a
-     * previously-set limit back to unlimited (contracts/organiser-settings.md) — this parameter is
-     * therefore always applied, {@code null} included. It is validated ({@code null} or {@code >=
-     * 1}) before any field is touched: an invalid value raises {@link
-     * OrganiserSettingsConflictException} and applies **no** change at all, to any of the seven
-     * fields (FR-007).
+     * absent form field means "don't touch this one"). {@code maxRegistrations} and {@code
+     * minGroupMembers} are deliberately different: their own domain ranges already include {@code
+     * null} as a meaningful value ("no limit"/"unset", data-model.md), so a submitted blank number
+     * field MUST be able to clear a previously-set value (contracts/organiser-settings.md,
+     * contracts/compliance-settings-and-override.md) — these two parameters are therefore always
+     * applied, {@code null} included. {@code maxRegistrations} ({@code null} or {@code >= 1}) and
+     * {@code maxGroupMembers} ({@code null} leaves it unchanged, otherwise {@code >= 1}, FR-011b)
+     * are each validated before any field is touched; {@code minGroupMembers}, when non-null, is
+     * validated against the *effective* Maximum Group Members (the submitted {@code
+     * maxGroupMembers} if given, else the current value) so a single call may raise both in the
+     * same request (FR-011a). An invalid value raises {@link OrganiserSettingsConflictException}
+     * and applies **no** change at all, to any field (FR-007, FR-011a, FR-011b).
      */
     public Mono<OrganiserSettings> update(
             Boolean selfRegistrationEnabled,
@@ -43,12 +47,27 @@ public class OrganiserSettingsService {
             Integer maxRegistrations,
             Boolean selfEditEnabled,
             Boolean skillVisibilityEnabled,
-            DirectoryAudience participantsDirectoryAudience) {
+            DirectoryAudience participantsDirectoryAudience,
+            Integer maxGroupMembers,
+            Integer minGroupMembers,
+            Boolean topicJoiningEnabled,
+            SkillDisplayMode skillDisplayMode,
+            Boolean complianceVisibleToParticipants) {
         if (maxRegistrations != null && maxRegistrations < 1) {
             return Mono.error(new OrganiserSettingsConflictException(
                     "Maximum registrations must be blank (unlimited) or at least 1"));
         }
+        if (maxGroupMembers != null && maxGroupMembers < 1) {
+            return Mono.error(
+                    new OrganiserSettingsConflictException("Maximum Group Members must be at least 1"));
+        }
         return current().flatMap(settings -> {
+            int effectiveMaxGroupMembers =
+                    maxGroupMembers != null ? maxGroupMembers : settings.getMaxGroupMembers();
+            if (minGroupMembers != null && minGroupMembers > effectiveMaxGroupMembers) {
+                return Mono.error(new OrganiserSettingsConflictException(
+                        "Minimum Group Members cannot exceed Maximum Group Members"));
+            }
             if (selfRegistrationEnabled != null) {
                 settings.setSelfRegistrationEnabled(selfRegistrationEnabled);
             }
@@ -67,6 +86,19 @@ public class OrganiserSettingsService {
             }
             if (participantsDirectoryAudience != null) {
                 settings.setParticipantsDirectoryAudience(participantsDirectoryAudience);
+            }
+            if (maxGroupMembers != null) {
+                settings.setMaxGroupMembers(maxGroupMembers);
+            }
+            settings.setMinGroupMembers(minGroupMembers);
+            if (topicJoiningEnabled != null) {
+                settings.setTopicJoiningEnabled(topicJoiningEnabled);
+            }
+            if (skillDisplayMode != null) {
+                settings.setSkillDisplayMode(skillDisplayMode);
+            }
+            if (complianceVisibleToParticipants != null) {
+                settings.setComplianceVisibleToParticipants(complianceVisibleToParticipants);
             }
             settings.setUpdatedAt(Instant.now());
             return organiserSettingsRepository.save(settings);

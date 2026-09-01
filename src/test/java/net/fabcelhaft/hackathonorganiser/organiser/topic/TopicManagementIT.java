@@ -473,7 +473,9 @@ class TopicManagementIT {
     }
 
     @Test
-    void multiplePendingTopicsFromDifferentAuthorsAppearGroupedTogetherOrderedByCreationDateInTheOrganisersView() {
+    void multiplePendingTopicsFromDifferentAuthorsAreVisibleToAnOrganiserOnTheTopicOverview() {
+        // Feature 005 (spec Assumptions): Pending Topics moved entirely to GET /topics/overview —
+        // the Home Page no longer shows any Pending Topic, even to an Organiser.
         User organiserUser = persistUser("Grouped Organiser " + UUID.randomUUID());
         organiserUser.setOrganiser(true);
         userRepository.save(organiserUser).block();
@@ -487,7 +489,7 @@ class TopicManagementIT {
         topicRepository.save(pendingB).block();
 
         String body = webTestClient.mutateWith(loginAsUser(organiserUser))
-                .get().uri("/")
+                .get().uri("/topics/overview")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class)
@@ -496,7 +498,6 @@ class TopicManagementIT {
 
         assertThat(body).contains(pendingA.getName());
         assertThat(body).contains(pendingB.getName());
-        assertThat(body.indexOf(pendingA.getName())).isLessThan(body.indexOf(pendingB.getName()));
     }
 
     // --- Test helpers ----------------------------------------------------------------------------

@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="en" xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{fragments/layout :: head(title='Profile')}">
+<head th:replace="~{fragments/layout :: head(title=${viewerDetail.userDisplayName})}">
     <title>Profile</title>
 </head>
 <body>
-<th:block th:replace="~{fragments/layout :: layout(title='Profile', content=~{::#content})}">
+<!--/* The participant's own name is the <h1> the layout renders, so the page has one heading
+     carrying its subject rather than a generic "Profile" above a repeated name. */-->
+<th:block th:replace="~{fragments/layout :: layout(title=${viewerDetail.userDisplayName}, content=~{::#content})}">
 <div id="content">
-    <p><strong th:text="${viewerDetail.userDisplayName}">Name</strong></p>
-
-    <p th:if="${mode} == 'self' and ${canEdit}">
+    <div class="actions" th:if="${mode} == 'self' and ${canEdit}">
         <a th:href="@{/profile/edit}" role="button">Edit</a>
-    </p>
+    </div>
 
     <!--/* Every field is rendered by its own label and a display matching its type — no "Custom
          Field" heading/tag/badge anywhere (FR-002a). Fields already carry only what this viewer
@@ -22,10 +22,8 @@
             <dt>
                 <span th:text="${cfv.definition.label}">Label</span>
                 <span th:if="${mode} == 'self'" class="visibility-badge"
-                      th:classappend="${cfv.visibleToOthers} ? 'visibility-public' : 'visibility-private'">
-                    <span aria-hidden="true" th:text="${cfv.visibleToOthers} ? '&#128065;' : '&#128274;'">*</span>
-                    <span th:text="${cfv.visibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
-                </span>
+                      th:classappend="${cfv.visibleToOthers} ? 'visibility-public' : 'visibility-private'"
+                      th:text="${cfv.visibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
             </dt>
 
             <dd th:if="${cfv.definition.fieldType.name()} == 'FREE_TEXT'"
@@ -50,10 +48,8 @@
     <h2>
         Skills
         <span th:if="${mode} == 'self'" class="visibility-badge"
-              th:classappend="${viewerDetail.skillsVisibleToOthers} ? 'visibility-public' : 'visibility-private'">
-            <span aria-hidden="true" th:text="${viewerDetail.skillsVisibleToOthers} ? '&#128065;' : '&#128274;'">*</span>
-            <span th:text="${viewerDetail.skillsVisibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
-        </span>
+              th:classappend="${viewerDetail.skillsVisibleToOthers} ? 'visibility-public' : 'visibility-private'"
+              th:text="${viewerDetail.skillsVisibleToOthers} ? 'visible to others' : 'private'">visible to others</span>
     </h2>
     <p th:if="${viewerDetail.skills.isEmpty()}">Not provided</p>
     <ul th:unless="${viewerDetail.skills.isEmpty()}">

@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Skill', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="${skillId} != null ? @{/organiser/skills/{id}(id=${skillId})} : @{/organiser/skills}"
               method="post">
             <label for="name">Name</label>

@@ -136,7 +136,7 @@ class CustomFieldServiceTest {
         UUID id = UUID.randomUUID();
         CustomFieldDefinition existing = definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false);
         when(definitionRepository.findById(id)).thenReturn(Mono.just(existing));
-        stubValueReferenceCounts(1L, 0L);
+        stubValueReferenceCounts(1L, 0L, 0L);
 
         StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null))
                 .expectError(CustomFieldConflictException.class)
@@ -150,7 +150,7 @@ class CustomFieldServiceTest {
         UUID id = UUID.randomUUID();
         CustomFieldDefinition existing = definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false);
         when(definitionRepository.findById(id)).thenReturn(Mono.just(existing));
-        stubValueReferenceCounts(0L, 0L);
+        stubValueReferenceCounts(0L, 0L, 0L);
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
@@ -217,10 +217,26 @@ class CustomFieldServiceTest {
         UUID id = UUID.randomUUID();
         when(definitionRepository.findById(id))
                 .thenReturn(Mono.just(definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false)));
-        stubValueReferenceCounts(4L, 0L);
+        stubValueReferenceCounts(4L, 0L, 0L);
 
         StepVerifier.create(customFieldService.deleteDefinition(id))
                 .expectError(CustomFieldConflictException.class)
+                .verify();
+
+        verify(definitionRepository, never()).deleteById(any(UUID.class));
+    }
+
+    @Test
+    void definitionRemovalIsBlockedWhileReferencedByAComplianceDiversityRequirement() {
+        UUID id = UUID.randomUUID();
+        when(definitionRepository.findById(id))
+                .thenReturn(Mono.just(definitionOf(id, "Country", CustomFieldType.FREE_TEXT, false)));
+        stubValueReferenceCounts(0L, 0L, 1L);
+
+        StepVerifier.create(customFieldService.deleteDefinition(id))
+                .expectErrorSatisfies(ex -> assertThat(ex)
+                        .isInstanceOf(CustomFieldConflictException.class)
+                        .hasMessageContaining("compliance"))
                 .verify();
 
         verify(definitionRepository, never()).deleteById(any(UUID.class));
@@ -243,7 +259,7 @@ class CustomFieldServiceTest {
         UUID id = UUID.randomUUID();
         when(definitionRepository.findById(id))
                 .thenReturn(Mono.just(definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false)));
-        stubValueReferenceCounts(0L, 0L);
+        stubValueReferenceCounts(0L, 0L, 0L);
         CustomFieldOption option = new CustomFieldOption();
         option.setId(UUID.randomUUID());
         option.setCustomFieldDefinitionId(id);
@@ -426,14 +442,16 @@ class CustomFieldServiceTest {
         return mock(RowsFetchSpec.class);
     }
 
-    private void stubValueReferenceCounts(long valuesCount, long valueOptionsCount) {
+    private void stubValueReferenceCounts(long valuesCount, long valueOptionsCount, long complianceCount) {
         RowsFetchSpec<Long> firstFetch = mockFetch();
         RowsFetchSpec<Long> secondFetch = mockFetch();
+        RowsFetchSpec<Long> thirdFetch = mockFetch();
         when(firstFetch.one()).thenReturn(Mono.just(valuesCount));
         when(secondFetch.one()).thenReturn(Mono.just(valueOptionsCount));
+        when(thirdFetch.one()).thenReturn(Mono.just(complianceCount));
 
         when(databaseClient.sql(anyString())).thenReturn(executeSpec);
         when(executeSpec.bind(eq("id"), any())).thenReturn(executeSpec);
-        when(executeSpec.mapValue(Long.class)).thenReturn(firstFetch, secondFetch);
+        when(executeSpec.mapValue(Long.class)).thenReturn(firstFetch, secondFetch, thirdFetch);
     }
 }

@@ -6,7 +6,7 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Settings', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="@{/organiser/settings}" method="post">
             <fieldset>
                 <label for="self_registration_enabled">
@@ -76,6 +76,44 @@
                     <input type="checkbox" id="skill_visibility_enabled" name="skill_visibility_enabled"
                            value="true" th:checked="${settings.skillVisibilityEnabled}"/>
                     Show participants' skills to other users
+                </label>
+            </fieldset>
+
+            <fieldset>
+                <label for="topic_joining_enabled">
+                    <input type="hidden" name="topic_joining_enabled" value="false"/>
+                    <input type="checkbox" id="topic_joining_enabled" name="topic_joining_enabled"
+                           value="true" th:checked="${settings.topicJoiningEnabled}"/>
+                    Allow participants to join open Topics
+                </label>
+                <p th:if="${settings.topicJoiningEnabled}">
+                    Eligible Participants can join an open Topic's Group from the Home Page.
+                </p>
+                <p th:unless="${settings.topicJoiningEnabled}">
+                    Topic joining is off — no Participant can join a Group via self-service right now.
+                </p>
+            </fieldset>
+
+            <fieldset>
+                <label for="compliance_visible_to_participants">
+                    <input type="hidden" name="compliance_visible_to_participants" value="false"/>
+                    <input type="checkbox" id="compliance_visible_to_participants" name="compliance_visible_to_participants"
+                           value="true" th:checked="${settings.complianceVisibleToParticipants}"/>
+                    Show Compliance status to participants
+                </label>
+            </fieldset>
+
+            <fieldset>
+                <legend>Skill Display Mode</legend>
+                <label>
+                    <input type="radio" name="skill_display_mode" value="STILL_NEEDED_ONLY"
+                           th:checked="${settings.skillDisplayMode.name()} == 'STILL_NEEDED_ONLY'"/>
+                    Show only still-needed Skills
+                </label>
+                <label>
+                    <input type="radio" name="skill_display_mode" value="ALL_ASSOCIATED"
+                           th:checked="${settings.skillDisplayMode.name()} == 'ALL_ASSOCIATED'"/>
+                    Show every associated Skill
                 </label>
             </fieldset>
 

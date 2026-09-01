@@ -1,39 +1,297 @@
-/* Pico CSS overrides only (Constitution IV) — the two-column responsive homepage grid, a
- * visually-hidden utility, the flash-message banner, and the status badge (FR-034: state conveyed
- * via text, never color alone). Contrast reviewed/adjusted against WCAG 2.1 AA in T063. */
+/* Pico CSS overrides only (Constitution IV) — everything here covers a gap Pico's semantic
+ * defaults leave open: project tokens that track Pico's light/dark switch, an action-row that
+ * undoes Pico's form-oriented `button[type=submit]{width:100%}` outside a form column, a badge
+ * vocabulary, message banners, a `<caption>` rule Pico does not ship at all, and the homepage grid.
+ *
+ * FR-034 / FR-025: state is always carried by text, never colour alone.
+ * FR-021 / FR-027 / FR-030: every colour pair below is >= 4.5:1 in BOTH light and dark. */
 
-.home-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-        "status content"
-        "topics content";
-    gap: 2rem;
-    align-items: start;
+/* ---------------------------------------------------------------- tokens */
+
+/* Values mirror Pico's own --pico-ins-color / --pico-del-color per theme, so they inherit Pico's
+   AA-verified palette rather than inventing one. Declared as literals (not var(--pico-*)) because
+   the -hover, -bg and -solid companions have no Pico equivalent and must stay in the same family. */
+:root {
+    --app-gap: calc(var(--pico-spacing) * 2);
+
+    --app-success-color: #276954;
+    --app-success-bg: #d4edda;
+
+    --app-warning-color: #664d03;
+    --app-warning-bg: #fff3cd;
+
+    /* -color is the outline/text red, which must clear 4.5:1 against the PAGE background;
+       -solid is the filled-button background, which must instead clear 4.5:1 against the label
+       sitting on it (-on-solid) and 3:1 against the page. They are not interchangeable: reusing
+       the dark theme's light -color as a fill gives a washed-out pastel button. */
+    --app-danger-color: #883835;
+    --app-danger-hover: #6d2c2a;
+    --app-danger-bg: rgba(136, 56, 53, 0.1);
+    --app-danger-solid: #883835;
+    --app-danger-solid-hover: #6d2c2a;
+    --app-danger-on-solid: #ffffff;
 }
 
-#status-section {
-    grid-area: status;
-}
+/* Pico switches theme on prefers-color-scheme when no data-theme is set; mirror that exactly,
+   then repeat under [data-theme="dark"] so an explicit choice wins in both directions. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --app-success-color: #62af9a;
+        --app-success-bg: rgba(98, 175, 154, 0.15);
 
-#topics-section {
-    grid-area: topics;
-}
+        --app-warning-color: #f0c674;
+        --app-warning-bg: rgba(240, 198, 116, 0.15);
 
-#content-section {
-    grid-area: content;
-}
-
-/* FR-001a: stacks status -> topics -> content on narrow viewports. */
-@media (max-width: 768px) {
-    .home-grid {
-        grid-template-columns: 1fr;
-        grid-template-areas:
-            "status"
-            "topics"
-            "content";
+        --app-danger-color: #cd7e7b;
+        --app-danger-hover: #dd9996;
+        --app-danger-bg: rgba(205, 126, 123, 0.14);
+        --app-danger-solid: #b0504e;
+        --app-danger-solid-hover: #c25f5c;
+        --app-danger-on-solid: #ffffff;
     }
 }
+
+:root[data-theme="dark"] {
+    --app-success-color: #62af9a;
+    --app-success-bg: rgba(98, 175, 154, 0.15);
+
+    --app-warning-color: #f0c674;
+    --app-warning-bg: rgba(240, 198, 116, 0.15);
+
+    --app-danger-color: #cd7e7b;
+    --app-danger-hover: #dd9996;
+    --app-danger-bg: rgba(205, 126, 123, 0.14);
+    --app-danger-solid: #b0504e;
+    --app-danger-solid-hover: #c25f5c;
+    --app-danger-on-solid: #ffffff;
+}
+
+/* --------------------------------------------------------------- buttons */
+
+/* Pico has .secondary/.contrast/.outline but no destructive variant. Set the same three custom
+   properties Pico's own variants set, so hover/focus/busy behaviour is inherited unchanged. */
+:is(button, [type="submit"], [type="button"], [role="button"]).danger {
+    --pico-background-color: var(--app-danger-solid);
+    --pico-border-color: var(--app-danger-solid);
+    --pico-color: var(--app-danger-on-solid);
+}
+
+:is(button, [type="submit"], [type="button"], [role="button"]).danger:is(:hover, :active, :focus) {
+    --pico-background-color: var(--app-danger-solid-hover);
+    --pico-border-color: var(--app-danger-solid-hover);
+    --pico-color: var(--app-danger-on-solid);
+}
+
+:is(button, [type="submit"], [type="button"], [role="button"]).outline.danger {
+    --pico-background-color: transparent;
+    --pico-border-color: var(--app-danger-color);
+    --pico-color: var(--app-danger-color);
+}
+
+:is(button, [type="submit"], [type="button"], [role="button"]).outline.danger:is(:hover, :active, :focus) {
+    --pico-background-color: var(--app-danger-bg);
+    --pico-border-color: var(--app-danger-hover);
+    --pico-color: var(--app-danger-hover);
+}
+
+:is(button, [type="submit"], [type="button"], [role="button"]).danger:focus {
+    --pico-box-shadow: 0 0 0 var(--pico-outline-width) var(--app-danger-bg);
+}
+
+/* An action row: a table's action cell, or a page-level bar of buttons. Pico's
+   `button[type=submit]{width:100%}` is right inside a stacked form but wrong everywhere else —
+   it is what stretches Delete across a table cell and Leave across the page. Reset it here once
+   rather than at each call site. Also replaces the scattered inline style="display:inline". */
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--pico-spacing) * 0.5);
+}
+
+/* Page-level bars need the rhythm a <p> wrapper used to provide; a table cell must not add any. */
+div.actions {
+    margin-bottom: var(--pico-block-spacing-vertical);
+}
+
+.actions form {
+    display: inline;
+    margin: 0;
+}
+
+.actions :is(button, [role="button"]) {
+    width: auto;
+    margin-bottom: 0;
+}
+
+.actions-end {
+    justify-content: flex-end;
+}
+
+/* Deliberately no width constraint on a table's action cell: shrink-to-fit (width:1%) sizes the
+   cell to min-content, which makes this flex row wrap its buttons into a vertical stack. */
+
+/* ---------------------------------------------------------------- tables */
+
+/* Pico styles figure figcaption but ships no `table caption` rule at all, so a caption falls back
+   to the UA default (centred, body-sized) and reads as stray text floating above the table. */
+table caption {
+    text-align: left;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--pico-color);
+    padding-bottom: calc(var(--pico-spacing) * 0.5);
+}
+
+/* ------------------------------------------------------------ navigation */
+
+/* The organiser nav carries 10 items; without these it breaks multi-word labels ("Custom Fields",
+   "Content Images") across two lines mid-label instead of wrapping between items. */
+nav a,
+nav strong {
+    white-space: nowrap;
+}
+
+nav ul {
+    flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------------- icons */
+
+/* Inline SVG icons (fragments/icons.html) use stroke="currentColor" so they pick up whatever text
+   colour surrounds them (including .badge-success/.badge-danger below); this just sizes them to
+   the current line rather than their intrinsic 24x24 attribute size. */
+.icon {
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.15em;
+}
+
+/* --------------------------------------------------------------- badges */
+
+.badge {
+    display: inline-block;
+    vertical-align: middle;
+    font-weight: bold;
+    border: 1px solid currentColor;
+    border-radius: var(--pico-border-radius);
+    padding: 0.1rem 0.5rem;
+}
+
+/* Keeps a topic name and its trailing badge (e.g. "Pending approval") on one line instead of the
+   badge wrapping onto its own line in a narrow table cell, which otherwise makes that row taller
+   than its badge-less siblings. white-space: nowrap is the important part: a flex item shrinks
+   below its content width by default, and without it the browser "solves" the space shortage by
+   word-wrapping the topic name itself (e.g. "pizza" / "backen") rather than keeping the badge on
+   its own line — worse than the problem being fixed. Pairs with .table-scroll below, which gives
+   the row somewhere to go if the name+badge still don't fit the column. */
+.name-with-badge {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    gap: calc(var(--pico-spacing) * 0.5);
+}
+
+/* A table whose natural (unwrapped) width may exceed a narrow card column scrolls horizontally
+   instead of forcing its content to wrap or bleeding out of the card. */
+.table-scroll {
+    overflow-x: auto;
+}
+
+/* Feature 004 (FR-020, FR-041): the inline "visible to others"/"private" marker sits beside a
+   label rather than standing alone, so it is lighter and needs separation from the text before it. */
+.badge-sm {
+    font-size: 0.8rem;
+    font-weight: normal;
+    margin-left: calc(var(--pico-spacing) * 0.5);
+}
+
+.badge-success {
+    color: var(--app-success-color);
+}
+
+.badge-warning {
+    color: var(--app-warning-color);
+}
+
+.badge-danger {
+    color: var(--app-danger-color);
+}
+
+.badge-pending {
+    background-color: var(--app-warning-bg);
+    color: var(--app-warning-color);
+}
+
+/* Feature 004 (FR-020, FR-041): the self-view "visible to others"/"private" marker. Deliberately
+   NOT a chip — it annotates the label it follows rather than competing with it, so it reads as
+   inline metadata ("Department · private") at the weight of a caption. The word carries the
+   meaning; colour only reinforces it (FR-034). Sized absolutely so it stays small when it
+   follows an <h2> or a <legend> and inherits their font-size. */
+.visibility-badge {
+    font-size: 0.75rem;
+    font-weight: normal;
+    vertical-align: middle;
+    margin-left: calc(var(--pico-spacing) * 0.4);
+}
+
+.visibility-badge::before {
+    content: "· ";
+}
+
+.visibility-public {
+    color: var(--pico-muted-color);
+}
+
+.visibility-private {
+    color: var(--app-warning-color);
+}
+
+/* -------------------------------------------------------------- messages */
+
+/* FR-033: a status change is a full POST -> redirect -> GET, so the redirect target's initial HTML
+   carries the banner. Success and failure share one shape; only the colour family differs. */
+.flash-message,
+.error-message {
+    border: 1px solid;
+    border-radius: var(--pico-border-radius);
+    padding: calc(var(--pico-spacing) * 0.5) var(--pico-spacing);
+}
+
+.flash-message {
+    background-color: var(--app-success-bg);
+    color: var(--app-success-color);
+    border-color: var(--app-success-color);
+}
+
+.error-message {
+    background-color: transparent;
+    color: var(--app-danger-color);
+    border-color: var(--app-danger-color);
+}
+
+/* ----------------------------------------------------------------- forms */
+
+.profile-field {
+    margin-bottom: var(--pico-block-spacing-vertical);
+}
+
+/* Renders the literal text " (required)" next to a label — supporting detail, not emphasis. */
+.required-marker {
+    color: var(--pico-muted-color);
+    font-weight: normal;
+}
+
+/* Feature 004: comma-separates a SINGLE_SELECT/MULTI_SELECT value's selected option labels
+   (participants/detail.html) without fragile Thymeleaf loop-index arithmetic. */
+.option-list span + span::before {
+    content: ", ";
+}
+
+/* .country-field carries no styling — it is the JS hook country-select.js queries for. */
+
+/* ------------------------------------------------------------- utilities */
 
 .visually-hidden {
     position: absolute;
@@ -47,55 +305,55 @@
     border: 0;
 }
 
-.flash-message {
-    background-color: #d4edda;
-    color: #14432a;
-    border: 1px solid #14432a;
-    border-radius: 0.25rem;
-    padding: 0.5rem 1rem;
+/* Reproduces Pico's own <article> card treatment (background, radius, shadow, padding) for a
+   non-<article> element, so a plain <section> can carry the same visual weight as a real card
+   without picking up <article>'s non-landmark ARIA role. margin-bottom is zeroed rather than
+   inherited from Pico's article rule, since every current caller lives inside a gapped grid where
+   that margin would only push the card off the row edge. */
+.card {
+    margin-bottom: 0;
+    padding: var(--pico-block-spacing-vertical) var(--pico-block-spacing-horizontal);
+    border-radius: var(--pico-border-radius);
+    background: var(--pico-card-background-color);
+    box-shadow: var(--pico-card-box-shadow);
 }
 
-.status-badge {
-    display: inline-block;
-    font-weight: bold;
-    border: 1px solid currentColor;
-    border-radius: 0.25rem;
-    padding: 0.1rem 0.5rem;
+/* ------------------------------------------------------------ home page */
+
+/* Welcome content spans a full-width row on top; Status and Topics sit side by side below it, so
+   neither column can end up far taller than an empty sibling the way a fixed two-row sidebar can. */
+.home-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+        "content content"
+        "status topics";
+    gap: var(--app-gap);
+    align-items: start;
 }
 
-.badge-pending {
-    display: inline-block;
-    font-weight: bold;
-    border: 1px solid currentColor;
-    border-radius: 0.25rem;
-    padding: 0.1rem 0.5rem;
-    background-color: #fff3cd;
-    color: #664d03;
+#status-section {
+    grid-area: status;
 }
 
-/* Feature 004: comma-separates a SINGLE_SELECT/MULTI_SELECT value's selected option labels
-   (participants/detail.html) without fragile Thymeleaf loop-index arithmetic. */
-.option-list span + span::before {
-    content: ", ";
+#topics-section {
+    grid-area: topics;
 }
 
-/* Feature 004 (FR-020, FR-041): the self-view "visible to others"/"private" badge — an icon plus
-   text label, contrast reviewed against WCAG 2.1 AA in both light and dark presentation. Never
-   color alone conveys the state; the text label is what actually carries the meaning. */
-.visibility-badge {
-    display: inline-block;
-    font-size: 0.8rem;
-    font-weight: normal;
-    border: 1px solid currentColor;
-    border-radius: 0.25rem;
-    padding: 0 0.4rem;
-    margin-left: 0.5rem;
+/* Pico's <article> card carries a bottom margin meant for stacked flow content; inside the grid
+   it would only push the card away from the row edge, so it is zeroed here. */
+#content-section {
+    grid-area: content;
+    margin-bottom: 0;
 }
 
-.visibility-public {
-    color: #14432a;
-}
-
-.visibility-private {
-    color: #664d03;
+/* FR-001a: stacks content -> status -> topics on narrow viewports. */
+@media (max-width: 768px) {
+    .home-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "content"
+            "status"
+            "topics";
+    }
 }

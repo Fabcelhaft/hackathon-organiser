@@ -2,9 +2,6 @@ package net.fabcelhaft.hackathonorganiser.home;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageService;
@@ -18,8 +15,8 @@ import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
+import net.fabcelhaft.hackathonorganiser.topic.TopicDiscoveryService;
 import net.fabcelhaft.hackathonorganiser.topic.TopicService;
-import net.fabcelhaft.hackathonorganiser.user.User;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
@@ -45,10 +42,13 @@ import reactor.core.publisher.Mono;
 @Controller
 public class HomeController {
 
+    private static final int HOME_PAGE_TOPIC_LIMIT = 10;
+
     private final ParticipantService participantService;
     private final OrganiserSettingsService organiserSettingsService;
     private final GroupService groupService;
     private final TopicService topicService;
+    private final TopicDiscoveryService topicDiscoveryService;
     private final ContentPageService contentPageService;
 
     public HomeController(
@@ -56,11 +56,13 @@ public class HomeController {
             OrganiserSettingsService organiserSettingsService,
             GroupService groupService,
             TopicService topicService,
+            TopicDiscoveryService topicDiscoveryService,
             ContentPageService contentPageService) {
         this.participantService = participantService;
         this.organiserSettingsService = organiserSettingsService;
         this.groupService = groupService;
         this.topicService = topicService;
+        this.topicDiscoveryService = topicDiscoveryService;
         this.contentPageService = contentPageService;
     }
 
@@ -69,11 +71,9 @@ public class HomeController {
             @AuthenticationPrincipal HackathonOidcUser oidcUser,
             @RequestParam(name = "flash", required = false) String flash) {
         UUID userId = oidcUser.getUser().getId();
-        boolean isOrganiser = oidcUser.getUser().isOrganiser();
         return Mono.zip(
                         participantService.findByUserId(userId).map(Optional::of).defaultIfEmpty(Optional.empty()),
-                        organiserSettingsService.current(),
-                        topicService.findVisibleTopicsFor(userId, isOrganiser))
+                        organiserSettingsService.current())
                 .flatMap(tuple -> {
                     Optional<Participant> participantOpt = tuple.getT1();
                     OrganiserSettings settings = tuple.getT2();
@@ -90,38 +90,42 @@ public class HomeController {
                             && participantOpt
                                     .map(p -> p.getStatus() == ParticipantStatus.ACTIVE)
                                     .orElse(false);
-                    TopicService.TopicListView topicList = tuple.getT3();
+                    UUID viewerParticipantId =
+                            participantOpt.map(Participant::getId).orElse(null);
+                    boolean viewerIsActiveParticipant = participantOpt
+                            .map(p -> p.getStatus() == ParticipantStatus.ACTIVE)
+                            .orElse(false);
                     return Mono.zip(
                                     assignedGroupAndTopic(participantOpt),
-                                    authorsFor(topicList),
+                                    topicDiscoveryService
+                                            .findOpenTopicsForHomePage(
+                                                    userId, viewerParticipantId, HOME_PAGE_TOPIC_LIMIT)
+                                            .collectList(),
                                     contentPageService
                                             .findRenderedHomepage()
                                             .map(Optional::of)
                                             .defaultIfEmpty(Optional.empty()))
-                            .map(results -> Rendering.view("home/index")
-                                    .modelAttribute("flash", flash)
-                                    .modelAttribute("participant", participantOpt.orElse(null))
-                                    .modelAttribute("canRegister", canRegister)
-                                    .modelAttribute("canRevoke", canRevoke)
-                                    .modelAttribute("notParticipated", notParticipated)
-                                    .modelAttribute("assignedGroup", results.getT1().group())
-                                    .modelAttribute("assignedTopic", results.getT1().topic())
-                                    .modelAttribute("topicList", topicList)
-                                    .modelAttribute("authorsById", results.getT2())
-                                    .modelAttribute("currentUserId", userId)
-                                    .modelAttribute("canProposeTopic", participantOpt.isPresent())
-                                    .modelAttribute(
-                                            "homepageContent", results.getT3().orElse(null))
-                                    .build());
+                            .map(results -> {
+                                boolean canJoinTopics = viewerIsActiveParticipant
+                                        && settings.isTopicJoiningEnabled()
+                                        && results.getT1().group() == null;
+                                return Rendering.view("home/index")
+                                        .modelAttribute("flash", flash)
+                                        .modelAttribute("participant", participantOpt.orElse(null))
+                                        .modelAttribute("canRegister", canRegister)
+                                        .modelAttribute("canRevoke", canRevoke)
+                                        .modelAttribute("notParticipated", notParticipated)
+                                        .modelAttribute("assignedGroup", results.getT1().group())
+                                        .modelAttribute("assignedTopic", results.getT1().topic())
+                                        .modelAttribute("openTopics", results.getT2())
+                                        .modelAttribute("canJoinTopics", canJoinTopics)
+                                        .modelAttribute("currentUserId", userId)
+                                        .modelAttribute("canProposeTopic", participantOpt.isPresent())
+                                        .modelAttribute(
+                                                "homepageContent", results.getT3().orElse(null))
+                                        .build();
+                            });
                 });
-    }
-
-    private Mono<Map<UUID, User>> authorsFor(TopicService.TopicListView topicList) {
-        List<Topic> all = new ArrayList<>();
-        all.addAll(topicList.ownPending());
-        all.addAll(topicList.ownApproved());
-        all.addAll(topicList.others());
-        return topicService.loadAuthors(all);
     }
 
     // POST /register no longer lives here (FR-001): registration is now form-driven via

@@ -6,6 +6,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 
 import java.time.Instant;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
@@ -87,6 +88,9 @@ class CustomFieldManagementIT {
 
     @Autowired
     DatabaseClient databaseClient;
+
+    @Autowired
+    ComplianceService complianceService;
 
     // --- Listing --------------------------------------------------------------------------------
 
@@ -310,6 +314,21 @@ class CustomFieldManagementIT {
                 persistDefinition("Referenced " + UUID.randomUUID(), CustomFieldType.FREE_TEXT, false);
         Participant participant = persistParticipant();
         insertFreeTextValue(participant.getId(), definition.getId(), "Medium");
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/delete", definition.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT);
+
+        assertThat(definitionRepository.findById(definition.getId()).block()).isNotNull();
+    }
+
+    @Test
+    void definitionDeleteIsBlockedWhileAComplianceDiversityRequirementReferencesIt() {
+        // Feature 005 (research.md §8, Edge Cases): the delete-guard extends to compliance rules.
+        CustomFieldDefinition definition =
+                persistDefinition("Compliance Referenced " + UUID.randomUUID(), CustomFieldType.FREE_TEXT, false);
+        complianceService.addRequirement(definition.getId(), 2).block();
 
         webTestClient.mutateWith(organiser())
                 .post().uri("/organiser/custom-fields/{id}/delete", definition.getId())

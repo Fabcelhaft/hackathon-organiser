@@ -6,8 +6,8 @@
 <body>
 <th:block th:replace="~{organiser/fragments/layout :: layout(title='Custom Fields', content=~{::#content})}">
     <div id="content">
-        <p th:if="${error}" th:text="${error}" role="alert">Error</p>
-        <p><a th:href="@{/organiser/custom-fields/new}" role="button">New Custom Field</a></p>
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/custom-fields/new}" role="button">New Custom Field</a></div>
         <table>
             <thead>
             <tr>
@@ -26,23 +26,27 @@
                 <td th:text="${field.required} ? 'Yes' : 'No'">Required</td>
                 <td th:text="${field.public_} ? 'Yes' : 'No'">Public</td>
                 <td th:text="${field.overview} ? 'Yes' : 'No'">Overview</td>
-                <td>
-                    <span th:if="${field.fieldType.name()} == 'COUNTRY'">
-                        <span th:text="${field.enabled} ? 'Enabled' : 'Disabled'">Enabled</span>
-                        <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}">Edit</a>
-                        <form th:if="${field.enabled}" th:action="@{/organiser/custom-fields/{id}/country/disable(id=${field.id})}" method="post" style="display:inline">
-                            <button type="submit">Disable</button>
-                        </form>
-                        <form th:unless="${field.enabled}" th:action="@{/organiser/custom-fields/{id}/country/enable(id=${field.id})}" method="post" style="display:inline">
-                            <button type="submit">Enable</button>
-                        </form>
-                    </span>
-                    <span th:unless="${field.fieldType.name()} == 'COUNTRY'">
-                        <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}">Edit</a>
-                        <form th:action="@{/organiser/custom-fields/{id}/delete(id=${field.id})}" method="post" style="display:inline">
-                            <button type="submit">Delete</button>
-                        </form>
-                    </span>
+                <!--/* The COUNTRY field is enabled/disabled rather than deleted — it is catalog-backed,
+                     so the destructive variant is deliberately absent from that branch. */-->
+                <td class="actions" th:if="${field.fieldType.name()} == 'COUNTRY'">
+                    <span th:text="${field.enabled} ? 'Enabled' : 'Disabled'">Enabled</span>
+                    <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}" role="button"
+                       class="outline secondary">Edit</a>
+                    <form th:if="${field.enabled}"
+                          th:action="@{/organiser/custom-fields/{id}/country/disable(id=${field.id})}" method="post">
+                        <button type="submit" class="outline secondary">Disable</button>
+                    </form>
+                    <form th:unless="${field.enabled}"
+                          th:action="@{/organiser/custom-fields/{id}/country/enable(id=${field.id})}" method="post">
+                        <button type="submit" class="outline secondary">Enable</button>
+                    </form>
+                </td>
+                <td class="actions" th:unless="${field.fieldType.name()} == 'COUNTRY'">
+                    <a th:href="@{/organiser/custom-fields/{id}/edit(id=${field.id})}" role="button"
+                       class="outline secondary">Edit</a>
+                    <form th:action="@{/organiser/custom-fields/{id}/delete(id=${field.id})}" method="post">
+                        <button type="submit" class="outline danger">Delete</button>
+                    </form>
                 </td>
             </tr>
             </tbody>

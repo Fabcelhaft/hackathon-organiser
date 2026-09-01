@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title='Topics')}">
+    <title>Topics</title>
+</head>
+<body>
+<th:block th:replace="~{fragments/layout :: layout(title='Topics', content=~{::#content})}">
+    <div id="content">
+        <!--/* FR-034: the viewer's own Topics are pinned above the rest; this route is uncapped, so
+             pinning only reorders — every row from `rows` still appears in exactly one of the two
+             tables below. */-->
+        <div th:if="${!#lists.isEmpty(rows.?[pinned])}">
+            <h2 id="your-topics-heading">Your Topics</h2>
+            <table aria-labelledby="your-topics-heading">
+                <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Author</th>
+                    <th>Participants</th>
+                    <th>Needed Skills</th>
+                    <th th:if="${complianceVisible}">Compliance</th>
+                    <th th:if="${canJoinTopics}"></th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${rows.?[pinned]}">
+                    <td th:text="${row.topic().name}">Name</td>
+                    <td th:text="${row.authorDisplayName()}">Author</td>
+                    <td th:text="${row.memberCount()}">0</td>
+                    <td>
+                        <span th:each="skill, iter : ${row.neededSkills()}">
+                            <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                        </span>
+                    </td>
+                    <td th:if="${complianceVisible}">
+                        <!--/* FR-014a: a blank cell when no Group yet, not a "No Group Yet" label.
+                             FR-025: text/icon, never color alone, for every non-blank state. The
+                             icon carries its meaning via aria-label rather than a visible text
+                             sibling; COMPLIANT and COMPLIANT_OVERRIDE render identically here since
+                             whether compliance was reached naturally or via Organiser override is
+                             organiser-space-only information (see organiser/groups/detail.html). */-->
+                        <span th:if="${row.complianceStatus().isPresent()} and (${row.complianceStatus().get().name()} == 'COMPLIANT' or ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')" class="badge-success">
+                            <svg th:replace="~{fragments/icons :: checkCircle('Compliant')}"/>
+                        </span>
+                        <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                            <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
+                        </span>
+                    </td>
+                    <td class="actions" th:if="${canJoinTopics}">
+                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                            <button type="submit" class="outline secondary">Join</button>
+                        </form>
+                    </td>
+                    <td class="actions">
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h2 id="all-topics-heading">All Topics</h2>
+        <table aria-labelledby="all-topics-heading">
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Author</th>
+                <th>Participants</th>
+                <th>Needed Skills</th>
+                <th th:if="${complianceVisible}">Compliance</th>
+                <th th:if="${canJoinTopics}"></th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${rows.?[!pinned]}">
+                <td th:text="${row.topic().name}">Name</td>
+                <td th:text="${row.authorDisplayName()}">Author</td>
+                <td th:text="${row.memberCount()}">0</td>
+                <td>
+                    <span th:each="skill, iter : ${row.neededSkills()}">
+                        <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
+                    </span>
+                </td>
+                <td th:if="${complianceVisible}">
+                    <!--/* FR-014a: a blank cell when no Group yet, not a "No Group Yet" label.
+                         FR-025: text/icon, never color alone, for every non-blank state. The icon
+                         carries its meaning via aria-label rather than a visible text sibling;
+                         COMPLIANT and COMPLIANT_OVERRIDE render identically here since whether
+                         compliance was reached naturally or via Organiser override is
+                         organiser-space-only information (see organiser/groups/detail.html). */-->
+                    <span th:if="${row.complianceStatus().isPresent()} and (${row.complianceStatus().get().name()} == 'COMPLIANT' or ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle('Compliant')}"/>
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                        <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
+                    </span>
+                </td>
+                <td class="actions" th:if="${canJoinTopics}">
+                    <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                        <button type="submit" class="outline secondary">Join</button>
+                    </form>
+                </td>
+                <td class="actions">
+                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
+                </td>
+            </tr>
+            <tr th:if="${rows.isEmpty()}">
+                <td colspan="7">No Topics to show yet.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

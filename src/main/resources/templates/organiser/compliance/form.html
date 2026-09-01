@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Compliance')}">
+    <title>Compliance</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Compliance', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+
+        <h2>Group Size</h2>
+        <form th:action="@{/organiser/compliance}" method="post">
+            <label for="max_group_members">Maximum Group Members</label>
+            <input type="number" id="max_group_members" name="max_group_members" min="1"
+                   th:value="${settings.maxGroupMembers}" required="required"/>
+
+            <label for="min_group_members">Minimum Group Members</label>
+            <input type="number" id="min_group_members" name="min_group_members" min="1"
+                   th:value="${settings.minGroupMembers}"/>
+            <p>Leave Minimum blank for no minimum.</p>
+
+            <button type="submit">Save</button>
+        </form>
+
+        <h2>Diversity Requirements</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Custom Field</th>
+                <th>Minimum Distinct Values</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="requirement : ${requirements}">
+                <td th:text="${fieldLabelsById.get(requirement.customFieldDefinitionId)}">Field</td>
+                <td th:text="${requirement.minimumDistinctValues}">2</td>
+                <td class="actions">
+                    <form th:action="@{/organiser/compliance/diversity-requirements/{id}/delete(id=${requirement.id})}"
+                          method="post">
+                        <button type="submit" class="outline danger">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            <tr th:if="${requirements.isEmpty()}">
+                <td colspan="3">No diversity requirements configured.</td>
+            </tr>
+            </tbody>
+        </table>
+
+        <h2>Add a Diversity Requirement</h2>
+        <form th:action="@{/organiser/compliance/diversity-requirements}" method="post">
+            <label for="custom_field_definition_id">Custom Field</label>
+            <select id="custom_field_definition_id" name="custom_field_definition_id" required="required">
+                <option th:each="field : ${availableFields}" th:value="${field.id}" th:text="${field.label}">
+                    Field
+                </option>
+            </select>
+
+            <label for="minimum_distinct_values">Minimum Distinct Values</label>
+            <input type="number" id="minimum_distinct_values" name="minimum_distinct_values" min="2" value="2"/>
+
+            <button type="submit">Add Requirement</button>
+        </form>
+    </div>
+</th:block>
+</body>
+</html>

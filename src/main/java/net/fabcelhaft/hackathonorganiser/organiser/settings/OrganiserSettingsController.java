@@ -7,6 +7,7 @@ import net.fabcelhaft.hackathonorganiser.organisersettings.DirectoryAudience;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsConflictException;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
+import net.fabcelhaft.hackathonorganiser.organisersettings.SkillDisplayMode;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.MultiValueMap;
@@ -77,7 +78,12 @@ public class OrganiserSettingsController {
                             maxRegistrations,
                             checkboxValue(form, "self_edit_enabled"),
                             checkboxValue(form, "skill_visibility_enabled"),
-                            directoryAudienceValue(form))
+                            directoryAudienceValue(form),
+                            null,
+                            null,
+                            checkboxValue(form, "topic_joining_enabled"),
+                            skillDisplayModeValue(form),
+                            checkboxValue(form, "compliance_visible_to_participants"))
                     .<Rendering>map(settings -> Rendering.redirectTo(
                                     "/organiser/settings?flash=" + encode("Settings updated."))
                             .status(HttpStatus.SEE_OTHER)
@@ -105,6 +111,11 @@ public class OrganiserSettingsController {
     private static DirectoryAudience directoryAudienceValue(MultiValueMap<String, String> form) {
         String raw = form.getFirst("participants_directory_audience");
         return (raw == null || raw.isBlank()) ? null : DirectoryAudience.valueOf(raw);
+    }
+
+    private static SkillDisplayMode skillDisplayModeValue(MultiValueMap<String, String> form) {
+        String raw = form.getFirst("skill_display_mode");
+        return (raw == null || raw.isBlank()) ? null : SkillDisplayMode.valueOf(raw);
     }
 
     private static Boolean checkboxValue(MultiValueMap<String, String> form, String name) {
