@@ -43,8 +43,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Integration tests for User Story 3's Topic browse/propose/edit self-service (T021;
  * contracts/topics-self-service-and-approval.md): the homepage topic list shows name, description,
  * and author display-name+OIDC-subject (FR-009); propose creates a Topic authored by the current
- * Participant, starting Pending/Approved per the current setting (FR-013); a Standard user is
- * denied propose; the author can edit their own Topic, a non-author cannot (FR-011); the author's
+ * Participant, starting Pending/Approved per the current setting (FR-013); any authenticated
+ * Standard user may propose, regardless of Participant status; the author can edit their own
+ * Topic, a non-author cannot (FR-011); the author's
  * own Pending Topic sorts to the top labeled "Pending approval" (FR-009a, FR-012b); a Pending
  * Topic is invisible to any other non-Organiser viewer (FR-012a); a blank field re-renders the
  * propose form with a field-associated error (FR-037).
@@ -172,8 +173,9 @@ class TopicSelfServiceManagementIT {
     }
 
     @Test
-    void standardUserWithNoParticipantRecordIsDeniedProposeRoutes() {
+    void standardUserWithNoParticipantRecordCanProposeTopic() {
         User standardUser = persistUser(false);
+        String name = "No Participant Record Topic " + UUID.randomUUID();
 
         webTestClient
                 .mutateWith(loginAs(standardUser))
@@ -181,16 +183,18 @@ class TopicSelfServiceManagementIT {
                 .uri("/topics/new")
                 .exchange()
                 .expectStatus()
-                .isForbidden();
+                .isOk();
 
         webTestClient
                 .mutateWith(loginAs(standardUser))
                 .post()
                 .uri("/topics")
-                .body(BodyInserters.fromFormData("name", "Nope").with("description", "Nope"))
+                .body(BodyInserters.fromFormData("name", name).with("description", "A description"))
                 .exchange()
                 .expectStatus()
-                .isForbidden();
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(findByName(name).getCreatedByUserId()).isEqualTo(standardUser.getId());
     }
 
     @Test

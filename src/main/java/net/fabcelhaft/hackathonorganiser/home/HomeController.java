@@ -120,7 +120,7 @@ public class HomeController {
                                         .modelAttribute("openTopics", results.getT2())
                                         .modelAttribute("canJoinTopics", canJoinTopics)
                                         .modelAttribute("currentUserId", userId)
-                                        .modelAttribute("canProposeTopic", participantOpt.isPresent())
+                                        .modelAttribute("canProposeTopic", true)
                                         .modelAttribute(
                                                 "homepageContent", results.getT3().orElse(null))
                                         .build();

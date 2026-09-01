@@ -3,7 +3,6 @@ package net.fabcelhaft.hackathonorganiser.topics;
 import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
-import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicConflictException;
@@ -23,9 +22,9 @@ import reactor.core.publisher.Mono;
 
 /**
  * Participant-facing propose/edit routes for Topics (T028; contracts/topics-self-service-and-
- * approval.md). Sits outside {@code /organiser/**} — only plain authentication is required, plus
- * an Active Participant record to propose (Edge Cases: Standard users cannot propose) and
- * authorship to edit (FR-011).
+ * approval.md). Sits outside {@code /organiser/**} — only plain authentication is required to
+ * propose (any authenticated user, regardless of Participant status) and authorship to edit
+ * (FR-011).
  *
  * <p>{@link TopicService#findVisibleTo} enforces FR-012a's Pending-visibility rule before this
  * controller ever inspects authorship, giving exactly the 404-vs-403 split the contract requires:
@@ -36,17 +35,14 @@ import reactor.core.publisher.Mono;
 public class TopicSelfServiceController {
 
     private final TopicService topicService;
-    private final ParticipantService participantService;
     private final TopicDiscoveryService topicDiscoveryService;
     private final OrganiserSettingsService organiserSettingsService;
 
     public TopicSelfServiceController(
             TopicService topicService,
-            ParticipantService participantService,
             TopicDiscoveryService topicDiscoveryService,
             OrganiserSettingsService organiserSettingsService) {
         this.topicService = topicService;
-        this.participantService = participantService;
         this.topicDiscoveryService = topicDiscoveryService;
         this.organiserSettingsService = organiserSettingsService;
     }
@@ -76,44 +72,38 @@ public class TopicSelfServiceController {
 
     @GetMapping("/new")
     public Mono<Rendering> newForm(@AuthenticationPrincipal HackathonOidcUser oidcUser) {
-        return participantService
-                .findByUserId(oidcUser.getUser().getId())
-                .flatMap(participant -> topicService
-                        .allSkills()
-                        .collectList()
-                        .map(allSkills -> Rendering.view("topics/form")
-                                .modelAttribute("allSkills", allSkills)
-                                .modelAttribute("selectedSkillIds", List.<UUID>of())
-                                .build()))
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN)));
+        return topicService
+                .allSkills()
+                .collectList()
+                .map(allSkills -> Rendering.view("topics/form")
+                        .modelAttribute("allSkills", allSkills)
+                        .modelAttribute("selectedSkillIds", List.<UUID>of())
+                        .build());
     }
 
     @PostMapping
     public Mono<Rendering> create(@AuthenticationPrincipal HackathonOidcUser oidcUser, ServerWebExchange exchange) {
         UUID userId = oidcUser.getUser().getId();
-        return participantService
-                .findByUserId(userId)
-                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN)))
-                .flatMap(participant -> exchange.getFormData().flatMap(form -> {
-                    String name = form.getFirst("name");
-                    String description = form.getFirst("description");
-                    List<UUID> skillIds = toUuidList(form.get("skillIds"));
-                    return topicService
-                            .propose(userId, name, description, skillIds)
-                            .<Rendering>map(topic -> Rendering.redirectTo("/")
-                                    .status(HttpStatus.SEE_OTHER)
-                                    .build())
-                            .onErrorResume(TopicConflictException.class, ex -> topicService
-                                    .allSkills()
-                                    .collectList()
-                                    .map(allSkills -> Rendering.view("topics/form")
-                                            .modelAttribute("error", ex.getMessage())
-                                            .modelAttribute("name", name)
-                                            .modelAttribute("description", description)
-                                            .modelAttribute("allSkills", allSkills)
-                                            .modelAttribute("selectedSkillIds", skillIds)
-                                            .build()));
-                }));
+        return exchange.getFormData().flatMap(form -> {
+            String name = form.getFirst("name");
+            String description = form.getFirst("description");
+            List<UUID> skillIds = toUuidList(form.get("skillIds"));
+            return topicService
+                    .propose(userId, name, description, skillIds)
+                    .<Rendering>map(topic -> Rendering.redirectTo("/")
+                            .status(HttpStatus.SEE_OTHER)
+                            .build())
+                    .onErrorResume(TopicConflictException.class, ex -> topicService
+                            .allSkills()
+                            .collectList()
+                            .map(allSkills -> Rendering.view("topics/form")
+                                    .modelAttribute("error", ex.getMessage())
+                                    .modelAttribute("name", name)
+                                    .modelAttribute("description", description)
+                                    .modelAttribute("allSkills", allSkills)
+                                    .modelAttribute("selectedSkillIds", skillIds)
+                                    .build()));
+        });
     }
 
     @GetMapping("/{id}/edit")
