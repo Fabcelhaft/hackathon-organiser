@@ -14,6 +14,7 @@
                 <th>Name</th>
                 <th>Status</th>
                 <th>Active Group</th>
+                <th>Compliance</th>
                 <th></th>
             </tr>
             </thead>
@@ -28,6 +29,21 @@
                     <a th:if="${row.activeGroupId} != null"
                        th:href="@{/organiser/groups/{id}(id=${row.activeGroupId})}">Active</a>
                     <span th:if="${row.activeGroupId} == null">No active group</span>
+                </td>
+                <td>
+                    <!--/* FR-025: text/icon, never color alone. */-->
+                    <span th:if="${row.complianceStatus().isEmpty()}">
+                        <svg th:replace="~{fragments/icons :: circleHelp(null)}"/> No Group Yet
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT'" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                        <svg th:replace="~{fragments/icons :: xCircle(null)}"/> Not Compliant
+                    </span>
+                    <span th:if="${row.complianceStatus().isPresent()} and ${row.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE'" class="badge-success">
+                        <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant (Organiser Override)
+                    </span>
                 </td>
                 <td class="actions"><a th:href="@{/organiser/topics/{id}(id=${row.topic.id})}" role="button" class="outline secondary">View</a></td>
             </tr>

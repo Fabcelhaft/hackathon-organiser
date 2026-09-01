@@ -45,10 +45,12 @@
                              COMPLIANT_OVERRIDE render identically here since whether compliance was reached
                              naturally or via Organiser override is organiser-space-only information (see
                              organiser/groups/detail.html). */-->
-                        <span th:if="${detail.complianceStatus().isPresent()} and (${detail.complianceStatus().get().name()} == 'COMPLIANT' or ${detail.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')"
-                              role="img" aria-label="Compliant">&#9989;</span>
-                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'NOT_COMPLIANT'"
-                              role="img" aria-label="Not Compliant">&#10060;</span>
+                        <span th:if="${detail.complianceStatus().isPresent()} and (${detail.complianceStatus().get().name()} == 'COMPLIANT' or ${detail.complianceStatus().get().name()} == 'COMPLIANT_OVERRIDE')" class="badge-success">
+                            <svg th:replace="~{fragments/icons :: checkCircle('Compliant')}"/>
+                        </span>
+                        <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                            <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
+                        </span>
                     </td>
                 </tr>
             </tbody>

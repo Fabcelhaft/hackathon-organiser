@@ -2,7 +2,10 @@ package net.fabcelhaft.hackathonorganiser.group;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -42,6 +45,7 @@ public class GroupService {
     private final DatabaseClient databaseClient;
     private final OrganiserSettingsService organiserSettingsService;
     private final TransactionalOperator transactionalOperator;
+    private final ComplianceService complianceService;
 
     public GroupService(
             GroupRepository groupRepository,
@@ -50,7 +54,8 @@ public class GroupService {
             UserRepository userRepository,
             DatabaseClient databaseClient,
             OrganiserSettingsService organiserSettingsService,
-            TransactionalOperator transactionalOperator) {
+            TransactionalOperator transactionalOperator,
+            ComplianceService complianceService) {
         this.groupRepository = groupRepository;
         this.topicRepository = topicRepository;
         this.participantRepository = participantRepository;
@@ -58,6 +63,7 @@ public class GroupService {
         this.databaseClient = databaseClient;
         this.organiserSettingsService = organiserSettingsService;
         this.transactionalOperator = transactionalOperator;
+        this.complianceService = complianceService;
     }
 
     // --- Read views ----------------------------------------------------------------------------
@@ -66,8 +72,26 @@ public class GroupService {
         return groupRepository
                 .findAll()
                 .concatMap(group -> topicName(group.getTopicId())
-                        .map(topicName ->
-                                new GroupSummary(group.getId(), group.getTopicId(), topicName, group.getStatus())));
+                        .flatMap(topicName -> complianceStatusForSummary(group)
+                                .map(complianceStatus -> new GroupSummary(
+                                        group.getId(), group.getTopicId(), topicName, group.getStatus(),
+                                        complianceStatus))));
+    }
+
+    /**
+     * A list-row's Compliance status ({@link #findAllSummaries}): {@link Optional#empty()} for a
+     * {@code DISBANDED} Group, since every one of its memberships is already {@code active = false}
+     * (FR-016b) — evaluating that against the ruleset would misleadingly read as "0 members", not
+     * as "no longer applicable". Otherwise the same {@link ComplianceService#evaluate} contract
+     * {@code GroupController}'s own detail view already uses (research.md §5).
+     */
+    private Mono<Optional<ComplianceStatus>> complianceStatusForSummary(Group group) {
+        if (group.getStatus() != GroupStatus.ACTIVE) {
+            return Mono.just(Optional.empty());
+        }
+        return activeMemberParticipantIds(group.getId())
+                .flatMap(memberIds -> complianceService.evaluate(group, memberIds))
+                .map(Optional::of);
     }
 
     /** The Topic picker for the new-Group form, restricted to Topics with no active Group (FR-016a). */
@@ -430,7 +454,8 @@ public class GroupService {
 
     // --- Read-model view types -------------------------------------------------------------------
 
-    public record GroupSummary(UUID id, UUID topicId, String topicName, GroupStatus status) {}
+    public record GroupSummary(
+            UUID id, UUID topicId, String topicName, GroupStatus status, Optional<ComplianceStatus> complianceStatus) {}
 
     public record ParticipantOption(UUID id, String displayName) {}
 

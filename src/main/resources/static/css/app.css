@@ -156,6 +156,17 @@ nav ul {
     flex-wrap: wrap;
 }
 
+/* ----------------------------------------------------------------- icons */
+
+/* Inline SVG icons (fragments/icons.html) use stroke="currentColor" so they pick up whatever text
+   colour surrounds them (including .badge-success/.badge-danger below); this just sizes them to
+   the current line rather than their intrinsic 24x24 attribute size. */
+.icon {
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.15em;
+}
+
 /* --------------------------------------------------------------- badges */
 
 .badge {

@@ -26,7 +26,7 @@
                 <li th:if="${showParticipantsMenuItem}"><a th:href="@{/participants}">Participants</a></li>
                 <!-- FR-008a: icon plus accessible text label, never color alone. -->
                 <li th:if="${isOrganiser}">
-                    <a th:href="@{/organiser/topics}"><span aria-hidden="true">&#9881;&#65039;</span> Organiser</a>
+                    <a th:href="@{/organiser/topics}"><svg th:replace="~{fragments/icons :: settings(null)}"/> Organiser</a>
                 </li>
             </ul>
         </nav>

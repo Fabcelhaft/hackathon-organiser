@@ -3,6 +3,8 @@ package net.fabcelhaft.hackathonorganiser.organiser.topic;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -34,6 +36,11 @@ import reactor.core.publisher.Mono;
  * {@link GroupService} directly from this controller — the {@code group} domain depends on {@code
  * topic} (a Group always references exactly one Topic), not the reverse, so this lookup happens
  * here in the organiser web layer rather than inside {@link TopicService} itself.
+ *
+ * <p>The list view also surfaces each row's Compliance status, computed via {@link
+ * ComplianceService#evaluate} the same way {@code GroupController}'s detail view already does —
+ * this Organiser-only list is otherwise the one place an Organiser can't see it without opening
+ * each Topic's active Group individually.
  */
 @Controller
 @RequestMapping("/organiser/topics")
@@ -41,10 +48,12 @@ public class TopicController {
 
     private final TopicService topicService;
     private final GroupService groupService;
+    private final ComplianceService complianceService;
 
-    public TopicController(TopicService topicService, GroupService groupService) {
+    public TopicController(TopicService topicService, GroupService groupService, ComplianceService complianceService) {
         this.topicService = topicService;
         this.groupService = groupService;
+        this.complianceService = complianceService;
     }
 
     @GetMapping
@@ -55,22 +64,37 @@ public class TopicController {
     }
 
     private Mono<TopicRow> toRow(Topic topic) {
-        return activeGroupIdFor(topic.getId()).map(opt -> new TopicRow(topic, opt.orElse(null)));
+        return activeGroupFor(topic.getId())
+                .flatMap(opt -> opt.map(group -> complianceStatusFor(group)
+                                .map(status -> new TopicRow(topic, group.getId(), status)))
+                        .orElseGet(() -> Mono.just(new TopicRow(topic, null, Optional.empty()))));
     }
 
     // Reactor's Mono/Flux forbid a null onNext value, so the "no active Group" case is carried as
     // an empty Optional through the reactive chain and only unwrapped to a nullable UUID at the
     // point of building the final (non-null) POJO/Rendering — never as the Mono's own emitted item.
     private Mono<Optional<UUID>> activeGroupIdFor(UUID topicId) {
-        return groupService
-                .findActiveGroupForTopic(topicId)
-                .map(Group::getId)
-                .map(Optional::of)
-                .defaultIfEmpty(Optional.empty());
+        return activeGroupFor(topicId).map(opt -> opt.map(Group::getId));
     }
 
-    /** The list view's per-row read model: a Topic plus its active Group's id, if any. */
-    public record TopicRow(Topic topic, UUID activeGroupId) {}
+    private Mono<Optional<Group>> activeGroupFor(UUID topicId) {
+        return groupService.findActiveGroupForTopic(topicId).map(Optional::of).defaultIfEmpty(Optional.empty());
+    }
+
+    /**
+     * The same {@link ComplianceService#evaluate} contract {@code GroupController} already uses for
+     * its own detail view (research.md §5) — reused verbatim here so the two views can never
+     * disagree.
+     */
+    private Mono<Optional<ComplianceStatus>> complianceStatusFor(Group group) {
+        return groupService
+                .activeMemberParticipantIds(group.getId())
+                .flatMap(memberIds -> complianceService.evaluate(group, memberIds))
+                .map(Optional::of);
+    }
+
+    /** The list view's per-row read model: a Topic, its active Group's id, and its Compliance status. */
+    public record TopicRow(Topic topic, UUID activeGroupId, Optional<ComplianceStatus> complianceStatus) {}
 
     @GetMapping("/new")
     public Mono<Rendering> newForm() {

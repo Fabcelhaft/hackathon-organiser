@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
@@ -61,6 +62,9 @@ class GroupServiceTest {
     @Mock
     private OrganiserSettingsService organiserSettingsService;
 
+    @Mock
+    private ComplianceService complianceService;
+
     private GroupService groupService;
 
     @BeforeEach
@@ -86,7 +90,8 @@ class GroupServiceTest {
                 userRepository,
                 databaseClient,
                 organiserSettingsService,
-                transactionalOperator);
+                transactionalOperator,
+                complianceService);
     }
 
     // --- create: blocked when the Topic already has an active Group (FR-016a) ------------------

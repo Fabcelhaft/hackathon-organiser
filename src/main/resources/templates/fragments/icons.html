@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/*
+  Inline SVG icons, replacing this app's former emoji entities (&#9989; etc.) — those don't render
+  consistently across platforms/fonts. Icon artwork: Lucide (https://lucide.dev), ISC License
+  (https://github.com/lucide-icons/lucide/blob/main/LICENSE) — MIT-equivalent, no attribution
+  required in the running app; this comment is the attribution.
+
+  Each fragment takes an optional `label`:
+  - non-blank `label` -> the icon is the only content of its cell (role="img" aria-label carries
+    the meaning), matching FR-025 "text/icon, never colour alone" for icon-only usages.
+  - blank/null `label` -> the icon is decorative (aria-hidden), used right next to visible text
+    that already carries the meaning.
+  Icons use stroke="currentColor" so they inherit the surrounding text colour/size; size them via
+  the shared `.icon` class in app.css rather than the width/height attributes below.
+*/-->
+<body>
+<svg th:fragment="checkCircle(label)" class="icon" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     focusable="false"
+     th:attr="role=${#strings.isEmpty(label)} ? null : 'img', aria-label=${label}, aria-hidden=${#strings.isEmpty(label)} ? 'true' : null">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="m16 9-5.5 5.5L8 12"/>
+</svg>
+<svg th:fragment="xCircle(label)" class="icon" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     focusable="false"
+     th:attr="role=${#strings.isEmpty(label)} ? null : 'img', aria-label=${label}, aria-hidden=${#strings.isEmpty(label)} ? 'true' : null">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="m15 9-6 6"/>
+    <path d="m9 9 6 6"/>
+</svg>
+<svg th:fragment="circleHelp(label)" class="icon" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     focusable="false"
+     th:attr="role=${#strings.isEmpty(label)} ? null : 'img', aria-label=${label}, aria-hidden=${#strings.isEmpty(label)} ? 'true' : null">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+    <path d="M12 17h.01"/>
+</svg>
+<svg th:fragment="settings(label)" class="icon" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+     focusable="false"
+     th:attr="role=${#strings.isEmpty(label)} ? null : 'img', aria-label=${label}, aria-hidden=${#strings.isEmpty(label)} ? 'true' : null">
+    <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/>
+    <circle cx="12" cy="12" r="3"/>
+</svg>
+</body>
+</html>

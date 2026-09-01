@@ -17,16 +17,16 @@
             <dd>
                 <!--/* FR-025: text/icon, never color alone. */-->
                 <span th:if="${complianceStatus} == null">
-                    <span aria-hidden="true">&#10067;</span> No Group Yet
+                    <svg th:replace="~{fragments/icons :: circleHelp(null)}"/> No Group Yet
                 </span>
-                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT'">
-                    <span aria-hidden="true">&#9989;</span> Compliant
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT'" class="badge-success">
+                    <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant
                 </span>
-                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'NOT_COMPLIANT'">
-                    <span aria-hidden="true">&#10060;</span> Not Compliant
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'NOT_COMPLIANT'" class="badge-danger">
+                    <svg th:replace="~{fragments/icons :: xCircle(null)}"/> Not Compliant
                 </span>
-                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT_OVERRIDE'">
-                    <span aria-hidden="true">&#9989;</span> Compliant (Organiser Override)
+                <span th:if="${complianceStatus} != null and ${complianceStatus.name()} == 'COMPLIANT_OVERRIDE'" class="badge-success">
+                    <svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Compliant (Organiser Override)
                 </span>
             </dd>
         </dl>

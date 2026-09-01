@@ -22,8 +22,8 @@
                 <td th:text="${p.userDisplayName}">Name</td>
                 <td th:text="${p.status}">Status</td>
                 <td>
-                    <span th:if="${p.incomplete}" class="badge badge-sm badge-danger">Incomplete</span>
-                    <span th:unless="${p.incomplete}">Complete</span>
+                    <span th:if="${p.incomplete}" class="badge badge-sm badge-danger"><svg th:replace="~{fragments/icons :: xCircle(null)}"/> Incomplete</span>
+                    <span th:unless="${p.incomplete}" class="badge-success"><svg th:replace="~{fragments/icons :: checkCircle(null)}"/> Complete</span>
                 </td>
                 <td class="actions"><a th:href="@{/organiser/participants/{id}(id=${p.id})}" role="button" class="outline secondary">View</a></td>
             </tr>
