@@ -66,6 +66,7 @@ public class TopicSelfServiceController {
                         .modelAttribute(
                                 "complianceVisible",
                                 isOrganiser || tuple.getT2().isComplianceVisibleToParticipants())
+                        .modelAttribute("teamsLinksEnabled", tuple.getT2().isTeamsLinksEnabled())
                         .build())
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }

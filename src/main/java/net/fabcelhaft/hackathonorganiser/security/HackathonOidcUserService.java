@@ -60,7 +60,7 @@ public class HackathonOidcUserService implements ReactiveOAuth2UserService<OidcU
 
     private Mono<User> upsert(OidcUser oidcUser) {
         String subject = oidcUser.getSubject();
-        String displayName = oidcUser.getFullName() != null ? oidcUser.getFullName() : subject;
+        String displayName = stripBrackets(oidcUser.getFullName() != null ? oidcUser.getFullName() : subject);
         String email = oidcUser.getEmail();
         Instant now = Instant.now();
 
@@ -81,5 +81,21 @@ public class HackathonOidcUserService implements ReactiveOAuth2UserService<OidcU
                     user.setUpdatedAt(now);
                     return userRepository.save(user);
                 }));
+    }
+
+    /**
+     * Strips a stray leading {@code [} and/or trailing {@code ]} some IdPs wrap the display name
+     * in, independently of each other (either alone is still removed), then trims whitespace left
+     * behind by the removal.
+     */
+    private static String stripBrackets(String raw) {
+        String s = raw;
+        if (s.startsWith("[")) {
+            s = s.substring(1);
+        }
+        if (s.endsWith("]")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s.trim();
     }
 }

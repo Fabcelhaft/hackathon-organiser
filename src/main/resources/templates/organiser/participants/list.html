@@ -19,7 +19,7 @@
             </thead>
             <tbody>
             <tr th:each="p : ${participants}">
-                <td th:text="${p.userDisplayName}">Name</td>
+                <td><span th:replace="~{fragments/teams-link :: displayName(${p.userDisplayName}, ${teamsLinksEnabled ? p.userEmail : null})}"></span></td>
                 <td th:text="${p.status}">Status</td>
                 <td>
                     <span th:if="${p.incomplete}" class="badge badge-sm badge-danger"><svg th:replace="~{fragments/icons :: xCircle(null)}"/> Incomplete</span>

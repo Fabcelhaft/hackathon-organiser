@@ -115,6 +115,32 @@ class HackathonOidcUserServiceTest {
         verify(userRepository, never()).save(org.mockito.ArgumentMatchers.argThat(u -> u.getId() == null));
     }
 
+    @Test
+    void stripsStrayLeadingAndTrailingBracketsFromTheDisplayNameIndependently() {
+        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate);
+
+        assertDisplayNameStrippedTo("[Jane Doe]", "Jane Doe", service);
+        assertDisplayNameStrippedTo("[Jane Doe", "Jane Doe", service);
+        assertDisplayNameStrippedTo("Jane Doe]", "Jane Doe", service);
+        assertDisplayNameStrippedTo("Jane Doe", "Jane Doe", service);
+    }
+
+    private void assertDisplayNameStrippedTo(String rawName, String expected, HackathonOidcUserService service) {
+        OidcUserRequest request = someRequest();
+        OidcUser upstreamUser = oidcUser("sub-brackets", rawName, "jane@example.com");
+
+        when(delegate.loadUser(request)).thenReturn(Mono.just(upstreamUser));
+        when(userRepository.findByOidcSubject("sub-brackets")).thenReturn(Mono.empty());
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(service.loadUser(request))
+                .assertNext(result -> {
+                    User saved = ((HackathonOidcUser) result).getUser();
+                    assertThat(saved.getDisplayName()).isEqualTo(expected);
+                })
+                .verifyComplete();
+    }
+
     private static OidcUser oidcUser(String subject, String name, String email) {
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plusSeconds(300);

@@ -104,6 +104,17 @@
             </fieldset>
 
             <fieldset>
+                <label for="teams_links_enabled">
+                    <input type="hidden" name="teams_links_enabled" value="false"/>
+                    <input type="checkbox" id="teams_links_enabled" name="teams_links_enabled"
+                           value="true" th:checked="${settings.teamsLinksEnabled}"/>
+                    Enable Microsoft Teams chat links
+                </label>
+                <p>When on, a person's displayed name links to a Microsoft Teams chat with them, using
+                    their stored email.</p>
+            </fieldset>
+
+            <fieldset>
                 <legend>Skill Display Mode</legend>
                 <label>
                     <input type="radio" name="skill_display_mode" value="STILL_NEEDED_ONLY"

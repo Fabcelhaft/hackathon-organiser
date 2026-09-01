@@ -7,6 +7,7 @@ import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicConflictException;
 import net.fabcelhaft.hackathonorganiser.topic.TopicService;
@@ -49,11 +50,17 @@ public class TopicController {
     private final TopicService topicService;
     private final GroupService groupService;
     private final ComplianceService complianceService;
+    private final OrganiserSettingsService organiserSettingsService;
 
-    public TopicController(TopicService topicService, GroupService groupService, ComplianceService complianceService) {
+    public TopicController(
+            TopicService topicService,
+            GroupService groupService,
+            ComplianceService complianceService,
+            OrganiserSettingsService organiserSettingsService) {
         this.topicService = topicService;
         this.groupService = groupService;
         this.complianceService = complianceService;
+        this.organiserSettingsService = organiserSettingsService;
     }
 
     @GetMapping
@@ -136,10 +143,12 @@ public class TopicController {
     public Mono<Rendering> detail(@PathVariable UUID id) {
         return topicService
                 .findDetail(id)
-                .flatMap(detail -> activeGroupIdFor(id).map(opt -> Rendering.view("organiser/topics/detail")
-                        .modelAttribute("detail", detail)
-                        .modelAttribute("activeGroupId", opt.orElse(null))
-                        .build()))
+                .flatMap(detail -> Mono.zip(activeGroupIdFor(id), organiserSettingsService.current())
+                        .map(tuple -> Rendering.view("organiser/topics/detail")
+                                .modelAttribute("detail", detail)
+                                .modelAttribute("activeGroupId", tuple.getT1().orElse(null))
+                                .modelAttribute("teamsLinksEnabled", tuple.getT2().isTeamsLinksEnabled())
+                                .build()))
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }
 

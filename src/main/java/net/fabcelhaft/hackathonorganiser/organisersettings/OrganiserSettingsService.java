@@ -25,7 +25,7 @@ public class OrganiserSettingsService {
     }
 
     /**
-     * Updates any combination of the twelve fields in one call. For most boolean/enum fields, a
+     * Updates any combination of the thirteen fields in one call. For most boolean/enum fields, a
      * {@code null} argument leaves that field unchanged — the existing convention (an entirely
      * absent form field means "don't touch this one"). {@code maxRegistrations} and {@code
      * minGroupMembers} are deliberately different: their own domain ranges already include {@code
@@ -52,7 +52,8 @@ public class OrganiserSettingsService {
             Integer minGroupMembers,
             Boolean topicJoiningEnabled,
             SkillDisplayMode skillDisplayMode,
-            Boolean complianceVisibleToParticipants) {
+            Boolean complianceVisibleToParticipants,
+            Boolean teamsLinksEnabled) {
         if (maxRegistrations != null && maxRegistrations < 1) {
             return Mono.error(new OrganiserSettingsConflictException(
                     "Maximum registrations must be blank (unlimited) or at least 1"));
@@ -99,6 +100,9 @@ public class OrganiserSettingsService {
             }
             if (complianceVisibleToParticipants != null) {
                 settings.setComplianceVisibleToParticipants(complianceVisibleToParticipants);
+            }
+            if (teamsLinksEnabled != null) {
+                settings.setTeamsLinksEnabled(teamsLinksEnabled);
             }
             settings.setUpdatedAt(Instant.now());
             return organiserSettingsRepository.save(settings);

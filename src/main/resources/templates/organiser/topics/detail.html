@@ -13,7 +13,7 @@
             <dt>Description</dt>
             <dd th:text="${detail.topic.description}">Description</dd>
             <dt>Creator</dt>
-            <dd th:text="${detail.creatorDisplayName}">Creator</dd>
+            <dd><span th:replace="~{fragments/teams-link :: displayName(${detail.creatorDisplayName}, ${teamsLinksEnabled ? detail.creatorEmail : null})}"></span></dd>
             <dt>Approval Status</dt>
             <dd>
                 <span class="actions">

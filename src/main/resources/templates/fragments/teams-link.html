@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/* A person's displayed name, turned into a link that opens a Microsoft Teams chat with them
+     when an email is supplied — plain text otherwise. Callers pass `null` for `email` when the
+     Teams-links setting is off, so this fragment doesn't need to know about that toggle itself. */-->
+<body>
+<th:block th:fragment="displayName(name, email)">
+    <a th:if="${email != null and !#strings.isEmpty(email)}"
+       th:href="@{https://teams.microsoft.com/l/chat/0/0(users=${email})}"
+       th:text="${name}" target="_blank" rel="noopener noreferrer"
+       title="Chat in Microsoft Teams">Name</a>
+    <span th:unless="${email != null and !#strings.isEmpty(email)}" th:text="${name}">Name</span>
+</th:block>
+</body>
+</html>

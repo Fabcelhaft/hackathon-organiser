@@ -310,3 +310,22 @@ ALTER TABLE compliance_diversity_requirements
 
 CREATE UNIQUE INDEX IF NOT EXISTS compliance_diversity_requirements_field_key
     ON compliance_diversity_requirements (custom_field_definition_id);
+
+-- Data fix: some IdPs wrap the display name in stray square brackets (e.g. "[Jane Doe]"). Strips a
+-- leading '[' and a trailing ']' independently (either alone is still removed), then trims
+-- whitespace left behind — mirrors HackathonOidcUserService#stripBrackets exactly, applied here
+-- once to every existing row (new logins are normalised going forward by that same method). Each
+-- statement is a no-op on re-run once applied.
+UPDATE users SET display_name = substring(display_name from 2)
+WHERE left(display_name, 1) = '[';
+
+UPDATE users SET display_name = left(display_name, length(display_name) - 1)
+WHERE right(display_name, 1) = ']';
+
+UPDATE users SET display_name = btrim(display_name)
+WHERE display_name <> btrim(display_name);
+
+-- Microsoft Teams chat links: a global, off-by-default toggle that (when enabled) turns a
+-- person's displayed name into a link opening a Teams chat with them, wherever their email is
+-- already available in that read model.
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS teams_links_enabled boolean NOT NULL DEFAULT false;

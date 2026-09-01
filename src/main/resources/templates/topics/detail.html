@@ -72,7 +72,7 @@
                  here or anywhere else on this page. */-->
             <tbody>
                 <tr th:each="member : ${detail.members}">
-                    <td th:text="${member.userDisplayName}">Name</td>
+                    <td><span th:replace="~{fragments/teams-link :: displayName(${member.userDisplayName}, ${teamsLinksEnabled ? member.userEmail : null})}"></span></td>
                     <td>
                         <ul th:unless="${member.fields.isEmpty()}">
                             <li th:each="cfv : ${member.fields}">

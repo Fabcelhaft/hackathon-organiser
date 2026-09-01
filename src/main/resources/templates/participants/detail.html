@@ -12,6 +12,12 @@
         <a th:href="@{/profile/edit}" role="button">Edit</a>
     </div>
 
+    <div class="actions"
+         th:if="${teamsLinksEnabled} and ${mode} != 'self' and ${viewerDetail.userEmail} != null and ${!#strings.isEmpty(viewerDetail.userEmail)}">
+        <a th:href="@{https://teams.microsoft.com/l/chat/0/0(users=${viewerDetail.userEmail})}"
+           target="_blank" rel="noopener noreferrer" role="button" class="outline secondary">Chat in Teams</a>
+    </div>
+
     <!--/* Every field is rendered by its own label and a display matching its type — no "Custom
          Field" heading/tag/badge anywhere (FR-002a). Fields already carry only what this viewer
          may see (ParticipantService#findDetailForViewer); an omitted field is simply absent, never

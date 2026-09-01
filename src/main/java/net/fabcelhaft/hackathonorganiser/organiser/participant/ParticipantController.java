@@ -2,6 +2,7 @@ package net.fabcelhaft.hackathonorganiser.organiser.participant;
 
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantConflictException;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
@@ -26,16 +27,22 @@ import reactor.core.publisher.Mono;
 public class ParticipantController {
 
     private final ParticipantService participantService;
+    private final OrganiserSettingsService organiserSettingsService;
 
-    public ParticipantController(ParticipantService participantService) {
+    public ParticipantController(
+            ParticipantService participantService, OrganiserSettingsService organiserSettingsService) {
         this.participantService = participantService;
+        this.organiserSettingsService = organiserSettingsService;
     }
 
     @GetMapping
     public Mono<Rendering> list() {
-        return Mono.just(Rendering.view("organiser/participants/list")
-                .modelAttribute("participants", participantService.findAllSummaries())
-                .build());
+        return organiserSettingsService
+                .current()
+                .map(settings -> Rendering.view("organiser/participants/list")
+                        .modelAttribute("participants", participantService.findAllSummaries())
+                        .modelAttribute("teamsLinksEnabled", settings.isTeamsLinksEnabled())
+                        .build());
     }
 
     @GetMapping("/new")
@@ -107,11 +114,14 @@ public class ParticipantController {
                         .build()))
                 .onErrorResume(
                         ParticipantConflictException.class,
-                        ex -> Mono.just(Rendering.view("organiser/participants/list")
-                                .modelAttribute("participants", participantService.findAllSummaries())
-                                .modelAttribute("error", ex.getMessage())
-                                .status(HttpStatus.CONFLICT)
-                                .build()));
+                        ex -> organiserSettingsService
+                                .current()
+                                .map(settings -> Rendering.view("organiser/participants/list")
+                                        .modelAttribute("participants", participantService.findAllSummaries())
+                                        .modelAttribute("teamsLinksEnabled", settings.isTeamsLinksEnabled())
+                                        .modelAttribute("error", ex.getMessage())
+                                        .status(HttpStatus.CONFLICT)
+                                        .build()));
     }
 
     @PostMapping("/{id}/custom-fields/{fieldId}")
@@ -131,13 +141,13 @@ public class ParticipantController {
     }
 
     private Mono<Rendering> renderDetail(UUID id, String error) {
-        return participantService
-                .findDetail(id)
-                .map(detail -> {
+        return Mono.zip(participantService.findDetail(id), organiserSettingsService.current())
+                .map(tuple -> {
                     Rendering.Builder<?> builder = Rendering.view("organiser/participants/detail")
-                            .modelAttribute("detail", detail)
+                            .modelAttribute("detail", tuple.getT1())
                             .modelAttribute("allSkills", participantService.allSkills())
-                            .modelAttribute("statuses", ParticipantStatus.values());
+                            .modelAttribute("statuses", ParticipantStatus.values())
+                            .modelAttribute("teamsLinksEnabled", tuple.getT2().isTeamsLinksEnabled());
                     if (error != null) {
                         builder = builder.modelAttribute("error", error);
                     }

@@ -49,6 +49,8 @@ public class OrganiserSettings {
 
     private boolean complianceVisibleToParticipants;
 
+    private boolean teamsLinksEnabled;
+
     private Instant updatedAt;
 
     public UUID getId() {
@@ -161,6 +163,14 @@ public class OrganiserSettings {
 
     public void setComplianceVisibleToParticipants(boolean complianceVisibleToParticipants) {
         this.complianceVisibleToParticipants = complianceVisibleToParticipants;
+    }
+
+    public boolean isTeamsLinksEnabled() {
+        return teamsLinksEnabled;
+    }
+
+    public void setTeamsLinksEnabled(boolean teamsLinksEnabled) {
+        this.teamsLinksEnabled = teamsLinksEnabled;
     }
 
     public Instant getUpdatedAt() {

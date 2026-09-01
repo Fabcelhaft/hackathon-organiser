@@ -10,7 +10,7 @@
 
         <dl>
             <dt>User</dt>
-            <dd th:text="${detail.userDisplayName}">Name</dd>
+            <dd><span th:replace="~{fragments/teams-link :: displayName(${detail.userDisplayName}, ${teamsLinksEnabled ? detail.userEmail : null})}"></span></dd>
             <dt>Email</dt>
             <dd th:text="${detail.userEmail}">Email</dd>
             <dt>Status</dt>

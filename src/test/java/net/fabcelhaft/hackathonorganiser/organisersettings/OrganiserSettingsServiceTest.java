@@ -54,7 +54,7 @@ class OrganiserSettingsServiceTest {
 
         StepVerifier.create(
                         organiserSettingsService.update(
-                                false, null, true, null, null, null, null, null, null, null, null, null))
+                                false, null, true, null, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isSelfRegistrationEnabled()).isFalse();
                     assertThat(saved.isSelfRevocationEnabled()).isTrue();
@@ -75,7 +75,7 @@ class OrganiserSettingsServiceTest {
         when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(organiserSettingsService.update(null, null, null, 5, null, null, null, null, null, null, null, null))
+        StepVerifier.create(organiserSettingsService.update(null, null, null, 5, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isSelfRegistrationEnabled()).isTrue();
                     assertThat(saved.isSelfRevocationEnabled()).isFalse();
@@ -98,7 +98,7 @@ class OrganiserSettingsServiceTest {
         when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(organiserSettingsService.update(null, null, null, null, null, null, null, null, null, null, null, null))
+        StepVerifier.create(organiserSettingsService.update(null, null, null, null, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> assertThat(saved.getMaxRegistrations()).isNull())
                 .verifyComplete();
     }
@@ -110,17 +110,17 @@ class OrganiserSettingsServiceTest {
         when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(organiserSettingsService.update(null, null, null, 10, null, null, null, null, null, null, null, null))
+        StepVerifier.create(organiserSettingsService.update(null, null, null, 10, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> assertThat(saved.getMaxRegistrations()).isEqualTo(10))
                 .verifyComplete();
     }
 
     @Test
     void updateRejectsZeroOrNegativeMaxRegistrationsAndAppliesNoChangeAtAll() {
-        StepVerifier.create(organiserSettingsService.update(false, null, null, 0, null, null, null, null, null, null, null, null))
+        StepVerifier.create(organiserSettingsService.update(false, null, null, 0, null, null, null, null, null, null, null, null, null))
                 .expectError(OrganiserSettingsConflictException.class)
                 .verify();
-        StepVerifier.create(organiserSettingsService.update(false, null, null, -1, null, null, null, null, null, null, null, null))
+        StepVerifier.create(organiserSettingsService.update(false, null, null, -1, null, null, null, null, null, null, null, null, null))
                 .expectError(OrganiserSettingsConflictException.class)
                 .verify();
 
@@ -142,7 +142,7 @@ class OrganiserSettingsServiceTest {
 
         StepVerifier.create(organiserSettingsService.update(
                         null, null, null, null, false, true, DirectoryAudience.ALL_AUTHENTICATED,
-                        null, null, null, null, null))
+                        null, null, null, null, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isSelfEditEnabled()).isFalse();
                     assertThat(saved.isSkillVisibilityEnabled()).isTrue();
@@ -164,7 +164,7 @@ class OrganiserSettingsServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, null, null, null, null, null))
+                        null, null, null, null, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> assertThat(saved.getMaxGroupMembers()).isEqualTo(5))
                 .verifyComplete();
     }
@@ -172,7 +172,7 @@ class OrganiserSettingsServiceTest {
     @Test
     void updateRejectsMaxGroupMembersBelowOneAndAppliesNoChangeAtAll() {
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, 0, null, null, null, null))
+                        null, null, null, null, null, null, null, 0, null, null, null, null, null))
                 .expectError(OrganiserSettingsConflictException.class)
                 .verify();
 
@@ -189,7 +189,7 @@ class OrganiserSettingsServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, 3, null, null, null, null))
+                        null, null, null, null, null, null, null, 3, null, null, null, null, null))
                 .assertNext(saved -> assertThat(saved.getMaxGroupMembers()).isEqualTo(3))
                 .verifyComplete();
     }
@@ -204,7 +204,7 @@ class OrganiserSettingsServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, null, null, null, null, null))
+                        null, null, null, null, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> assertThat(saved.getMinGroupMembers()).isNull())
                 .verifyComplete();
     }
@@ -216,7 +216,7 @@ class OrganiserSettingsServiceTest {
         when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, null, 6, null, null, null))
+                        null, null, null, null, null, null, null, null, 6, null, null, null, null))
                 .expectError(OrganiserSettingsConflictException.class)
                 .verify();
 
@@ -230,7 +230,7 @@ class OrganiserSettingsServiceTest {
         when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, 3, 4, null, null, null))
+                        null, null, null, null, null, null, null, 3, 4, null, null, null, null))
                 .expectError(OrganiserSettingsConflictException.class)
                 .verify();
 
@@ -246,7 +246,7 @@ class OrganiserSettingsServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, null, 2, null, null, null))
+                        null, null, null, null, null, null, null, null, 2, null, null, null, null))
                 .assertNext(saved -> assertThat(saved.getMinGroupMembers()).isEqualTo(2))
                 .verifyComplete();
     }
@@ -263,7 +263,7 @@ class OrganiserSettingsServiceTest {
 
         StepVerifier.create(organiserSettingsService.update(
                         null, null, null, null, null, null, null,
-                        null, null, false, SkillDisplayMode.ALL_ASSOCIATED, null))
+                        null, null, false, SkillDisplayMode.ALL_ASSOCIATED, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isTopicJoiningEnabled()).isFalse();
                     assertThat(saved.getSkillDisplayMode()).isEqualTo(SkillDisplayMode.ALL_ASSOCIATED);
@@ -271,11 +271,32 @@ class OrganiserSettingsServiceTest {
                 .verifyComplete();
 
         StepVerifier.create(organiserSettingsService.update(
-                        null, null, null, null, null, null, null, null, null, null, null, null))
+                        null, null, null, null, null, null, null, null, null, null, null, null, null))
                 .assertNext(saved -> {
                     assertThat(saved.isTopicJoiningEnabled()).isFalse();
                     assertThat(saved.getSkillDisplayMode()).isEqualTo(SkillDisplayMode.ALL_ASSOCIATED);
                 })
+                .verifyComplete();
+    }
+
+    // --- teamsLinksEnabled --------------------------------------------------------------------
+
+    @Test
+    void updateSetsTeamsLinksEnabledAndLeavesItUnchangedWhenNull() {
+        OrganiserSettings settings = settingsOf(true, true, false);
+        settings.setTeamsLinksEnabled(false);
+        when(organiserSettingsRepository.findBySingletonTrue()).thenReturn(Mono.just(settings));
+        when(organiserSettingsRepository.save(any(OrganiserSettings.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(organiserSettingsService.update(
+                        null, null, null, null, null, null, null, null, null, null, null, null, true))
+                .assertNext(saved -> assertThat(saved.isTeamsLinksEnabled()).isTrue())
+                .verifyComplete();
+
+        StepVerifier.create(organiserSettingsService.update(
+                        null, null, null, null, null, null, null, null, null, null, null, null, null))
+                .assertNext(saved -> assertThat(saved.isTeamsLinksEnabled()).isTrue())
                 .verifyComplete();
     }
 

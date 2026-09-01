@@ -71,7 +71,7 @@ public class ComplianceController {
             return organiserSettingsService
                     .update(
                             null, null, null, null, null, null, null, maxGroupMembers, minGroupMembers, null, null,
-                            null)
+                            null, null)
                     .<Rendering>map(settings ->
                             redirectWithFlash("Compliance settings updated."))
                     .onErrorResume(

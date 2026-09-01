@@ -90,6 +90,7 @@ public class ParticipantsDirectoryController {
                 .modelAttribute("mode", detail.self() ? "self" : (detail.organiserView() ? "organiser" : "other"))
                 .modelAttribute("viewerDetail", detail)
                 .modelAttribute("canEdit", detail.self() && settings.isSelfEditEnabled())
+                .modelAttribute("teamsLinksEnabled", settings.isTeamsLinksEnabled())
                 .modelAttribute(
                         "countryNamesByCode",
                         IsoCountryCatalog.all().stream()

@@ -680,6 +680,7 @@ public class ParticipantService {
                                         participant.getId(),
                                         participant.getUserId(),
                                         user.getDisplayName(),
+                                        user.getEmail(),
                                         participant.getStatus(),
                                         tuple.getT1(),
                                         tuple.getT2()))));
@@ -910,6 +911,7 @@ public class ParticipantService {
             UUID id,
             UUID userId,
             String userDisplayName,
+            String userEmail,
             ParticipantStatus status,
             boolean incomplete,
             boolean inGroup) {}

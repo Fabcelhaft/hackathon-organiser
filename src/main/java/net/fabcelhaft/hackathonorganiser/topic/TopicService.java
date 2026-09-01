@@ -304,14 +304,20 @@ public class TopicService {
     public Mono<TopicDetail> findDetail(UUID id) {
         return topicRepository.findById(id).flatMap(topic -> userRepository
                 .findById(topic.getCreatedByUserId())
-                .map(User::getDisplayName)
-                .defaultIfEmpty("Unknown user")
-                .flatMap(creatorDisplayName -> loadSkills(id)
+                .defaultIfEmpty(unknownCreator())
+                .flatMap(creator -> loadSkills(id)
                         .map(skills -> new TopicDetail(
                                 topic,
-                                creatorDisplayName,
+                                creator.getDisplayName(),
+                                creator.getEmail(),
                                 skills,
                                 skills.stream().map(Skill::getId).toList()))));
+    }
+
+    private static User unknownCreator() {
+        User user = new User();
+        user.setDisplayName("Unknown user");
+        return user;
     }
 
     private Mono<List<Skill>> loadSkills(UUID topicId) {
@@ -377,5 +383,9 @@ public class TopicService {
     // --- Read-model view type -------------------------------------------------------------------
 
     public record TopicDetail(
-            Topic topic, String creatorDisplayName, List<Skill> skills, List<UUID> skillIds) {}
+            Topic topic,
+            String creatorDisplayName,
+            String creatorEmail,
+            List<Skill> skills,
+            List<UUID> skillIds) {}
 }
