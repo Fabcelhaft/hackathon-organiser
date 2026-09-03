@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.IsoCountryCatalog;
@@ -100,7 +101,7 @@ public class ProfileController {
                         .flatMap(form -> customFieldService.registrationFields().collectList().flatMap(fields -> {
                             ProfileFormSubmission submission = parseSubmission(form, fields);
                             return participantService
-                                    .submitSelfEdit(participant.getId(), submission)
+                                    .submitSelfEdit(participant.getId(), submission, new AuditActor(userId, false))
                                     .<Rendering>map(p -> redirectToProfile("Profile updated."))
                                     .onErrorResume(ParticipantConflictException.class, ex -> {
                                         if (isLockoutOrDisabledMessage(ex.getMessage())) {

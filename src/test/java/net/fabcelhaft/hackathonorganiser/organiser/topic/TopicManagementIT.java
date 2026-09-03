@@ -472,6 +472,82 @@ class TopicManagementIT {
                 .expectStatus().isNotFound();
     }
 
+    // --- Audit (T025, Story 2, FR-005-FR-008, FR-011) --------------------------------------------
+
+    @Test
+    void organiserCanViewAnAuditHistoryListingPreviouslyRecordedEntriesMostRecentFirst() {
+        User creator = persistUser("Audit Creator " + UUID.randomUUID());
+        Topic topic = persistTopic(creator.getId(), "Audited Topic " + UUID.randomUUID(), "Old Desc");
+        topic.setApprovalStatus(net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus.PENDING);
+        topicRepository.save(topic).block();
+
+        // First-recorded entry: STATUS_CHANGED (PENDING -> APPROVED).
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/topics/{id}/approve", topic.getId())
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+        // Second-recorded (later) entry: EDITED.
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/topics/{id}", topic.getId())
+                .body(BodyInserters.fromFormData("name", topic.getName()).with("description", "New Desc"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/topics/{id}/audit", topic.getId())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("EDITED");
+        assertThat(body).contains("STATUS_CHANGED");
+        assertThat(body).contains("PENDING -&gt; APPROVED");
+        // Most-recent-first: the later EDITED entry's row precedes the earlier STATUS_CHANGED row.
+        assertThat(body.indexOf("EDITED")).isLessThan(body.indexOf("STATUS_CHANGED"));
+    }
+
+    @Test
+    void auditHistoryRendersAnEmptyLabeledStateForATopicWithNoEntriesYet() {
+        User creator = persistUser("Empty Audit Creator " + UUID.randomUUID());
+        Topic topic = persistTopic(creator.getId(), "Untouched Topic " + UUID.randomUUID(), "Desc");
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/topics/{id}/audit", topic.getId())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).containsIgnoringCase("no changes recorded yet");
+    }
+
+    @Test
+    void auditHistoryIsDeniedToANonOrganiserBeforeAnyContentRenders() {
+        User creator = persistUser("Denied Audit Creator " + UUID.randomUUID());
+        Topic topic = persistTopic(creator.getId(), "Protected Topic " + UUID.randomUUID(), "Desc");
+
+        webTestClient.mutateWith(standardUser())
+                .get().uri("/organiser/topics/{id}/audit", topic.getId())
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient
+                .get().uri("/organiser/topics/{id}/audit", topic.getId())
+                .exchange()
+                .expectStatus().is3xxRedirection();
+    }
+
+    @Test
+    void auditHistoryOfAnUnknownTopicReturnsNotFound() {
+        webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/topics/{id}/audit", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
     @Test
     void multiplePendingTopicsFromDifferentAuthorsAreVisibleToAnOrganiserOnTheTopicOverview() {
         // Feature 005 (spec Assumptions): Pending Topics moved entirely to GET /topics/overview —
@@ -513,11 +589,15 @@ class TopicManagementIT {
     }
 
     private User persistUser(String displayName) {
+        return persistUser(displayName, false);
+    }
+
+    private User persistUser(String displayName, boolean organiser) {
         User user = new User();
         user.setOidcSubject("sub-" + UUID.randomUUID());
         user.setDisplayName(displayName);
         user.setEmail(displayName.toLowerCase().replace(' ', '.') + "@example.com");
-        user.setOrganiser(false);
+        user.setOrganiser(organiser);
         user.setCreatedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
         return userRepository.save(user).block();
@@ -551,12 +631,19 @@ class TopicManagementIT {
         return groupRepository.save(group).block();
     }
 
-    private static OidcLoginMutator organiser() {
-        return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_ORGANISER"));
+    /**
+     * A real, persisted Organiser login (feature 006, FR-001-FR-002a): {@code create}/{@code
+     * update}/{@code approve} now resolve {@code @AuthenticationPrincipal HackathonOidcUser} to
+     * attribute an {@link net.fabcelhaft.hackathonorganiser.audit.AuditEntry}'s {@code
+     * actor_user_id} (a real FK to {@code users}), so a bare {@code mockOidcLogin()} (no backing
+     * User row) is no longer sufficient for any route on this controller.
+     */
+    private OidcLoginMutator organiser() {
+        return loginAsUser(persistUser("Organiser " + UUID.randomUUID(), true));
     }
 
-    private static OidcLoginMutator standardUser() {
-        return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"));
+    private OidcLoginMutator standardUser() {
+        return loginAsUser(persistUser("Standard User " + UUID.randomUUID(), false));
     }
 
     private Participant persistParticipant(UUID userId) {

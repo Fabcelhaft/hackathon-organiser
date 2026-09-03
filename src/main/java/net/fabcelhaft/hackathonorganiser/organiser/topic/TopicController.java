@@ -3,15 +3,19 @@ package net.fabcelhaft.hackathonorganiser.organiser.topic;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
+import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicConflictException;
 import net.fabcelhaft.hackathonorganiser.topic.TopicService;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,16 +55,19 @@ public class TopicController {
     private final GroupService groupService;
     private final ComplianceService complianceService;
     private final OrganiserSettingsService organiserSettingsService;
+    private final AuditService auditService;
 
     public TopicController(
             TopicService topicService,
             GroupService groupService,
             ComplianceService complianceService,
-            OrganiserSettingsService organiserSettingsService) {
+            OrganiserSettingsService organiserSettingsService,
+            AuditService auditService) {
         this.topicService = topicService;
         this.groupService = groupService;
         this.complianceService = complianceService;
         this.organiserSettingsService = organiserSettingsService;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -113,7 +120,7 @@ public class TopicController {
     }
 
     @PostMapping
-    public Mono<Rendering> create(ServerWebExchange exchange) {
+    public Mono<Rendering> create(ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         // WebFlux's @RequestParam only ever reads URL query parameters, never a form-urlencoded
         // request body (unlike Spring MVC) — so form fields are read via ServerWebExchange.getFormData().
         return exchange.getFormData().flatMap(form -> {
@@ -121,8 +128,9 @@ public class TopicController {
             String description = form.getFirst("description");
             UUID createdByUserId = parseUuidOrNull(form.getFirst("created_by_user_id"));
             List<UUID> skillIds = toUuidList(form.get("skill_ids"));
+            AuditActor actor = new AuditActor(oidcUser.getUser().getId(), true);
             return topicService
-                    .create(name, description, createdByUserId, skillIds)
+                    .create(name, description, createdByUserId, skillIds, actor)
                     .<Rendering>map(topic -> Rendering.redirectTo("/organiser/topics/" + topic.getId())
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -169,20 +177,22 @@ public class TopicController {
     }
 
     @PostMapping("/{id}")
-    public Mono<Rendering> update(@PathVariable UUID id, ServerWebExchange exchange) {
+    public Mono<Rendering> update(
+            @PathVariable UUID id, ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return exchange.getFormData().flatMap(form -> {
             String name = form.getFirst("name");
             String description = form.getFirst("description");
             List<UUID> skillIds = toUuidList(form.get("skill_ids"));
             UUID newAuthorUserId = parseUuidOrNull(form.getFirst("created_by_user_id"));
+            AuditActor actor = new AuditActor(oidcUser.getUser().getId(), true);
             return topicService
-                    .update(id, name, description, skillIds)
+                    .update(id, name, description, skillIds, actor)
                     .flatMap(topic -> newAuthorUserId == null
                             ? Mono.just(topic)
                             // FR-015 supersedes 002's immutability for this one Organiser-only
                             // route: a separate call to reassignAuthor, never a parameter on
                             // update() itself (data-model.md "Topic").
-                            : topicService.reassignAuthor(id, newAuthorUserId))
+                            : topicService.reassignAuthor(id, newAuthorUserId, actor))
                     .<Rendering>map(topic -> Rendering.redirectTo("/organiser/topics/" + id)
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -201,11 +211,26 @@ public class TopicController {
         });
     }
 
+    /**
+     * A Topic's full audit history, most-recent-first (Story 2; contracts/audit-retrieval.md;
+     * FR-007, FR-008, FR-011) — also what a Group's detail page's "Audit" link resolves to, for
+     * that Group's own Topic (research.md §9). Unknown {@code id} -> 404.
+     */
+    @GetMapping("/{id}/audit")
+    public Mono<Rendering> audit(@PathVariable UUID id) {
+        return topicService
+                .findById(id)
+                .map(topic -> Rendering.view("organiser/topics/audit")
+                        .modelAttribute("entries", auditService.findForTopic(id))
+                        .build())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+    }
+
     /** Approves a Pending Topic (FR-014); a no-op if already Approved. */
     @PostMapping("/{id}/approve")
-    public Mono<Rendering> approve(@PathVariable UUID id) {
+    public Mono<Rendering> approve(@PathVariable UUID id, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return topicService
-                .approve(id)
+                .approve(id, new AuditActor(oidcUser.getUser().getId(), true))
                 .<Rendering>map(topic -> Rendering.redirectTo("/organiser/topics/" + id)
                         .status(HttpStatus.SEE_OTHER)
                         .build())

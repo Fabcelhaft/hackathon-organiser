@@ -3,6 +3,7 @@ package net.fabcelhaft.hackathonorganiser.topics;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.GroupConflictException;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.TopicJoinConflictException;
@@ -39,7 +40,7 @@ public class TopicJoinController {
     public Mono<Rendering> join(@PathVariable UUID id, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         UUID userId = oidcUser.getUser().getId();
         return topicJoinService
-                .join(id, userId)
+                .join(id, userId, new AuditActor(userId, false))
                 .flatMap(group -> topicService
                         .findById(id)
                         .map(topic -> redirectHomeWithFlash("You joined " + topic.getName() + "."))
@@ -55,7 +56,7 @@ public class TopicJoinController {
     public Mono<Rendering> leave(@PathVariable UUID id, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         UUID userId = oidcUser.getUser().getId();
         return topicJoinService
-                .leave(id, userId)
+                .leave(id, userId, new AuditActor(userId, false))
                 .flatMap(group -> topicService
                         .findById(id)
                         .map(topic -> redirectToTopicWithFlash(id, "You left " + topic.getName() + "."))

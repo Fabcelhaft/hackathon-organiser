@@ -5,7 +5,9 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.springSecurity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
@@ -14,6 +16,7 @@ import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepo
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
+import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
 import net.fabcelhaft.hackathonorganiser.user.User;
@@ -26,7 +29,10 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.OidcLoginMutator;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -178,6 +184,44 @@ class GroupManagementIT {
     void unknownGroupDetailReturnsNotFound() {
         webTestClient.mutateWith(organiser())
                 .get().uri("/organiser/groups/{id}", UUID.randomUUID())
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    // --- Audit (T027, Story 2, FR-005-FR-008, research.md §9) — Groups have no audit trail of --
+    // --- their own: the detail page's "Audit" link points at its Topic's own audit route. -------
+
+    @Test
+    void groupDetailsAuditLinkPointsAtItsOwnTopicsAuditRoute() {
+        Topic topic = persistTopic("Group Audit Link Topic " + UUID.randomUUID());
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/groups")
+                .body(BodyInserters.fromFormData("topic_id", topic.getId().toString()))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+        Group group = groupRepository
+                .findByTopicIdAndStatus(topic.getId(), GroupStatus.ACTIVE)
+                .block();
+
+        assertThat(detailBody(group.getId()))
+                .contains("/organiser/topics/" + topic.getId() + "/audit");
+    }
+
+    @Test
+    void thereIsNoGroupScopedAuditRoute() {
+        Topic topic = persistTopic("No Group Audit Route Topic " + UUID.randomUUID());
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/groups")
+                .body(BodyInserters.fromFormData("topic_id", topic.getId().toString()))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+        Group group = groupRepository
+                .findByTopicIdAndStatus(topic.getId(), GroupStatus.ACTIVE)
+                .block();
+
+        webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/groups/{id}/audit", group.getId())
                 .exchange()
                 .expectStatus().isNotFound();
     }
@@ -376,7 +420,9 @@ class GroupManagementIT {
         assertThat(detailBody(group.getId())).contains("Compliant (Organiser Override)");
 
         Participant secondMember = persistParticipant("Second Member " + UUID.randomUUID());
-        Group joined = groupService.join(topic.getId(), secondMember.getId()).block();
+        Group joined = groupService
+                .join(topic.getId(), secondMember.getId(), new AuditActor(secondMember.getUserId(), false))
+                .block();
         assertThat(joined.getId()).isEqualTo(group.getId());
         assertThat(groupService.activeMemberCount(group.getId()).block()).isEqualTo(2);
     }
@@ -395,7 +441,9 @@ class GroupManagementIT {
         Group group = persistActiveGroup(topic.getId());
         Participant firstMember = persistParticipant("Only Member " + UUID.randomUUID());
         addMemberDirectly(group.getId(), firstMember.getId());
-        groupService.setComplianceOverride(group.getId(), true).block();
+        groupService
+                .setComplianceOverride(group.getId(), true, new AuditActor(persistUser("Setter").getId(), true))
+                .block();
 
         webTestClient.mutateWith(organiser())
                 .post().uri("/organiser/groups/{id}/compliance-override", group.getId())
@@ -407,7 +455,9 @@ class GroupManagementIT {
 
         Participant secondMember = persistParticipant("Rejected Member " + UUID.randomUUID());
         org.assertj.core.api.Assertions.assertThatThrownBy(
-                        () -> groupService.join(topic.getId(), secondMember.getId()).block())
+                        () -> groupService
+                                .join(topic.getId(), secondMember.getId(), new AuditActor(secondMember.getUserId(), false))
+                                .block())
                 .hasMessageContaining("full");
     }
 
@@ -491,11 +541,15 @@ class GroupManagementIT {
     }
 
     private User persistUser(String displayName) {
+        return persistUser(displayName, false);
+    }
+
+    private User persistUser(String displayName, boolean organiser) {
         User user = new User();
         user.setOidcSubject("sub-" + UUID.randomUUID());
         user.setDisplayName(displayName);
         user.setEmail(displayName.toLowerCase().replace(' ', '.') + "@example.com");
-        user.setOrganiser(false);
+        user.setOrganiser(organiser);
         user.setCreatedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
         return userRepository.save(user).block();
@@ -542,11 +596,35 @@ class GroupManagementIT {
                 .block();
     }
 
-    private static OidcLoginMutator organiser() {
-        return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_ORGANISER"));
+    /**
+     * A real, persisted Organiser login (feature 006, FR-001, FR-004): {@code create}/{@code
+     * disband}/{@code setComplianceOverride}/{@code addMember}/{@code removeMember} now resolve
+     * {@code @AuthenticationPrincipal HackathonOidcUser} to attribute an {@link
+     * net.fabcelhaft.hackathonorganiser.audit.AuditEntry}'s {@code actor_user_id} (a real FK to
+     * {@code users}), so a bare {@code mockOidcLogin()} (no backing User row) is no longer
+     * sufficient for any route on this controller.
+     */
+    private OidcLoginMutator organiser() {
+        return loginAsUser(persistUser("Organiser " + UUID.randomUUID(), true));
     }
 
-    private static OidcLoginMutator standardUser() {
-        return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"));
+    private OidcLoginMutator standardUser() {
+        return loginAsUser(persistUser("Standard User " + UUID.randomUUID(), false));
+    }
+
+    private static OidcLoginMutator loginAsUser(User user) {
+        Instant issuedAt = Instant.now();
+        OidcIdToken idToken = OidcIdToken.withTokenValue("token-value")
+                .subject(user.getOidcSubject())
+                .issuedAt(issuedAt)
+                .expiresAt(issuedAt.plusSeconds(300))
+                .claim("name", user.getDisplayName())
+                .build();
+        List<GrantedAuthority> authorities = user.isOrganiser()
+                ? List.of(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("ROLE_ORGANISER"))
+                : List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        DefaultOidcUser delegate = new DefaultOidcUser(authorities, idToken);
+        HackathonOidcUser principal = new HackathonOidcUser(user, delegate);
+        return mockOidcLogin().oidcUser(principal);
     }
 }

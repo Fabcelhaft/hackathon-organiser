@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
@@ -155,7 +156,9 @@ class ComplianceSettingsAccessibilityIT {
         User participantUser = persistUser(false);
         Participant participant = persistParticipant(participantUser.getId());
         Topic topic = persistTopic(participantUser.getId());
-        Group group = groupService.create(topic.getId(), List.of(participant.getId())).block();
+        Group group = groupService
+                .create(topic.getId(), List.of(participant.getId()), new AuditActor(organiser.getId(), true))
+                .block();
         loginAs(organiser);
 
         Page page = context.newPage();

@@ -2,6 +2,7 @@ package net.fabcelhaft.hackathonorganiser.topics;
 
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -90,7 +91,7 @@ public class TopicSelfServiceController {
             String description = form.getFirst("description");
             List<UUID> skillIds = toUuidList(form.get("skillIds"));
             return topicService
-                    .propose(userId, name, description, skillIds)
+                    .propose(userId, name, description, skillIds, new AuditActor(userId, false))
                     .<Rendering>map(topic -> Rendering.redirectTo("/")
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -140,7 +141,8 @@ public class TopicSelfServiceController {
                         String description = form.getFirst("description");
                         List<UUID> skillIds = toUuidList(form.get("skillIds"));
                         return topicService
-                                .updateAsAuthor(id, userId, name, description, skillIds)
+                                .updateAsAuthor(
+                                        id, userId, name, description, skillIds, new AuditActor(userId, false))
                                 .<Rendering>map(saved -> Rendering.redirectTo("/")
                                         .status(HttpStatus.SEE_OTHER)
                                         .build())

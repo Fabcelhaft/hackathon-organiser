@@ -4,6 +4,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageService;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
@@ -137,7 +138,7 @@ public class HomeController {
         return participantService
                 .findByUserId(userId)
                 .flatMap(participant -> participantService
-                        .selfRevoke(participant.getId())
+                        .selfRevoke(participant.getId(), new AuditActor(userId, false))
                         .map(p -> redirectHomeWithFlash("Registration revoked."))
                         .onErrorResume(
                                 ParticipantConflictException.class,

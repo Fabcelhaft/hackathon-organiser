@@ -4,6 +4,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
@@ -34,6 +38,14 @@ import reactor.core.publisher.Mono;
  * violation into a friendly {@link GroupConflictException} before the write is even attempted, and
  * to gracefully translate a lost race (the rare case where two concurrent requests both pass the
  * pre-check) into that same friendly error rather than letting a raw database exception surface.
+ *
+ * <p><b>Audit (006-audit-trail, FR-001, FR-004, FR-004a):</b> every event that affects a Group is
+ * recorded against that Group's own Topic instead — Groups have no audit trail of their own
+ * (data-model.md "Group", research.md §3/§9) — via {@link AuditService}, threaded through as an
+ * explicit {@link AuditActor} parameter on every mutating method here. {@link #addMember}/{@link
+ * #removeMember} additionally acquire a Participant-scoped advisory lock (research.md §5) and
+ * write a linked {@code JOINED}/{@code LEFT} pair sharing one {@code actionId} — identical whether
+ * reached via {@link #join}/{@link #leave} or the organiser's direct add/remove-member route.
  */
 @Service
 public class GroupService {
@@ -46,6 +58,7 @@ public class GroupService {
     private final OrganiserSettingsService organiserSettingsService;
     private final TransactionalOperator transactionalOperator;
     private final ComplianceService complianceService;
+    private final AuditService auditService;
 
     public GroupService(
             GroupRepository groupRepository,
@@ -55,7 +68,8 @@ public class GroupService {
             DatabaseClient databaseClient,
             OrganiserSettingsService organiserSettingsService,
             TransactionalOperator transactionalOperator,
-            ComplianceService complianceService) {
+            ComplianceService complianceService,
+            AuditService auditService) {
         this.groupRepository = groupRepository;
         this.topicRepository = topicRepository;
         this.participantRepository = participantRepository;
@@ -64,6 +78,7 @@ public class GroupService {
         this.organiserSettingsService = organiserSettingsService;
         this.transactionalOperator = transactionalOperator;
         this.complianceService = complianceService;
+        this.auditService = auditService;
     }
 
     // --- Read views ----------------------------------------------------------------------------
@@ -155,7 +170,20 @@ public class GroupService {
      * {@link GroupConflictException}. Any {@code participantIds} are then added as initial
      * members via the same guard {@link #addMember(UUID, UUID)} applies (FR-017).
      */
-    public Mono<Group> create(UUID topicId, List<UUID> participantIds) {
+    public Mono<Group> create(UUID topicId, List<UUID> participantIds, AuditActor actor) {
+        Mono<Group> chain =
+                createGroupRow(topicId, participantIds, actor).flatMap(group -> recordCreated(group, actor));
+        return transactionalOperator.transactional(chain);
+    }
+
+    /**
+     * The unaudited-for-itself core of {@link #create}, also reused by {@link #join}'s first-
+     * joiner path: any initial {@code participantIds} are added via {@link #addMember}, which
+     * records its own {@code JOINED} pair per member — the Group formation itself only gets a
+     * {@code CREATED} entry from {@link #create} (organiser-initiated direct-create), never from
+     * {@link #join}'s call here (data-model.md "Group"/{@code create}).
+     */
+    private Mono<Group> createGroupRow(UUID topicId, List<UUID> participantIds, AuditActor actor) {
         List<UUID> ids = distinct(participantIds);
         if (topicId == null) {
             return Mono.error(new GroupConflictException("topic_id is required"));
@@ -170,8 +198,22 @@ public class GroupService {
                             Mono.error(new GroupConflictException("Topic already has a Group")))
                     .switchIfEmpty(Mono.defer(() -> groupRepository
                             .save(newGroup(topicId))
-                            .flatMap(group -> addInitialMembers(group, ids))));
+                            .flatMap(group -> addInitialMembers(group, ids, actor))));
         });
+    }
+
+    private Mono<Group> recordCreated(Group group, AuditActor actor) {
+        return topicName(group.getTopicId())
+                .flatMap(name -> auditService.record(
+                        AuditEventType.CREATED,
+                        actor,
+                        AuditSubjectType.TOPIC,
+                        group.getTopicId(),
+                        name,
+                        null,
+                        null,
+                        null))
+                .thenReturn(group);
     }
 
     // --- Join (Story 3, FR-007-FR-013a, research.md §2) -----------------------------------------
@@ -189,22 +231,23 @@ public class GroupService {
      * complianceOverride} (FR-013), or if {@code participantId} already belongs to a different
      * active Group (FR-010, reusing {@link #addMember}'s existing guard).
      */
-    public Mono<Group> join(UUID topicId, UUID participantId) {
+    public Mono<Group> join(UUID topicId, UUID participantId, AuditActor actor) {
         Mono<Group> chain = acquireTopicJoinLock(topicId)
+                .then(acquireParticipantJoinLock(participantId))
                 .then(Mono.defer(() -> groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE)))
-                .flatMap(existing -> joinExistingGroup(existing, participantId))
-                .switchIfEmpty(Mono.defer(() -> create(topicId, List.of(participantId))));
+                .flatMap(existing -> joinExistingGroup(existing, participantId, actor))
+                .switchIfEmpty(Mono.defer(() -> createGroupRow(topicId, List.of(participantId), actor)));
         return transactionalOperator.transactional(chain);
     }
 
-    private Mono<Group> joinExistingGroup(Group group, UUID participantId) {
+    private Mono<Group> joinExistingGroup(Group group, UUID participantId, AuditActor actor) {
         return activeMemberCount(group.getId())
                 .flatMap(count -> organiserSettingsService.current().flatMap(settings -> {
                     boolean atOrAboveCapacity = count >= settings.getMaxGroupMembers();
                     if (atOrAboveCapacity && !group.isComplianceOverride()) {
                         return Mono.<Group>error(new GroupConflictException("This Topic is full"));
                     }
-                    return addMember(group.getId(), participantId);
+                    return addMemberChain(group.getId(), participantId, actor);
                 }));
     }
 
@@ -220,14 +263,15 @@ public class GroupService {
      * Topic has no active Group, or {@code participantId} is not currently one of its active members
      * (FR-037b).
      */
-    public Mono<Group> leave(UUID topicId, UUID participantId) {
+    public Mono<Group> leave(UUID topicId, UUID participantId, AuditActor actor) {
         Mono<Group> chain = acquireTopicJoinLock(topicId)
+                .then(acquireParticipantJoinLock(participantId))
                 .then(Mono.defer(() -> groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE)))
                 .switchIfEmpty(Mono.error(notCurrentlyAMember()))
-                .flatMap(group -> removeMember(group.getId(), participantId)
+                .flatMap(group -> removeMemberChain(group.getId(), participantId, actor)
                         .switchIfEmpty(Mono.error(notCurrentlyAMember()))
                         .flatMap(removed -> activeMemberCount(removed.getId())
-                                .flatMap(count -> count == 0 ? disband(removed.getId()) : Mono.just(removed))));
+                                .flatMap(count -> count == 0 ? disbandGroupRow(removed.getId()) : Mono.just(removed))));
         return transactionalOperator.transactional(chain);
     }
 
@@ -242,6 +286,22 @@ public class GroupService {
                 .then();
     }
 
+    /**
+     * The Participant-scoped half of research.md §5's two-lock fix: acquired by {@link #join}/
+     * {@link #leave} (always after {@link #acquireTopicJoinLock}, never before — fixed ordering
+     * prevents deadlock) and, independently, by {@link #addMember}/{@link #removeMember}
+     * themselves, so the organiser's direct add/remove-member routes — which never go through
+     * {@link #join}/{@link #leave} — get the same protection. A session already holding this lock
+     * (e.g. {@code addMember} re-acquiring it inside {@link #join}'s own transaction) simply
+     * succeeds immediately: Postgres advisory locks are re-entrant within one session/transaction.
+     */
+    private Mono<Void> acquireParticipantJoinLock(UUID participantId) {
+        return databaseClient
+                .sql("SELECT pg_advisory_xact_lock(hashtext('participant-join:' || :pid::text))")
+                .bind("pid", participantId)
+                .then();
+    }
+
     // --- Compliance override (Story 7, FR-015, FR-016) ------------------------------------------
 
     /**
@@ -249,17 +309,30 @@ public class GroupService {
      * unknown {@code groupId}. No other guard: an Organiser may set or clear it regardless of
      * current member count or automatic compliance outcome.
      */
-    public Mono<Group> setComplianceOverride(UUID groupId, boolean override) {
+    public Mono<Group> setComplianceOverride(UUID groupId, boolean override, AuditActor actor) {
         return groupRepository.findById(groupId).flatMap(group -> {
+            boolean oldValue = group.isComplianceOverride();
             group.setComplianceOverride(override);
             group.setUpdatedAt(Instant.now());
-            return groupRepository.save(group);
+            return groupRepository
+                    .save(group)
+                    .flatMap(saved -> topicName(saved.getTopicId())
+                            .flatMap(name -> auditService.record(
+                                    AuditEventType.EDITED,
+                                    actor,
+                                    AuditSubjectType.TOPIC,
+                                    saved.getTopicId(),
+                                    name,
+                                    Boolean.toString(oldValue),
+                                    Boolean.toString(override),
+                                    null))
+                            .thenReturn(saved));
         });
     }
 
-    private Mono<Group> addInitialMembers(Group group, List<UUID> participantIds) {
+    private Mono<Group> addInitialMembers(Group group, List<UUID> participantIds, AuditActor actor) {
         return Flux.fromIterable(participantIds)
-                .concatMap(participantId -> addMember(group.getId(), participantId))
+                .concatMap(participantId -> addMemberChain(group.getId(), participantId, actor))
                 .then(Mono.just(group));
     }
 
@@ -271,7 +344,22 @@ public class GroupService {
      * {@code participantId} is unknown, or the Participant already belongs to a different active
      * Group (FR-017).
      */
-    public Mono<Group> addMember(UUID groupId, UUID participantId) {
+    public Mono<Group> addMember(UUID groupId, UUID participantId, AuditActor actor) {
+        return transactionalOperator.transactional(addMemberChain(groupId, participantId, actor));
+    }
+
+    /**
+     * The unwrapped core of {@link #addMember}: called directly (never re-wrapped) by every
+     * internal caller that already runs inside its own {@link TransactionalOperator}-wrapped
+     * chain ({@link #joinExistingGroup}, {@link #addInitialMembers}) — a second, nested {@code
+     * transactionalOperator.transactional(...)} around an already-transactional Mono is not
+     * guaranteed to reuse the same connection/transaction as the outer one, which would let the
+     * participant-scoped advisory lock (research.md §5) release too early and reopen the very
+     * cross-topic race it exists to close. Only {@link #addMember} itself — the entry point for
+     * the organiser's direct, non-transactional {@code POST /organiser/groups/{id}/members} route
+     * — applies the wrapper.
+     */
+    private Mono<Group> addMemberChain(UUID groupId, UUID participantId, AuditActor actor) {
         return groupRepository.findById(groupId).flatMap(group -> {
             if (group.getStatus() == GroupStatus.DISBANDED) {
                 return Mono.error(new GroupConflictException("Cannot add a member to a disbanded Group"));
@@ -279,30 +367,75 @@ public class GroupService {
             if (participantId == null) {
                 return Mono.error(new GroupConflictException("participant_id is required"));
             }
-            return participantRepository.existsById(participantId).flatMap(exists -> {
-                if (!exists) {
-                    return Mono.error(new GroupConflictException("Unknown participant: " + participantId));
-                }
-                return findActiveGroupIdForParticipant(participantId)
-                        .flatMap(activeGroupId -> {
-                            if (!activeGroupId.equals(group.getId())) {
-                                return Mono.<Group>error(new GroupConflictException(
-                                        "This participant already belongs to a different active Group"));
-                            }
-                            return Mono.just(group);
-                        })
-                        .switchIfEmpty(Mono.defer(
-                                () -> insertMembership(group.getId(), participantId).thenReturn(group)));
-            });
+            return acquireParticipantJoinLock(participantId)
+                    .then(Mono.defer(() -> participantRepository.existsById(participantId)))
+                    .flatMap(exists -> {
+                        if (!exists) {
+                            return Mono.error(new GroupConflictException("Unknown participant: " + participantId));
+                        }
+                        return findActiveGroupIdForParticipant(participantId)
+                                .flatMap(activeGroupId -> {
+                                    if (!activeGroupId.equals(group.getId())) {
+                                        return Mono.<Group>error(new GroupConflictException(
+                                                "This participant already belongs to a different active Group"));
+                                    }
+                                    return Mono.just(group);
+                                })
+                                .switchIfEmpty(Mono.defer(() -> insertMembership(group.getId(), participantId)
+                                        .then(recordMembershipPair(AuditEventType.JOINED, group, participantId, actor))
+                                        .thenReturn(group)));
+                    });
         });
+    }
+
+    /**
+     * The shared {@code JOINED}/{@code LEFT} audit pair (FR-004, FR-004a): one entry against the
+     * Group's own Topic (new value = the Participant's display name) and one against the
+     * Participant (new value = the Topic's name), sharing a freshly-generated {@code actionId} —
+     * identical whether reached via self-service {@link #join}/{@link #leave} or the organiser's
+     * direct add/remove-member route (data-model.md "Group").
+     */
+    private Mono<Void> recordMembershipPair(AuditEventType type, Group group, UUID participantId, AuditActor actor) {
+        UUID actionId = UUID.randomUUID();
+        return Mono.zip(topicName(group.getTopicId()), participantDisplayName(participantId))
+                .flatMap(names -> {
+                    String topicNameStr = names.getT1();
+                    String participantNameStr = names.getT2();
+                    return auditService
+                            .record(
+                                    type,
+                                    actor,
+                                    AuditSubjectType.TOPIC,
+                                    group.getTopicId(),
+                                    topicNameStr,
+                                    null,
+                                    participantNameStr,
+                                    actionId)
+                            .then(auditService.record(
+                                    type,
+                                    actor,
+                                    AuditSubjectType.PARTICIPANT,
+                                    participantId,
+                                    participantNameStr,
+                                    null,
+                                    topicNameStr,
+                                    actionId));
+                })
+                .then();
     }
 
     /**
      * Removes a Participant from a Group, completing empty (404) if {@code groupId} is unknown or
      * the membership isn't currently active (contracts/group-management.md).
      */
-    public Mono<Group> removeMember(UUID groupId, UUID participantId) {
-        return groupRepository.findById(groupId).flatMap(group -> isActiveMember(groupId, participantId)
+    public Mono<Group> removeMember(UUID groupId, UUID participantId, AuditActor actor) {
+        return transactionalOperator.transactional(removeMemberChain(groupId, participantId, actor));
+    }
+
+    /** The unwrapped core of {@link #removeMember} — see {@link #addMemberChain}'s Javadoc for why. */
+    private Mono<Group> removeMemberChain(UUID groupId, UUID participantId, AuditActor actor) {
+        return groupRepository.findById(groupId).flatMap(group -> acquireParticipantJoinLock(participantId)
+                .then(Mono.defer(() -> isActiveMember(groupId, participantId)))
                 .flatMap(isActive -> {
                     if (!isActive) {
                         return Mono.empty();
@@ -314,6 +447,7 @@ public class GroupService {
                             .bind("gid", groupId)
                             .bind("pid", participantId)
                             .then()
+                            .then(recordMembershipPair(AuditEventType.LEFT, group, participantId, actor))
                             .thenReturn(group);
                 }));
     }
@@ -326,7 +460,17 @@ public class GroupService {
      * reactive chain. Completes empty if {@code groupId} is unknown; rejects with a friendly
      * {@link GroupConflictException} if the Group is already {@code DISBANDED}.
      */
-    public Mono<Group> disband(UUID groupId) {
+    public Mono<Group> disband(UUID groupId, AuditActor actor) {
+        return disbandGroupRow(groupId).flatMap(group -> recordDisbanded(group, actor));
+    }
+
+    /**
+     * The unaudited core of {@link #disband}, also reused by {@link #leave}'s automatic
+     * last-member-departs disbandment — which is already captured by {@link #removeMember}'s own
+     * {@code LEFT} audit pair, so this automatic side effect records no separate {@code DISBANDED}
+     * entry of its own.
+     */
+    private Mono<Group> disbandGroupRow(UUID groupId) {
         return groupRepository.findById(groupId).flatMap(group -> {
             if (group.getStatus() == GroupStatus.DISBANDED) {
                 return Mono.error(new GroupConflictException("This Group is already disbanded"));
@@ -343,6 +487,20 @@ public class GroupService {
                             .then()
                             .thenReturn(saved));
         });
+    }
+
+    private Mono<Group> recordDisbanded(Group group, AuditActor actor) {
+        return topicName(group.getTopicId())
+                .flatMap(name -> auditService.record(
+                        AuditEventType.DISBANDED,
+                        actor,
+                        AuditSubjectType.TOPIC,
+                        group.getTopicId(),
+                        name,
+                        null,
+                        null,
+                        null))
+                .thenReturn(group);
     }
 
     /**

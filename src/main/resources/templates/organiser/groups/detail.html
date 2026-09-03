@@ -32,6 +32,10 @@
         </dl>
 
         <div class="actions">
+            <a th:href="@{/organiser/topics/{id}/audit(id=${detail.group.topicId})}" role="button" class="outline secondary">Audit</a>
+        </div>
+
+        <div class="actions">
             <form th:if="${detail.group.complianceOverride}"
                   th:action="@{/organiser/groups/{id}/compliance-override(id=${detail.group.id})}" method="post">
                 <input type="hidden" name="override" value="false"/>

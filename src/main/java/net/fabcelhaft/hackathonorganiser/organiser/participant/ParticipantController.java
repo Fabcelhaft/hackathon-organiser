@@ -2,11 +2,15 @@ package net.fabcelhaft.hackathonorganiser.organiser.participant;
 
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantConflictException;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
+import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,11 +32,15 @@ public class ParticipantController {
 
     private final ParticipantService participantService;
     private final OrganiserSettingsService organiserSettingsService;
+    private final AuditService auditService;
 
     public ParticipantController(
-            ParticipantService participantService, OrganiserSettingsService organiserSettingsService) {
+            ParticipantService participantService,
+            OrganiserSettingsService organiserSettingsService,
+            AuditService auditService) {
         this.participantService = participantService;
         this.organiserSettingsService = organiserSettingsService;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -53,13 +61,14 @@ public class ParticipantController {
     }
 
     @PostMapping
-    public Mono<Rendering> create(ServerWebExchange exchange) {
+    public Mono<Rendering> create(ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         // WebFlux's @RequestParam only ever reads URL query parameters, never a form-urlencoded
         // request body (unlike Spring MVC) — so form fields are read via ServerWebExchange.getFormData().
         return exchange.getFormData().flatMap(form -> {
             String userIdRaw = form.getFirst("user_id");
+            AuditActor actor = new AuditActor(oidcUser.getUser().getId(), true);
             return Mono.fromCallable(() -> parseUuid(userIdRaw))
-                    .flatMap(participantService::register)
+                    .flatMap(userId -> participantService.register(userId, actor))
                     .<Rendering>map(participant -> Rendering.redirectTo(
                                     "/organiser/participants/" + participant.getId())
                             .status(HttpStatus.SEE_OTHER)
@@ -79,12 +88,27 @@ public class ParticipantController {
         return renderDetail(id, null);
     }
 
+    /**
+     * A Participant's full audit history, most-recent-first (Story 2; contracts/audit-
+     * retrieval.md; FR-007, FR-008, FR-011). Unknown {@code id} -> 404.
+     */
+    @GetMapping("/{id}/audit")
+    public Mono<Rendering> audit(@PathVariable UUID id) {
+        return participantService
+                .findDetail(id)
+                .map(detail -> Rendering.view("organiser/participants/audit")
+                        .modelAttribute("entries", auditService.findForParticipant(id))
+                        .build())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+    }
+
     @PostMapping("/{id}/status")
-    public Mono<Rendering> changeStatus(@PathVariable UUID id, ServerWebExchange exchange) {
+    public Mono<Rendering> changeStatus(
+            @PathVariable UUID id, ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return exchange.getFormData().flatMap(form -> {
             ParticipantStatus status = ParticipantStatus.valueOf(form.getFirst("status"));
             return participantService
-                    .changeStatus(id, status)
+                    .changeStatus(id, status, new AuditActor(oidcUser.getUser().getId(), true))
                     .<Rendering>map(participant -> Rendering.redirectTo("/organiser/participants/" + id)
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -93,11 +117,12 @@ public class ParticipantController {
     }
 
     @PostMapping("/{id}/skills")
-    public Mono<Rendering> replaceSkills(@PathVariable UUID id, ServerWebExchange exchange) {
+    public Mono<Rendering> replaceSkills(
+            @PathVariable UUID id, ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return exchange.getFormData().flatMap(form -> {
             List<UUID> skillIds = toUuidList(form.get("skill_ids"));
             return participantService
-                    .replaceSkills(id, skillIds)
+                    .replaceSkills(id, skillIds, new AuditActor(oidcUser.getUser().getId(), true))
                     .<Rendering>map(participant -> Rendering.redirectTo("/organiser/participants/" + id)
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -106,9 +131,9 @@ public class ParticipantController {
     }
 
     @PostMapping("/{id}/delete")
-    public Mono<Rendering> delete(@PathVariable UUID id) {
+    public Mono<Rendering> delete(@PathVariable UUID id, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return participantService
-                .delete(id)
+                .delete(id, new AuditActor(oidcUser.getUser().getId(), true))
                 .then(Mono.just(Rendering.redirectTo("/organiser/participants")
                         .status(HttpStatus.SEE_OTHER)
                         .build()))
@@ -126,12 +151,15 @@ public class ParticipantController {
 
     @PostMapping("/{id}/custom-fields/{fieldId}")
     public Mono<Rendering> setCustomFieldValue(
-            @PathVariable UUID id, @PathVariable UUID fieldId, ServerWebExchange exchange) {
+            @PathVariable UUID id,
+            @PathVariable UUID fieldId,
+            ServerWebExchange exchange,
+            @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return exchange.getFormData().flatMap(form -> {
             String value = form.getFirst("value");
             List<UUID> optionIds = toUuidList(form.get("option_ids"));
             return participantService
-                    .setCustomFieldValue(id, fieldId, value, optionIds)
+                    .setCustomFieldValue(id, fieldId, value, optionIds, new AuditActor(oidcUser.getUser().getId(), true))
                     .<Rendering>map(participant -> Rendering.redirectTo("/organiser/participants/" + id)
                             .status(HttpStatus.SEE_OTHER)
                             .build())

@@ -22,6 +22,10 @@
             </dd>
         </dl>
 
+        <div class="actions">
+            <a th:href="@{/organiser/participants/{id}/audit(id=${detail.participant.id})}" role="button" class="outline secondary">Audit</a>
+        </div>
+
         <h2>Status</h2>
         <form th:action="@{/organiser/participants/{id}/status(id=${detail.participant.id})}" method="post">
             <select name="status">

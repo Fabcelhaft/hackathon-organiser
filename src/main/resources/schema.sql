@@ -329,3 +329,26 @@ WHERE display_name <> btrim(display_name);
 -- person's displayed name into a link opening a Teams chat with them, wherever their email is
 -- already available in that read model.
 ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS teams_links_enabled boolean NOT NULL DEFAULT false;
+
+-- Feature 006: Audit Trail for Topics and Participants (data-model.md "Audit Entry"; FR-001-FR-011a).
+-- One shared, generic table for every audited event across Topic, Group (filed against its own
+-- Topic — Groups have no audit trail of their own, research.md §3/§9), and Participant. subject_type/
+-- subject_id are a generic, FK-less reference (no topic_id/group_id/participant_id columns) so a
+-- Participant's hard-delete never needs an ON DELETE rule; subject_label is a denormalized snapshot
+-- so an entry stays legible even after that happens.
+CREATE TABLE IF NOT EXISTS audit_entries (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    event_type text NOT NULL,
+    actor_user_id uuid NOT NULL REFERENCES users (id),
+    organiser boolean NOT NULL,
+    occurred_at timestamptz NOT NULL DEFAULT now(),
+    subject_type text NOT NULL,
+    subject_id uuid NOT NULL,
+    subject_label text NOT NULL,
+    old_value text,
+    new_value text,
+    action_id uuid
+);
+
+CREATE INDEX IF NOT EXISTS audit_entries_subject_idx
+    ON audit_entries (subject_type, subject_id, occurred_at DESC);

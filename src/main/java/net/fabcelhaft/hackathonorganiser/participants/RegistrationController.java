@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.IsoCountryCatalog;
@@ -90,7 +91,7 @@ public class RegistrationController {
                 .flatMap(form -> customFieldService.registrationFields().collectList().flatMap(fields -> {
                     ProfileFormSubmission submission = parseSubmission(form, fields);
                     return participantService
-                            .submitRegistration(userId, submission)
+                            .submitRegistration(userId, submission, new AuditActor(userId, false))
                             .<Rendering>map(participant -> redirectHomeWithFlash("Registration successful."))
                             .onErrorResume(RegistrationCapacityReachedException.class, ex -> Mono.just(capacityMessageView()))
                             .onErrorResume(ParticipantConflictException.class, ex -> {

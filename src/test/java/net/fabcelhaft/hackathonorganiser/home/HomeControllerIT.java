@@ -7,6 +7,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
@@ -145,7 +146,7 @@ class HomeControllerIT {
         User user = persistUser();
         Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(user.getId());
-        groupService.create(topic.getId(), List.of(participant.getId())).block();
+        groupService.create(topic.getId(), List.of(participant.getId()), new AuditActor(user.getId(), false)).block();
 
         String body = homeBody(user);
 
@@ -211,7 +212,7 @@ class HomeControllerIT {
         Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(user.getId());
         Group group = groupService
-                .create(topic.getId(), List.of(participant.getId()))
+                .create(topic.getId(), List.of(participant.getId()), new AuditActor(user.getId(), false))
                 .block();
 
         webTestClient
@@ -241,7 +242,7 @@ class HomeControllerIT {
         User user = persistUser();
         Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(user.getId());
-        groupService.create(topic.getId(), List.of(participant.getId())).block();
+        groupService.create(topic.getId(), List.of(participant.getId()), new AuditActor(user.getId(), false)).block();
 
         webTestClient.mutateWith(loginAs(user)).post().uri("/revoke").exchange();
         webTestClient.mutateWith(loginAs(user)).post().uri("/register").exchange();
@@ -298,13 +299,20 @@ class HomeControllerIT {
 
         Topic empty = persistTopic(author.getId());
         Topic partiallyFull = persistTopic(author.getId());
-        groupService.create(partiallyFull.getId(), List.of(authorParticipant.getId())).block();
+        groupService
+                .create(partiallyFull.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), false))
+                .block();
         Topic full = persistTopic(author.getId());
         User secondMemberUser = persistUser();
         Participant secondMember = persistParticipant(secondMemberUser.getId(), ParticipantStatus.ACTIVE);
         User thirdMemberUser = persistUser();
         Participant thirdMember = persistParticipant(thirdMemberUser.getId(), ParticipantStatus.ACTIVE);
-        groupService.create(full.getId(), List.of(secondMember.getId(), thirdMember.getId())).block();
+        groupService
+                .create(
+                        full.getId(),
+                        List.of(secondMember.getId(), thirdMember.getId()),
+                        new AuditActor(author.getId(), false))
+                .block();
 
         String body = homeBody(viewer);
 
@@ -323,11 +331,11 @@ class HomeControllerIT {
         Skill matching = persistSkill("Rust " + UUID.randomUUID());
         Skill nonMatching = persistSkill("Python " + UUID.randomUUID());
         participantService
-                .replaceSkills(viewerParticipant.getId(), List.of(matching.getId()))
+                .replaceSkills(viewerParticipant.getId(), List.of(matching.getId()), new AuditActor(viewer.getId(), false))
                 .block();
         topicService
                 .propose(author.getId(), "Topic With Skills " + UUID.randomUUID(), "Desc",
-                        List.of(matching.getId(), nonMatching.getId()))
+                        List.of(matching.getId(), nonMatching.getId()), new AuditActor(author.getId(), false))
                 .block();
 
         String body = homeBody(viewer);
@@ -345,14 +353,21 @@ class HomeControllerIT {
         Skill covered = persistSkill("Covered " + UUID.randomUUID());
         Skill stillNeeded = persistSkill("StillNeeded " + UUID.randomUUID());
         participantService
-                .replaceSkills(viewerParticipant.getId(), List.of(covered.getId(), stillNeeded.getId()))
+                .replaceSkills(
+                        viewerParticipant.getId(),
+                        List.of(covered.getId(), stillNeeded.getId()),
+                        new AuditActor(viewer.getId(), false))
                 .block();
-        participantService.replaceSkills(authorParticipant.getId(), List.of(covered.getId())).block();
+        participantService
+                .replaceSkills(authorParticipant.getId(), List.of(covered.getId()), new AuditActor(author.getId(), false))
+                .block();
         Topic topic = topicService
                 .propose(author.getId(), "Mode Topic " + UUID.randomUUID(), "Desc",
-                        List.of(covered.getId(), stillNeeded.getId()))
+                        List.of(covered.getId(), stillNeeded.getId()), new AuditActor(author.getId(), false))
                 .block();
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService
+                .create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), false))
+                .block();
 
         setSkillDisplayMode("STILL_NEEDED_ONLY");
         String stillNeededOnlyBody = homeBody(viewer);
@@ -375,7 +390,9 @@ class HomeControllerIT {
         Participant viewerParticipant = persistParticipant(viewer.getId(), ParticipantStatus.ACTIVE);
         Topic ownPending = persistTopicWithStatus(viewer.getId(), TopicApprovalStatus.PENDING);
         Topic ownFull = persistTopicWithStatus(viewer.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(ownFull.getId(), List.of(viewerParticipant.getId())).block();
+        groupService
+                .create(ownFull.getId(), List.of(viewerParticipant.getId()), new AuditActor(viewer.getId(), false))
+                .block();
 
         String body = homeBody(viewer);
 
@@ -401,7 +418,7 @@ class HomeControllerIT {
         User user = persistUser();
         Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(user.getId());
-        groupService.create(topic.getId(), List.of(participant.getId())).block();
+        groupService.create(topic.getId(), List.of(participant.getId()), new AuditActor(user.getId(), false)).block();
 
         String body = homeBody(user);
 

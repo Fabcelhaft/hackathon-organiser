@@ -7,6 +7,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
@@ -128,7 +129,9 @@ class TopicOverviewManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService
+                .create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), false))
+                .block();
         User viewer = persistUser(false);
 
         String body = overviewBody(viewer);
@@ -221,12 +224,15 @@ class TopicOverviewManagementIT {
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Skill covered = persistSkill("Overview Covered " + UUID.randomUUID());
         Skill stillNeeded = persistSkill("Overview StillNeeded " + UUID.randomUUID());
-        participantService.replaceSkills(authorParticipant.getId(), List.of(covered.getId())).block();
+        AuditActor authorActor = new AuditActor(author.getId(), false);
+        participantService
+                .replaceSkills(authorParticipant.getId(), List.of(covered.getId()), authorActor)
+                .block();
         Topic topic = topicService
                 .propose(author.getId(), "Overview Mode Topic " + UUID.randomUUID(), "Desc",
-                        List.of(covered.getId(), stillNeeded.getId()))
+                        List.of(covered.getId(), stillNeeded.getId()), authorActor)
                 .block();
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), authorActor).block();
         User viewer = persistUser(false);
 
         setSkillDisplayMode("STILL_NEEDED_ONLY");

@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
 import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
@@ -159,7 +160,9 @@ class TopicJoinManagementIT {
         Topic topic = persistTopic(author.getId());
         User firstJoiner = persistUser();
         Participant firstParticipant = persistParticipant(firstJoiner.getId(), ParticipantStatus.ACTIVE);
-        groupService.create(topic.getId(), List.of(firstParticipant.getId())).block();
+        groupService
+                .create(topic.getId(), List.of(firstParticipant.getId()), new AuditActor(firstJoiner.getId(), false))
+                .block();
         User secondJoiner = persistUser();
         persistParticipant(secondJoiner.getId(), ParticipantStatus.ACTIVE);
 
@@ -186,7 +189,9 @@ class TopicJoinManagementIT {
         Topic topicB = persistTopic(author.getId());
         User joiner = persistUser();
         Participant participant = persistParticipant(joiner.getId(), ParticipantStatus.ACTIVE);
-        groupService.create(topicA.getId(), List.of(participant.getId())).block();
+        groupService
+                .create(topicA.getId(), List.of(participant.getId()), new AuditActor(joiner.getId(), false))
+                .block();
 
         webTestClient
                 .mutateWith(loginAs(joiner))
