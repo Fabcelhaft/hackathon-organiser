@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldAnswer;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.IsoCountryCatalog;
@@ -18,7 +19,6 @@ import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsServ
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantConflictException;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
-import net.fabcelhaft.hackathonorganiser.participant.ParticipantService.CustomFieldValueView;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
 import net.fabcelhaft.hackathonorganiser.participant.ProfileFormSubmission;
 import net.fabcelhaft.hackathonorganiser.participant.ProfileFormSubmission.FieldAnswer;
@@ -120,7 +120,7 @@ public class RegistrationController {
     }
 
     private Rendering formView(
-            List<CustomFieldValueView> fields,
+            List<CustomFieldAnswer> fields,
             List<net.fabcelhaft.hackathonorganiser.skill.Skill> skills,
             List<UUID> selectedSkillIds,
             String error) {
@@ -159,7 +159,7 @@ public class RegistrationController {
         return new ProfileFormSubmission(answers, toUuidList(form.get("skillIds")));
     }
 
-    private Mono<List<CustomFieldValueView>> viewsFromSubmission(
+    private Mono<List<CustomFieldAnswer>> viewsFromSubmission(
             List<CustomFieldDefinition> fields, ProfileFormSubmission submission) {
         return Flux.fromIterable(fields)
                 .concatMap(definition -> customFieldService
@@ -170,7 +170,7 @@ public class RegistrationController {
                             String freeText = (answer instanceof FreeText freeTextAnswer) ? freeTextAnswer.value() : "";
                             List<UUID> selectedIds =
                                     (answer instanceof Options optionsAnswer) ? List.copyOf(optionsAnswer.optionIds()) : List.of();
-                            return new CustomFieldValueView(
+                            return new CustomFieldAnswer(
                                     definition, options, freeText == null ? "" : freeText, selectedIds);
                         }))
                 .collectList();

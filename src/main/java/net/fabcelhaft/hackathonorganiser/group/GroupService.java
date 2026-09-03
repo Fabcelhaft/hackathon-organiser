@@ -10,7 +10,10 @@ import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
+import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
@@ -59,6 +62,8 @@ public class GroupService {
     private final TransactionalOperator transactionalOperator;
     private final ComplianceService complianceService;
     private final AuditService auditService;
+    private final EventPublisher eventPublisher;
+    private final EventPayloadFactory eventPayloadFactory;
 
     public GroupService(
             GroupRepository groupRepository,
@@ -69,7 +74,9 @@ public class GroupService {
             OrganiserSettingsService organiserSettingsService,
             TransactionalOperator transactionalOperator,
             ComplianceService complianceService,
-            AuditService auditService) {
+            AuditService auditService,
+            EventPublisher eventPublisher,
+            EventPayloadFactory eventPayloadFactory) {
         this.groupRepository = groupRepository;
         this.topicRepository = topicRepository;
         this.participantRepository = participantRepository;
@@ -79,6 +86,8 @@ public class GroupService {
         this.transactionalOperator = transactionalOperator;
         this.complianceService = complianceService;
         this.auditService = auditService;
+        this.eventPublisher = eventPublisher;
+        this.eventPayloadFactory = eventPayloadFactory;
     }
 
     // --- Read views ----------------------------------------------------------------------------
@@ -198,8 +207,18 @@ public class GroupService {
                             Mono.error(new GroupConflictException("Topic already has a Group")))
                     .switchIfEmpty(Mono.defer(() -> groupRepository
                             .save(newGroup(topicId))
-                            .flatMap(group -> addInitialMembers(group, ids, actor))));
+                            .flatMap(group -> addInitialMembers(group, ids, actor))
+                            .flatMap(group -> Mono.defer(() -> publishGroupFormed(group)).onErrorResume(ex -> Mono.empty()).thenReturn(group))));
         });
+    }
+
+    /** Publishes {@code GROUP_FORMED} once, right after a new Group (and any initial members) exists (FR-010a). */
+    private Mono<Void> publishGroupFormed(Group group) {
+        return Mono.zip(activeMemberParticipantIds(group.getId()), topicRepository.findById(group.getTopicId()))
+                .flatMap(tuple -> complianceService
+                        .evaluate(group, tuple.getT1())
+                        .doOnNext(status -> eventPublisher.publish(eventPayloadFactory.groupFormed(group, status, tuple.getT2()))))
+                .then();
     }
 
     private Mono<Group> recordCreated(Group group, AuditActor actor) {
@@ -326,8 +345,19 @@ public class GroupService {
                                     Boolean.toString(oldValue),
                                     Boolean.toString(override),
                                     null))
+                            .then(Mono.defer(() -> publishComplianceOverrideChanged(saved)).onErrorResume(ex -> Mono.empty()))
                             .thenReturn(saved));
         });
+    }
+
+    /** Publishes {@code GROUP_COMPLIANCE_CHANGED} with the Group's newly evaluated status (FR-015, FR-016). */
+    private Mono<Void> publishComplianceOverrideChanged(Group group) {
+        return Mono.zip(activeMemberParticipantIds(group.getId()), topicRepository.findById(group.getTopicId()))
+                .flatMap(tuple -> complianceService
+                        .evaluate(group, tuple.getT1())
+                        .doOnNext(status ->
+                                eventPublisher.publish(eventPayloadFactory.groupComplianceChanged(group, status, tuple.getT2()))))
+                .then();
     }
 
     private Mono<Group> addInitialMembers(Group group, List<UUID> participantIds, AuditActor actor) {
@@ -383,9 +413,47 @@ public class GroupService {
                                 })
                                 .switchIfEmpty(Mono.defer(() -> insertMembership(group.getId(), participantId)
                                         .then(recordMembershipPair(AuditEventType.JOINED, group, participantId, actor))
+                                        .then(Mono.defer(() -> publishJoinEvents(group, participantId))
+                                                .onErrorResume(ex -> Mono.empty()))
                                         .thenReturn(group)));
                     });
         });
+    }
+
+    /**
+     * Publishes {@code PARTICIPANT_JOINED_TOPIC} (always) and, when the Group's evaluated
+     * Compliance status just changed as a result of this join, {@code GROUP_COMPLIANCE_CHANGED}
+     * too (spec.md Clarifications 2026-09-03 — the Event Type fires on any compliance-status
+     * change, not only an explicit override). The "before" member list is derived from the
+     * already-necessary post-insert query minus the just-added participant, rather than a second
+     * query taken before the mutation — one less query, and the participant's own state never
+     * gates the mutation's own success (this whole method is called only after the insert already
+     * succeeded, and its caller isolates any failure here via {@code onErrorResume} — event
+     * publishing must never be able to fail the underlying join, per FR-020a-1).
+     */
+    private Mono<Void> publishJoinEvents(Group group, UUID participantId) {
+        return Mono.zip(topicRepository.findById(group.getTopicId()), participantRepository.findById(participantId))
+                .flatMap(tuple -> {
+                    Topic topic = tuple.getT1();
+                    Participant participant = tuple.getT2();
+                    eventPublisher.publish(eventPayloadFactory.participantJoinedTopic(topic, participant));
+                    return activeMemberParticipantIds(group.getId())
+                            .flatMap(newMemberIds -> {
+                                List<UUID> oldMemberIds = newMemberIds.stream()
+                                        .filter(id -> !id.equals(participantId))
+                                        .toList();
+                                return Mono.zip(
+                                        complianceService.evaluate(group, oldMemberIds),
+                                        complianceService.evaluate(group, newMemberIds));
+                            })
+                            .doOnNext(statuses -> {
+                                if (statuses.getT1() != statuses.getT2()) {
+                                    eventPublisher.publish(
+                                            eventPayloadFactory.groupComplianceChanged(group, statuses.getT2(), topic));
+                                }
+                            });
+                })
+                .then();
     }
 
     /**
@@ -448,8 +516,46 @@ public class GroupService {
                             .bind("pid", participantId)
                             .then()
                             .then(recordMembershipPair(AuditEventType.LEFT, group, participantId, actor))
+                            .then(Mono.defer(() -> publishLeaveEvents(group, participantId)).onErrorResume(ex -> Mono.empty()))
                             .thenReturn(group);
                 }));
+    }
+
+    /**
+     * Publishes {@code PARTICIPANT_LEFT_TOPIC} (always) and, when the Group's evaluated Compliance
+     * status just changed and it still has at least one active member, {@code
+     * GROUP_COMPLIANCE_CHANGED} too. When the last member has just left, Compliance no longer
+     * applies (matches {@link #complianceStatusForSummary}'s existing DISBANDED-group convention),
+     * so no {@code GROUP_COMPLIANCE_CHANGED} is published — {@link #leave}'s subsequent disbandment
+     * publishes {@code GROUP_DISBANDED} instead. The "before" member list is the already-necessary
+     * post-removal query plus the just-removed participant back in, mirroring {@link
+     * #publishJoinEvents}'s no-extra-query approach; the caller isolates any failure here via
+     * {@code onErrorResume} (FR-020a-1).
+     */
+    private Mono<Void> publishLeaveEvents(Group group, UUID participantId) {
+        return Mono.zip(topicRepository.findById(group.getTopicId()), participantRepository.findById(participantId))
+                .flatMap(tuple -> {
+                    Topic topic = tuple.getT1();
+                    Participant participant = tuple.getT2();
+                    eventPublisher.publish(eventPayloadFactory.participantLeftTopic(topic, participant));
+                    return activeMemberParticipantIds(group.getId()).flatMap(newMemberIds -> {
+                        if (newMemberIds.isEmpty()) {
+                            return Mono.empty();
+                        }
+                        List<UUID> oldMemberIds = new java.util.ArrayList<>(newMemberIds);
+                        oldMemberIds.add(participantId);
+                        return Mono.zip(
+                                        complianceService.evaluate(group, oldMemberIds),
+                                        complianceService.evaluate(group, newMemberIds))
+                                .doOnNext(statuses -> {
+                                    if (statuses.getT1() != statuses.getT2()) {
+                                        eventPublisher.publish(
+                                                eventPayloadFactory.groupComplianceChanged(group, statuses.getT2(), topic));
+                                    }
+                                });
+                    });
+                })
+                .then();
     }
 
     // --- Disband (FR-016b) -------------------------------------------------------------------------
@@ -485,8 +591,23 @@ public class GroupService {
                             .sql("UPDATE group_members SET active = false WHERE group_id = :gid")
                             .bind("gid", groupId)
                             .then()
+                            .then(Mono.defer(() -> publishGroupDisbanded(saved)).onErrorResume(ex -> Mono.empty()))
                             .thenReturn(saved));
         });
+    }
+
+    /**
+     * Publishes {@code GROUP_DISBANDED} for any disbandment — an Organiser's direct {@link
+     * #disband}, or {@link #leave}'s automatic last-member-departs disbandment (FR-010b's sibling
+     * requirement: every occurrence covered by the catalog fires, however it happened). Compliance
+     * no longer applies to a disbanded Group (research.md §5), so {@code complianceStatus} is
+     * {@code null} in the payload.
+     */
+    private Mono<Void> publishGroupDisbanded(Group group) {
+        return topicRepository
+                .findById(group.getTopicId())
+                .doOnNext(topic -> eventPublisher.publish(eventPayloadFactory.groupDisbanded(group, null, topic)))
+                .then();
     }
 
     private Mono<Group> recordDisbanded(Group group, AuditActor actor) {

@@ -129,6 +129,57 @@ class CustomFieldServiceTest {
                 .verifyComplete();
     }
 
+    // --- currentAnswers: enabled-only, for FR-010d Event enrichment (feature 007) -----------------
+    // Per-field value/selection loading against custom_field_values/custom_field_value_options is
+    // exercised end-to-end against a real database by EventDeliveryIT (feature 007) — matching this
+    // file's own established pattern of not deep-mocking DatabaseClient row-mapping for per-field
+    // assembly logic (see ParticipantServiceTest's findDirectoryListing tests for the same
+    // rationale). These unit tests cover the zero-field and enabled-filtering composition instead.
+
+    @Test
+    void currentAnswersIsEmptyWhenNoFieldsAreDefined() {
+        UUID participantId = UUID.randomUUID();
+        when(definitionRepository.findAll()).thenReturn(Flux.empty());
+
+        StepVerifier.create(customFieldService.currentAnswers(participantId))
+                .assertNext(answers -> assertThat(answers).isEmpty())
+                .verifyComplete();
+
+        verify(databaseClient, never()).sql(anyString());
+    }
+
+    @Test
+    void currentAnswersExcludesADisabledCountryDefinition() {
+        UUID participantId = UUID.randomUUID();
+        when(definitionRepository.findAll()).thenReturn(Flux.just(countryDefinition(false)));
+
+        StepVerifier.create(customFieldService.currentAnswers(participantId))
+                .assertNext(answers -> assertThat(answers).isEmpty())
+                .verifyComplete();
+
+        // registrationFields() already filters the disabled COUNTRY row out before any per-field
+        // value lookup would run.
+        verify(databaseClient, never()).sql(anyString());
+    }
+
+    @Test
+    void blankAnswersReturnsAnEmptyAnswerPerDefinitionWithNoDatabaseLookup() {
+        CustomFieldDefinition freeText = definitionOf(UUID.randomUUID(), "Size", CustomFieldType.FREE_TEXT, true);
+        when(optionRepository.findByCustomFieldDefinitionId(freeText.getId())).thenReturn(Flux.empty());
+
+        StepVerifier.create(customFieldService.blankAnswers(List.of(freeText)))
+                .assertNext(answers -> {
+                    assertThat(answers).hasSize(1);
+                    CustomFieldAnswer answer = answers.get(0);
+                    assertThat(answer.definition()).isEqualTo(freeText);
+                    assertThat(answer.freeTextValue()).isEmpty();
+                    assertThat(answer.selectedOptionIds()).isEmpty();
+                })
+                .verifyComplete();
+
+        verify(databaseClient, never()).sql(anyString());
+    }
+
     // --- update: field_type lock once a value exists (FR-012a) ---------------------------------
 
     @Test

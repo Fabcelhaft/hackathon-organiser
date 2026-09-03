@@ -10,6 +10,7 @@ import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
 import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldAnswer;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
@@ -17,6 +18,8 @@ import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
 import net.fabcelhaft.hackathonorganiser.customfield.IsoCountryCatalog;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ProfileFormSubmission.FieldAnswer;
@@ -65,6 +68,8 @@ public class ParticipantService {
     private final CustomFieldService customFieldService;
     private final TransactionalOperator transactionalOperator;
     private final AuditService auditService;
+    private final EventPublisher eventPublisher;
+    private final EventPayloadFactory eventPayloadFactory;
 
     /**
      * Distinguished from a field-validation {@link ParticipantConflictException} by exact message
@@ -91,7 +96,9 @@ public class ParticipantService {
             GroupService groupService,
             CustomFieldService customFieldService,
             TransactionalOperator transactionalOperator,
-            AuditService auditService) {
+            AuditService auditService,
+            EventPublisher eventPublisher,
+            EventPayloadFactory eventPayloadFactory) {
         this.participantRepository = participantRepository;
         this.userRepository = userRepository;
         this.skillRepository = skillRepository;
@@ -103,6 +110,8 @@ public class ParticipantService {
         this.customFieldService = customFieldService;
         this.transactionalOperator = transactionalOperator;
         this.auditService = auditService;
+        this.eventPublisher = eventPublisher;
+        this.eventPayloadFactory = eventPayloadFactory;
     }
 
     // --- Self-service registration/revocation (FR-003, FR-004, FR-006, FR-007, FR-007a) --------
@@ -207,6 +216,7 @@ public class ParticipantService {
                         null,
                         null,
                         null))
+                .doOnSuccess(v -> eventPublisher.publish(eventPayloadFactory.participantRegistered(participant)))
                 .thenReturn(participant);
     }
 
@@ -236,7 +246,17 @@ public class ParticipantService {
                         oldStatus.name(),
                         newStatus.name(),
                         null))
+                .doOnSuccess(v -> publishStatusChangeEvent(participant, newStatus))
                 .thenReturn(participant);
+    }
+
+    /** Publishes {@code PARTICIPANT_REVOKED}/{@code PARTICIPANT_NOT_PARTICIPATED} (research.md §6). */
+    private void publishStatusChangeEvent(Participant participant, ParticipantStatus newStatus) {
+        if (newStatus == ParticipantStatus.REVOKED) {
+            eventPublisher.publish(eventPayloadFactory.participantRevoked(participant));
+        } else if (newStatus == ParticipantStatus.NOT_PARTICIPATED) {
+            eventPublisher.publish(eventPayloadFactory.participantNotParticipated(participant));
+        }
     }
 
     private Mono<String> userDisplayName(UUID userId) {
@@ -316,19 +336,19 @@ public class ParticipantService {
      * value if a Participant record already exists (a {@code REVOKED} record's own values, per
      * FR-006), or blank if none does.
      */
-    public Mono<List<CustomFieldValueView>> registrationFieldViewsForUser(UUID userId) {
+    public Mono<List<CustomFieldAnswer>> registrationFieldViewsForUser(UUID userId) {
         return participantRepository
                 .findByUserId(userId)
                 .flatMap(participant -> registrationFieldViewsForParticipant(participant.getId()))
-                .switchIfEmpty(customFieldService.registrationFields().collectList().flatMap(this::blankFieldViews));
+                .switchIfEmpty(customFieldService
+                        .registrationFields()
+                        .collectList()
+                        .flatMap(customFieldService::blankAnswers));
     }
 
     /** The self-edit form's per-field pre-fill view for an already-known Participant (FR-022). */
-    public Mono<List<CustomFieldValueView>> registrationFieldViewsForParticipant(UUID participantId) {
-        return customFieldService
-                .registrationFields()
-                .collectList()
-                .flatMap(fields -> loadFieldViews(participantId, fields));
+    public Mono<List<CustomFieldAnswer>> registrationFieldViewsForParticipant(UUID participantId) {
+        return customFieldService.currentAnswers(participantId);
     }
 
     /** The registration/self-edit form's Skill pre-fill (a {@code REVOKED} record's own selection). */
@@ -504,15 +524,6 @@ public class ParticipantService {
                                 () -> replaceSelectedOptions(participantId, definition.getId(), optionIds)));
             }
         };
-    }
-
-    private Mono<List<CustomFieldValueView>> blankFieldViews(List<CustomFieldDefinition> fields) {
-        return Flux.fromIterable(fields)
-                .concatMap(definition -> customFieldOptionRepository
-                        .findByCustomFieldDefinitionId(definition.getId())
-                        .collectList()
-                        .map(options -> new CustomFieldValueView(definition, options, "", List.of())))
-                .collectList();
     }
 
     /** Users with no Participant record yet — the pool the registration form picks from (FR-006a). */
@@ -850,52 +861,11 @@ public class ParticipantService {
                         : skillRepository.findAllById(ids).collectList());
     }
 
-    private Mono<List<CustomFieldValueView>> loadCustomFieldValueViews(UUID participantId) {
-        return customFieldDefinitionRepository.findAll().collectList().flatMap(fields -> loadFieldViews(participantId, fields));
-    }
-
-    /**
-     * Loads each given definition's stored value/selection for one Participant, reused both by
-     * the organiser detail view ({@link #loadCustomFieldValueViews}, every definition) and the
-     * registration/self-edit forms ({@link #registrationFieldViewsForParticipant}, only {@link
-     * CustomFieldService#registrationFields()}).
-     */
-    private Mono<List<CustomFieldValueView>> loadFieldViews(UUID participantId, List<CustomFieldDefinition> fields) {
-        return Flux.fromIterable(fields)
-                .concatMap(definition -> Mono.zip(
-                                customFieldOptionRepository
-                                        .findByCustomFieldDefinitionId(definition.getId())
-                                        .collectList(),
-                                loadFreeTextValue(participantId, definition.getId()),
-                                loadSelectedOptionIds(participantId, definition.getId()))
-                        .map(tuple -> new CustomFieldValueView(
-                                definition, tuple.getT1(), tuple.getT2(), tuple.getT3())))
-                .collectList();
-    }
-
-    private Mono<String> loadFreeTextValue(UUID participantId, UUID definitionId) {
-        return databaseClient
-                .sql(
-                        "SELECT free_text_value FROM custom_field_values"
-                                + " WHERE participant_id = :pid AND custom_field_definition_id = :fid"
-                                + " AND free_text_value IS NOT NULL")
-                .bind("pid", participantId)
-                .bind("fid", definitionId)
-                .map(row -> row.get("free_text_value", String.class))
-                .one()
-                .defaultIfEmpty("");
-    }
-
-    private Mono<List<UUID>> loadSelectedOptionIds(UUID participantId, UUID definitionId) {
-        return databaseClient
-                .sql(
-                        "SELECT custom_field_option_id FROM custom_field_value_options"
-                                + " WHERE participant_id = :pid AND custom_field_definition_id = :fid")
-                .bind("pid", participantId)
-                .bind("fid", definitionId)
-                .map(row -> row.get("custom_field_option_id", UUID.class))
-                .all()
-                .collectList();
+    private Mono<List<CustomFieldAnswer>> loadCustomFieldValueViews(UUID participantId) {
+        return customFieldDefinitionRepository
+                .findAll()
+                .collectList()
+                .flatMap(fields -> customFieldService.answersFor(participantId, fields));
     }
 
     // --- Participants directory & detail-for-viewer (FR-017, FR-018, FR-019, FR-025-FR-031) -----
@@ -915,7 +885,8 @@ public class ParticipantService {
                         .filter(participant -> participant.getStatus() == ParticipantStatus.ACTIVE)
                         .concatMap(participant -> userRepository
                                 .findById(participant.getUserId())
-                                .flatMap(user -> loadFieldViews(participant.getId(), overviewFields)
+                                .flatMap(user -> customFieldService
+                                        .answersFor(participant.getId(), overviewFields)
                                         .map(views ->
                                                 new DirectoryRow(participant.getId(), user.getDisplayName(), views)))))
                 .sort(java.util.Comparator.comparing(DirectoryRow::displayName, String.CASE_INSENSITIVE_ORDER));
@@ -948,7 +919,7 @@ public class ParticipantService {
                                     loadSkills(participantId),
                                     organiserSettingsService.current())
                             .map(tuple -> {
-                                List<CustomFieldValueView> allViews = tuple.getT1();
+                                List<CustomFieldAnswer> allViews = tuple.getT1();
                                 List<Skill> allSkills = tuple.getT2();
                                 boolean skillsVisibleToOthers = tuple.getT3().isSkillVisibilityEnabled();
                                 boolean skillsVisibleToViewer = fullAccess || skillsVisibleToOthers;
@@ -1005,12 +976,6 @@ public class ParticipantService {
             boolean incomplete,
             boolean inGroup) {}
 
-    public record CustomFieldValueView(
-            CustomFieldDefinition definition,
-            List<CustomFieldOption> options,
-            String freeTextValue,
-            List<UUID> selectedOptionIds) {}
-
     public record ParticipantDetail(
             Participant participant,
             String userDisplayName,
@@ -1018,10 +983,10 @@ public class ParticipantService {
             List<Skill> skills,
             List<UUID> skillIds,
             boolean incomplete,
-            List<CustomFieldValueView> customFieldValues) {}
+            List<CustomFieldAnswer> customFieldValues) {}
 
     /** One Participants directory table row — Overview-marked field values only (FR-027). */
-    public record DirectoryRow(UUID participantId, String displayName, List<CustomFieldValueView> overviewValues) {}
+    public record DirectoryRow(UUID participantId, String displayName, List<CustomFieldAnswer> overviewValues) {}
 
     /**
      * One Custom Field value already resolved for a specific viewer (FR-017, FR-020): {@code

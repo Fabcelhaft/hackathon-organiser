@@ -55,6 +55,69 @@ public class CustomFieldService {
     }
 
     /**
+     * A Participant's current answers to every currently-enabled Custom Field definition
+     * (spec.md FR-010d) — the same {@link #registrationFields()} set the registration/self-edit
+     * form presents, each paired with that Participant's stored answer (blank/empty if
+     * unanswered). Used by {@code event.EventPayloadFactory} to enrich every Participant-related
+     * Event (research.md §10 of feature 007); a definition that is not currently enabled (i.e. a
+     * disabled {@code COUNTRY} field) is excluded even if the Participant has a previously
+     * recorded answer for it, matching what the form itself would show them.
+     */
+    public Mono<List<CustomFieldAnswer>> currentAnswers(UUID participantId) {
+        return registrationFields().collectList().flatMap(fields -> answersFor(participantId, fields));
+    }
+
+    /**
+     * One {@link CustomFieldAnswer} per given definition, for one Participant (relocated from
+     * {@code participant.ParticipantService#loadFieldViews} — research.md §10 of feature 007, so
+     * both callers share one implementation of "load this Participant's stored value/selection").
+     */
+    public Mono<List<CustomFieldAnswer>> answersFor(UUID participantId, List<CustomFieldDefinition> fields) {
+        return Flux.fromIterable(fields)
+                .concatMap(definition -> Mono.zip(
+                                optionRepository.findByCustomFieldDefinitionId(definition.getId()).collectList(),
+                                loadFreeTextValue(participantId, definition.getId()),
+                                loadSelectedOptionIds(participantId, definition.getId()))
+                        .map(tuple -> new CustomFieldAnswer(definition, tuple.getT1(), tuple.getT2(), tuple.getT3())))
+                .collectList();
+    }
+
+    /** A blank {@link CustomFieldAnswer} per given definition — no Participant exists yet. */
+    public Mono<List<CustomFieldAnswer>> blankAnswers(List<CustomFieldDefinition> fields) {
+        return Flux.fromIterable(fields)
+                .concatMap(definition -> optionRepository
+                        .findByCustomFieldDefinitionId(definition.getId())
+                        .collectList()
+                        .map(options -> new CustomFieldAnswer(definition, options, "", List.of())))
+                .collectList();
+    }
+
+    private Mono<String> loadFreeTextValue(UUID participantId, UUID definitionId) {
+        return databaseClient
+                .sql(
+                        "SELECT free_text_value FROM custom_field_values"
+                                + " WHERE participant_id = :pid AND custom_field_definition_id = :fid"
+                                + " AND free_text_value IS NOT NULL")
+                .bind("pid", participantId)
+                .bind("fid", definitionId)
+                .map(row -> row.get("free_text_value", String.class))
+                .one()
+                .defaultIfEmpty("");
+    }
+
+    private Mono<List<UUID>> loadSelectedOptionIds(UUID participantId, UUID definitionId) {
+        return databaseClient
+                .sql(
+                        "SELECT custom_field_option_id FROM custom_field_value_options"
+                                + " WHERE participant_id = :pid AND custom_field_definition_id = :fid")
+                .bind("pid", participantId)
+                .bind("fid", definitionId)
+                .map(row -> row.get("custom_field_option_id", UUID.class))
+                .all()
+                .collectList();
+    }
+
+    /**
      * Reports whether any Participant value already references this definition — used by the
      * edit form to disable the {@code field_type} control (FR-012a) — without exposing the raw
      * count.

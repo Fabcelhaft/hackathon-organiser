@@ -20,6 +20,8 @@ import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
 import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
@@ -69,6 +71,12 @@ class GroupServiceTest {
     private OrganiserSettingsService organiserSettingsService;
 
     @Mock
+    private EventPublisher eventPublisher;
+
+    @Mock
+    private EventPayloadFactory eventPayloadFactory;
+
+    @Mock
     private ComplianceService complianceService;
 
     @Mock
@@ -108,7 +116,9 @@ class GroupServiceTest {
                 organiserSettingsService,
                 transactionalOperator,
                 complianceService,
-                auditService);
+                auditService,
+                eventPublisher,
+                eventPayloadFactory);
     }
 
     // --- create: blocked when the Topic already has an active Group (FR-016a) ------------------

@@ -21,12 +21,15 @@ import net.fabcelhaft.hackathonorganiser.audit.AuditEntry;
 import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
 import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldAnswer;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
@@ -91,6 +94,12 @@ class ParticipantServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private EventPublisher eventPublisher;
+
+    @Mock
+    private EventPayloadFactory eventPayloadFactory;
+
     private static final AuditActor ACTOR = new AuditActor(UUID.randomUUID(), true);
 
     private ParticipantService participantService;
@@ -127,7 +136,9 @@ class ParticipantServiceTest {
                 groupService,
                 customFieldService,
                 transactionalOperator,
-                auditService);
+                auditService,
+                eventPublisher,
+                eventPayloadFactory);
     }
 
     // --- register: single Participant per User (FR-006a), initial status ACTIVE (FR-006b) ------
@@ -936,6 +947,8 @@ class ParticipantServiceTest {
         when(participantRepository.findAll()).thenReturn(Flux.just(zoe, alice, revoked));
         when(userRepository.findById(zoe.getUserId())).thenReturn(Mono.just(userOf(zoe.getUserId(), "Zoe")));
         when(userRepository.findById(alice.getUserId())).thenReturn(Mono.just(userOf(alice.getUserId(), "Alice")));
+        stubCustomFieldAnswers(zoe.getId(), List.of());
+        stubCustomFieldAnswers(alice.getId(), List.of());
 
         StepVerifier.create(participantService.findDirectoryListing())
                 .assertNext(row -> assertThat(row.displayName()).isEqualTo("Alice"))
@@ -955,6 +968,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
         when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        stubCustomFieldAnswers(participantId, List.of());
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -978,6 +992,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
         when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        stubCustomFieldAnswers(participantId, List.of());
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -1001,6 +1016,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
         when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        stubCustomFieldAnswers(participantId, List.of());
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -1044,7 +1060,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
         when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.just(publicField, privateField));
-        stubNoStoredFieldValues();
+        stubCustomFieldAnswers(participantId, List.of(publicField, privateField));
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -1067,17 +1083,16 @@ class ParticipantServiceTest {
                 .verifyComplete();
     }
 
-    @SuppressWarnings("unchecked")
-    private void stubNoStoredFieldValues() {
-        org.springframework.r2dbc.core.RowsFetchSpec<Object> fetch = mock(org.springframework.r2dbc.core.RowsFetchSpec.class);
-        lenient().when(databaseClient.sql(anyString())).thenReturn(executeSpec);
-        lenient().when(executeSpec.bind(anyString(), any())).thenReturn(executeSpec);
-        lenient().when(executeSpec.map(any(java.util.function.Function.class))).thenReturn(fetch);
-        lenient().when(fetch.one()).thenReturn(Mono.empty());
-        lenient().when(fetch.all()).thenReturn(Flux.empty());
-        lenient()
-                .when(customFieldOptionRepository.findByCustomFieldDefinitionId(any(UUID.class)))
-                .thenReturn(Flux.empty());
+    /**
+     * Stubs {@code customFieldService.answersFor(...)} — the per-Participant Custom Field
+     * value/selection assembly moved out of {@code ParticipantService} into {@code
+     * CustomFieldService} (research.md §10 of feature 007) — with a blank answer per given
+     * definition, exactly as it would compute for a Participant with no stored values.
+     */
+    private void stubCustomFieldAnswers(UUID participantId, List<CustomFieldDefinition> fields) {
+        List<CustomFieldAnswer> answers =
+                fields.stream().map(field -> new CustomFieldAnswer(field, List.of(), "", List.of())).toList();
+        lenient().when(customFieldService.answersFor(eq(participantId), eq(fields))).thenReturn(Mono.just(answers));
     }
 
     private void stubSkills(UUID participantId, List<net.fabcelhaft.hackathonorganiser.skill.Skill> skills) {
