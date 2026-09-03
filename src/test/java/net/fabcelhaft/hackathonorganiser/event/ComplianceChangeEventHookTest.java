@@ -16,8 +16,10 @@ import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
+import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,12 +52,19 @@ class ComplianceChangeEventHookTest {
     @Mock
     private EventPublisher eventPublisher;
 
-    private final EventPayloadFactory eventPayloadFactory = new EventPayloadFactory();
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private CustomFieldService customFieldService;
+
+    private EventPayloadFactory eventPayloadFactory;
 
     private ComplianceChangeEventHook hook;
 
     @BeforeEach
     void setUp() {
+        eventPayloadFactory = new EventPayloadFactory(userRepository, customFieldService);
         hook = new ComplianceChangeEventHook(
                 groupRepository, groupService, complianceService, topicRepository, eventPublisher, eventPayloadFactory);
     }
@@ -91,7 +100,7 @@ class ComplianceChangeEventHookTest {
         Mono<String> save = Mono.just("saved");
         StepVerifier.create(hook.wrapRulesetChange(save)).expectNext("saved").verifyComplete();
 
-        verify(eventPublisher, never()).publish(any());
+        verify(eventPublisher, never()).publish(any(DomainEvent.class));
     }
 
     @Test
@@ -103,7 +112,7 @@ class ComplianceChangeEventHookTest {
         StepVerifier.create(hook.wrapRulesetChange(save)).expectNext("saved").verifyComplete();
 
         verify(groupService, never()).activeMemberParticipantIds(disbanded.getId());
-        verify(eventPublisher, never()).publish(any());
+        verify(eventPublisher, never()).publish(any(DomainEvent.class));
     }
 
     @Test
