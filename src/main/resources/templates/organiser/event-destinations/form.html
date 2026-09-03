@@ -17,10 +17,10 @@
 
             <label for="type">Type</label>
             <select id="type" name="type" onchange="toggleTypeFields()">
-                <option value="KAFKA" th:selected="${type} == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA">
+                <option value="KAFKA" th:selected="${type == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA}">
                     Kafka
                 </option>
-                <option value="HTTP_POST" th:selected="${type} == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).HTTP_POST">
+                <option value="HTTP_POST" th:selected="${type == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).HTTP_POST}">
                     HTTP POST
                 </option>
             </select>

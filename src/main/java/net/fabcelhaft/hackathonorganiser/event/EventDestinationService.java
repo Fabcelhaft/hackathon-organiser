@@ -88,7 +88,14 @@ public class EventDestinationService {
                         .findById(id)
                         .switchIfEmpty(Mono.error(new EventDestinationConflictException("Event Destination not found")))
                         .flatMap(existing -> {
-                            if (!existing.getUpdatedAt().equals(expectedUpdatedAt)) {
+                            // Compared at microsecond precision — Postgres' timestamptz column stores at most
+                            // microsecond resolution, while the hidden form field round-trips the value this
+                            // service itself last wrote via Instant#toString(), which can carry Java's finer
+                            // (nanosecond-capable) Instant precision; comparing at full precision would reject
+                            // even a same-value resubmission as a false stale-write conflict.
+                            if (!existing.getUpdatedAt()
+                                    .truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+                                    .equals(expectedUpdatedAt.truncatedTo(java.time.temporal.ChronoUnit.MICROS))) {
                                 return Mono.error(new EventDestinationConflictException(
                                         "This Event Destination was changed by someone else — reload and try again"));
                             }

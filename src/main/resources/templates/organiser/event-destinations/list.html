@@ -23,9 +23,9 @@
             <tr th:each="row : ${destinations}">
                 <td th:text="${row.destination().getName()}">Name</td>
                 <td th:text="${row.destination().getType()}">Type</td>
-                <td th:text="${row.destination().getType()} == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA
-                             ? (${row.destination().getKafkaBootstrapServers()} + ' / ' + ${row.destination().getKafkaTopic()})
-                             : ${row.destination().getHttpUrl()}">Connection</td>
+                <td th:text="${row.destination().getType() == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA
+                             ? (row.destination().getKafkaBootstrapServers() + ' / ' + row.destination().getKafkaTopic())
+                             : row.destination().getHttpUrl()}">Connection</td>
                 <td th:text="${row.destination().isEnabled()} ? 'Enabled' : 'Disabled'">Status</td>
                 <td>
                     <span th:each="eventType, iter : ${row.eventTypes()}">
