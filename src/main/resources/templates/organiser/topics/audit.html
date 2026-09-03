@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Topic Audit')}">
+    <title>Topic Audit</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Topic Audit', content=~{::#content})}">
+    <div id="content">
+        <div th:replace="~{organiser/audit/list :: table(${entries})}"></div>
+    </div>
+</th:block>
+</body>
+</html>

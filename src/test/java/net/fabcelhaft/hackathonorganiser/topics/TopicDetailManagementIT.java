@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
@@ -137,7 +138,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User viewer = persistUser(false);
 
         String body = detailBody(viewer, topic.getId());
@@ -156,7 +157,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User viewer = persistUser(false);
 
         String body = detailBody(viewer, topic.getId());
@@ -177,7 +178,7 @@ class TopicDetailManagementIT {
         UUID skillId = persistSkill(skillName);
         assignSkill(authorParticipant.getId(), skillId);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User viewer = persistUser(false);
 
         String hiddenSkillBody = detailBody(viewer, topic.getId());
@@ -197,7 +198,7 @@ class TopicDetailManagementIT {
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         insertFreeTextValue(authorParticipant.getId(), privateField.getId(), "SecretValue");
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User organiser = persistUser(true);
 
         assertThat(detailBody(author, topic.getId())).contains("SecretValue");
@@ -251,7 +252,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User viewer = persistUser(false);
         setDirectoryAudience(DirectoryAudience.ORGANISERS_ONLY);
 
@@ -272,7 +273,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User viewer = persistUser(false);
 
         String body = detailBody(viewer, topic.getId());
@@ -287,7 +288,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User nonMemberViewer = persistUser(false);
 
         assertThat(detailBody(author, topic.getId())).contains("/topics/" + topic.getId() + "/leave");
@@ -302,7 +303,10 @@ class TopicDetailManagementIT {
         Participant secondParticipant = persistParticipant(secondMember.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
         groupService
-                .create(topic.getId(), List.of(authorParticipant.getId(), secondParticipant.getId()))
+                .create(
+                        topic.getId(),
+                        List.of(authorParticipant.getId(), secondParticipant.getId()),
+                        new AuditActor(author.getId(), true))
                 .block();
 
         webTestClient
@@ -329,7 +333,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
 
         webTestClient
                 .mutateWith(loginAs(author))
@@ -362,7 +366,7 @@ class TopicDetailManagementIT {
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topicA = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
         Topic topicB = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topicA.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topicA.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
 
         webTestClient
                 .mutateWith(loginAs(author))
@@ -388,7 +392,7 @@ class TopicDetailManagementIT {
         User author = persistUser(false);
         Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
-        groupService.create(topic.getId(), List.of(authorParticipant.getId())).block();
+        groupService.create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), true)).block();
         User outsider = persistUser(false);
         persistParticipant(outsider.getId(), ParticipantStatus.ACTIVE);
         User noRecordUser = persistUser(false);
@@ -421,7 +425,10 @@ class TopicDetailManagementIT {
         Participant secondParticipant = persistParticipant(secondMember.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(firstMember.getId(), TopicApprovalStatus.APPROVED);
         var group = groupService
-                .create(topic.getId(), List.of(firstParticipant.getId(), secondParticipant.getId()))
+                .create(
+                        topic.getId(),
+                        List.of(firstParticipant.getId(), secondParticipant.getId()),
+                        new AuditActor(firstMember.getId(), true))
                 .block();
 
         ExecutorService executor = Executors.newFixedThreadPool(2);

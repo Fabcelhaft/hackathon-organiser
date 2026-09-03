@@ -6,6 +6,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
@@ -39,6 +43,13 @@ import reactor.core.publisher.Mono;
  * cannot back (research.md §4), so this service manipulates them directly via {@link DatabaseClient}
  * rather than through a repository — the same approach {@code participant_skills} uses here for
  * the same reason.
+ *
+ * <p><b>Audit (006-audit-trail, FR-001, FR-002a):</b> every mutating method here takes an explicit
+ * {@link AuditActor} and records a corresponding {@link AuditService} entry on success —
+ * {@code changeStatus}/{@code selfRevoke} carry the real old/new status values (FR-002a's
+ * high-stakes fields); {@code delete} records its {@code DELETED} entry before issuing the
+ * repository delete, in the same transaction, so the entry's {@code subject_label} snapshot is
+ * never lost even though {@code subject_id} carries no foreign key (research.md §3).
  */
 @Service
 public class ParticipantService {
@@ -53,6 +64,7 @@ public class ParticipantService {
     private final GroupService groupService;
     private final CustomFieldService customFieldService;
     private final TransactionalOperator transactionalOperator;
+    private final AuditService auditService;
 
     /**
      * Distinguished from a field-validation {@link ParticipantConflictException} by exact message
@@ -78,7 +90,8 @@ public class ParticipantService {
             OrganiserSettingsService organiserSettingsService,
             GroupService groupService,
             CustomFieldService customFieldService,
-            TransactionalOperator transactionalOperator) {
+            TransactionalOperator transactionalOperator,
+            AuditService auditService) {
         this.participantRepository = participantRepository;
         this.userRepository = userRepository;
         this.skillRepository = skillRepository;
@@ -89,6 +102,7 @@ public class ParticipantService {
         this.groupService = groupService;
         this.customFieldService = customFieldService;
         this.transactionalOperator = transactionalOperator;
+        this.auditService = auditService;
     }
 
     // --- Self-service registration/revocation (FR-003, FR-004, FR-006, FR-007, FR-007a) --------
@@ -137,7 +151,7 @@ public class ParticipantService {
      * the Group side when the Participant has no current Group. Completes empty if no Participant
      * exists with the given id.
      */
-    public Mono<Participant> selfRevoke(UUID participantId) {
+    public Mono<Participant> selfRevoke(UUID participantId, AuditActor actor) {
         return organiserSettingsService.current().flatMap(settings -> {
             if (!settings.isSelfRevocationEnabled()) {
                 return Mono.error(new ParticipantConflictException("Self-revocation is currently disabled"));
@@ -146,14 +160,16 @@ public class ParticipantService {
                 if (participant.getStatus() == ParticipantStatus.NOT_PARTICIPATED) {
                     return Mono.error(new ParticipantConflictException(NOT_PARTICIPATED_MESSAGE));
                 }
+                ParticipantStatus oldStatus = participant.getStatus();
                 participant.setStatus(ParticipantStatus.REVOKED);
                 participant.setUpdatedAt(Instant.now());
                 return participantRepository
                         .save(participant)
                         .flatMap(saved -> groupService
                                 .findActiveGroupForParticipant(participantId)
-                                .flatMap(group -> groupService.removeMember(group.getId(), participantId))
-                                .thenReturn(saved));
+                                .flatMap(group -> groupService.removeMember(group.getId(), participantId, actor))
+                                .thenReturn(saved))
+                        .flatMap(saved -> recordStatusChanged(saved, actor, oldStatus, ParticipantStatus.REVOKED));
             });
         });
     }
@@ -165,7 +181,7 @@ public class ParticipantService {
      * an unknown {@code userId} or a User who already has a Participant record (FR-006a) with a
      * friendly {@link ParticipantConflictException}.
      */
-    public Mono<Participant> register(UUID userId) {
+    public Mono<Participant> register(UUID userId, AuditActor actor) {
         return userRepository.existsById(userId).flatMap(userExists -> {
             if (!userExists) {
                 return Mono.error(new ParticipantConflictException("Unknown user: " + userId));
@@ -174,8 +190,57 @@ public class ParticipantService {
                     .findByUserId(userId)
                     .<Participant>flatMap(existing -> Mono.error(new ParticipantConflictException(
                             "This user is already registered as a Participant")))
-                    .switchIfEmpty(Mono.defer(() -> participantRepository.save(newParticipant(userId))));
+                    .switchIfEmpty(Mono.defer(() -> participantRepository
+                            .save(newParticipant(userId))
+                            .flatMap(saved -> recordCreated(saved, actor))));
         });
+    }
+
+    private Mono<Participant> recordCreated(Participant participant, AuditActor actor) {
+        return userDisplayName(participant.getUserId())
+                .flatMap(name -> auditService.record(
+                        AuditEventType.CREATED,
+                        actor,
+                        AuditSubjectType.PARTICIPANT,
+                        participant.getId(),
+                        name,
+                        null,
+                        null,
+                        null))
+                .thenReturn(participant);
+    }
+
+    private Mono<Participant> recordEdited(Participant participant, AuditActor actor) {
+        return userDisplayName(participant.getUserId())
+                .flatMap(name -> auditService.record(
+                        AuditEventType.EDITED,
+                        actor,
+                        AuditSubjectType.PARTICIPANT,
+                        participant.getId(),
+                        name,
+                        null,
+                        null,
+                        null))
+                .thenReturn(participant);
+    }
+
+    private Mono<Participant> recordStatusChanged(
+            Participant participant, AuditActor actor, ParticipantStatus oldStatus, ParticipantStatus newStatus) {
+        return userDisplayName(participant.getUserId())
+                .flatMap(name -> auditService.record(
+                        AuditEventType.STATUS_CHANGED,
+                        actor,
+                        AuditSubjectType.PARTICIPANT,
+                        participant.getId(),
+                        name,
+                        oldStatus.name(),
+                        newStatus.name(),
+                        null))
+                .thenReturn(participant);
+    }
+
+    private Mono<String> userDisplayName(UUID userId) {
+        return userRepository.findById(userId).map(User::getDisplayName).defaultIfEmpty("Unknown user");
     }
 
     /** The current user's own Participant record, if any — used by the homepage (FR-001, FR-007a). */
@@ -196,7 +261,7 @@ public class ParticipantService {
      * branch-on-status logic), writing Custom Field values and Skill selections in the same
      * transaction. No partial record is ever visible on rejection.
      */
-    public Mono<Participant> submitRegistration(UUID userId, ProfileFormSubmission submission) {
+    public Mono<Participant> submitRegistration(UUID userId, ProfileFormSubmission submission, AuditActor actor) {
         Mono<Participant> chain = organiserSettingsService.current().flatMap(settings -> {
             if (!settings.isSelfRegistrationEnabled()) {
                 return Mono.error(new ParticipantConflictException(SELF_REGISTRATION_DISABLED_MESSAGE));
@@ -209,7 +274,8 @@ public class ParticipantService {
                         }
                         return validateAndPersist(userId, existing, submission);
                     })
-                    .switchIfEmpty(Mono.defer(() -> validateAndPersist(userId, null, submission)));
+                    .switchIfEmpty(Mono.defer(() -> validateAndPersist(userId, null, submission)))
+                    .flatMap(saved -> recordCreated(saved, actor));
         });
         return transactionalOperator.transactional(chain);
     }
@@ -220,7 +286,7 @@ public class ParticipantService {
      * exists), gated on {@code selfEditEnabled} and the {@code NOT_PARTICIPATED} lockout — both
      * re-read at call time, never cached (FR-024). Persists changes in place; no new record.
      */
-    public Mono<Participant> submitSelfEdit(UUID participantId, ProfileFormSubmission submission) {
+    public Mono<Participant> submitSelfEdit(UUID participantId, ProfileFormSubmission submission, AuditActor actor) {
         Mono<Participant> chain = organiserSettingsService.current().flatMap(settings -> {
             if (!settings.isSelfEditEnabled()) {
                 return Mono.error(new ParticipantConflictException(SELF_EDIT_DISABLED_MESSAGE));
@@ -238,7 +304,8 @@ public class ParticipantService {
                                 .flatMap(fields -> validateSubmission(fields, submission)
                                         .then(Mono.defer(() -> persistSubmission(existing.getId(), fields, submission)
                                                 .thenReturn(existing))));
-                    });
+                    })
+                    .flatMap(saved -> recordEdited(saved, actor));
         });
         return transactionalOperator.transactional(chain);
     }
@@ -464,11 +531,14 @@ public class ParticipantService {
      * Sets a Participant's status to any of the three {@link ParticipantStatus} values (FR-007).
      * Completes empty if no Participant exists with the given id.
      */
-    public Mono<Participant> changeStatus(UUID id, ParticipantStatus status) {
+    public Mono<Participant> changeStatus(UUID id, ParticipantStatus status, AuditActor actor) {
         return participantRepository.findById(id).flatMap(participant -> {
+            ParticipantStatus oldStatus = participant.getStatus();
             participant.setStatus(status);
             participant.setUpdatedAt(Instant.now());
-            return participantRepository.save(participant);
+            return participantRepository
+                    .save(participant)
+                    .flatMap(saved -> recordStatusChanged(saved, actor, oldStatus, status));
         });
     }
 
@@ -483,14 +553,16 @@ public class ParticipantService {
      * Completes empty if the Participant or any of the given {@code skillIds} is unknown, per
      * contracts/participant-management.md's single 404 for either case.
      */
-    public Mono<Participant> replaceSkills(UUID participantId, List<UUID> skillIds) {
+    public Mono<Participant> replaceSkills(UUID participantId, List<UUID> skillIds, AuditActor actor) {
         List<UUID> ids = distinct(skillIds);
         return participantRepository.findById(participantId).flatMap(participant -> allSkillIdsExist(ids)
                 .flatMap(allExist -> {
                     if (!allExist) {
                         return Mono.empty();
                     }
-                    return replaceParticipantSkills(participantId, ids).thenReturn(participant);
+                    return replaceParticipantSkills(participantId, ids)
+                            .thenReturn(participant)
+                            .flatMap(saved -> recordEdited(saved, actor));
                 }));
     }
 
@@ -531,14 +603,15 @@ public class ParticipantService {
      * unknown; fails with {@link ParticipantConflictException} for a shape/option mismatch.
      */
     public Mono<Participant> setCustomFieldValue(
-            UUID participantId, UUID fieldId, String freeTextValue, List<UUID> optionIds) {
+            UUID participantId, UUID fieldId, String freeTextValue, List<UUID> optionIds, AuditActor actor) {
         return participantRepository
                 .findById(participantId)
                 .flatMap(participant -> customFieldDefinitionRepository
                         .findById(fieldId)
                         .flatMap(definition -> validateAndPersistValue(
                                         participantId, definition, freeTextValue, optionIds)
-                                .thenReturn(participant)));
+                                .thenReturn(participant)
+                                .flatMap(saved -> recordEdited(saved, actor))));
     }
 
     private Mono<Void> validateAndPersistValue(
@@ -698,7 +771,7 @@ public class ParticipantService {
      * {@code custom_field_values}, {@code participant_skills}, and any historical (inactive)
      * {@code group_members} rows — since none of those foreign keys cascade (schema.sql).
      */
-    public Mono<Void> delete(UUID id) {
+    public Mono<Void> delete(UUID id, AuditActor actor) {
         Mono<Void> chain = participantRepository.findById(id).flatMap(participant -> groupService
                 .findActiveGroupForParticipant(id)
                 .hasElement()
@@ -707,9 +780,25 @@ public class ParticipantService {
                         return Mono.<Void>error(new ParticipantConflictException(
                                 "Cannot delete this participant: still a member of a Group"));
                     }
-                    return deleteAssociatedData(id).then(participantRepository.deleteById(id));
+                    return recordDeleted(participant, actor)
+                            .then(deleteAssociatedData(id))
+                            .then(Mono.defer(() -> participantRepository.deleteById(id)));
                 }));
         return transactionalOperator.transactional(chain);
+    }
+
+    private Mono<Void> recordDeleted(Participant participant, AuditActor actor) {
+        return userDisplayName(participant.getUserId())
+                .flatMap(name -> auditService.record(
+                        AuditEventType.DELETED,
+                        actor,
+                        AuditSubjectType.PARTICIPANT,
+                        participant.getId(),
+                        name,
+                        null,
+                        null,
+                        null))
+                .then();
     }
 
     private Mono<Void> deleteAssociatedData(UUID participantId) {

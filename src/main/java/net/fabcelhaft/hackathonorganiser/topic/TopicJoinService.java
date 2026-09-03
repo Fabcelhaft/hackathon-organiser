@@ -1,6 +1,7 @@
 package net.fabcelhaft.hackathonorganiser.topic;
 
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
@@ -43,7 +44,7 @@ public class TopicJoinService {
      * Completes empty (404) for an unknown or non-{@code APPROVED} Topic (spec Assumptions: a
      * Pending Topic has no Group and cannot be joined).
      */
-    public Mono<Group> join(UUID topicId, UUID requesterUserId) {
+    public Mono<Group> join(UUID topicId, UUID requesterUserId, AuditActor actor) {
         return organiserSettingsService.current().flatMap(settings -> {
             if (!settings.isTopicJoiningEnabled()) {
                 return Mono.error(new TopicJoinConflictException("Topic joining is currently disabled"));
@@ -56,7 +57,7 @@ public class TopicJoinService {
                     .flatMap(participant -> topicService
                             .findById(topicId)
                             .filter(topic -> topic.getApprovalStatus() == TopicApprovalStatus.APPROVED)
-                            .flatMap(topic -> groupService.join(topicId, participant.getId())));
+                            .flatMap(topic -> groupService.join(topicId, participant.getId(), actor)));
         });
     }
 
@@ -76,7 +77,7 @@ public class TopicJoinService {
      * that setting and status gate only new joins; a non-{@code ACTIVE} Participant already has no
      * active Group to leave, since self-revocation already removes it as a side effect.
      */
-    public Mono<Group> leave(UUID topicId, UUID requesterUserId) {
+    public Mono<Group> leave(UUID topicId, UUID requesterUserId, AuditActor actor) {
         return participantService
                 .findByUserId(requesterUserId)
                 .switchIfEmpty(Mono.error(notCurrentlyAMember()))
@@ -87,7 +88,7 @@ public class TopicJoinService {
                             if (!activeGroup.getTopicId().equals(topicId)) {
                                 return Mono.<Group>error(notCurrentlyAMember());
                             }
-                            return groupService.leave(topicId, participant.getId());
+                            return groupService.leave(topicId, participant.getId(), actor);
                         }));
     }
 

@@ -38,7 +38,10 @@
             </dd>
         </dl>
 
-        <div class="actions"><a th:href="@{/organiser/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit</a></div>
+        <div class="actions">
+            <a th:href="@{/organiser/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit</a>
+            <a th:href="@{/organiser/topics/{id}/audit(id=${detail.topic.id})}" role="button" class="outline secondary">Audit</a>
+        </div>
     </div>
 </th:block>
 </body>

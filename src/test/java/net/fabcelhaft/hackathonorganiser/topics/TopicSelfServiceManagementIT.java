@@ -7,6 +7,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
@@ -399,7 +400,13 @@ class TopicSelfServiceManagementIT {
         Skill rust = persistSkill("Rust " + UUID.randomUUID());
         Topic topic = persistTopic(author.getId(), "Old Name", "Old Desc", TopicApprovalStatus.APPROVED);
         topicService
-                .updateAsAuthor(topic.getId(), author.getId(), "Old Name", "Old Desc", List.of(python.getId()))
+                .updateAsAuthor(
+                        topic.getId(),
+                        author.getId(),
+                        "Old Name",
+                        "Old Desc",
+                        List.of(python.getId()),
+                        new AuditActor(author.getId(), false))
                 .block();
 
         webTestClient

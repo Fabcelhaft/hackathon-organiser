@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
@@ -45,6 +46,8 @@ class TopicJoinServiceTest {
     @Mock
     private GroupService groupService;
 
+    private static final AuditActor ACTOR = new AuditActor(UUID.randomUUID(), false);
+
     private TopicJoinService topicJoinService;
 
     @BeforeEach
@@ -59,12 +62,12 @@ class TopicJoinServiceTest {
         UUID requesterUserId = UUID.randomUUID();
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false)));
 
-        StepVerifier.create(topicJoinService.join(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.join(topicId, requesterUserId, ACTOR))
                 .expectError(TopicJoinConflictException.class)
                 .verify();
 
         verify(participantService, never()).findByUserId(any());
-        verify(groupService, never()).join(any(), any());
+        verify(groupService, never()).join(any(), any(), any());
     }
 
     @Test
@@ -74,11 +77,11 @@ class TopicJoinServiceTest {
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true)));
         when(participantService.findByUserId(requesterUserId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(topicJoinService.join(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.join(topicId, requesterUserId, ACTOR))
                 .expectError(TopicJoinConflictException.class)
                 .verify();
 
-        verify(groupService, never()).join(any(), any());
+        verify(groupService, never()).join(any(), any(), any());
     }
 
     @Test
@@ -89,11 +92,11 @@ class TopicJoinServiceTest {
         when(participantService.findByUserId(requesterUserId))
                 .thenReturn(Mono.just(participantOf(requesterUserId, ParticipantStatus.REVOKED)));
 
-        StepVerifier.create(topicJoinService.join(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.join(topicId, requesterUserId, ACTOR))
                 .expectError(TopicJoinConflictException.class)
                 .verify();
 
-        verify(groupService, never()).join(any(), any());
+        verify(groupService, never()).join(any(), any(), any());
     }
 
     @Test
@@ -105,9 +108,9 @@ class TopicJoinServiceTest {
                 .thenReturn(Mono.just(participantOf(requesterUserId, ParticipantStatus.ACTIVE)));
         when(topicService.findById(topicId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(topicJoinService.join(topicId, requesterUserId)).verifyComplete();
+        StepVerifier.create(topicJoinService.join(topicId, requesterUserId, ACTOR)).verifyComplete();
 
-        verify(groupService, never()).join(any(), any());
+        verify(groupService, never()).join(any(), any(), any());
     }
 
     @Test
@@ -119,9 +122,9 @@ class TopicJoinServiceTest {
                 .thenReturn(Mono.just(participantOf(requesterUserId, ParticipantStatus.ACTIVE)));
         when(topicService.findById(topicId)).thenReturn(Mono.just(topicOf(topicId, TopicApprovalStatus.PENDING)));
 
-        StepVerifier.create(topicJoinService.join(topicId, requesterUserId)).verifyComplete();
+        StepVerifier.create(topicJoinService.join(topicId, requesterUserId, ACTOR)).verifyComplete();
 
-        verify(groupService, never()).join(any(), any());
+        verify(groupService, never()).join(any(), any(), any());
     }
 
     @Test
@@ -134,9 +137,9 @@ class TopicJoinServiceTest {
         when(topicService.findById(topicId)).thenReturn(Mono.just(topicOf(topicId, TopicApprovalStatus.APPROVED)));
         Group group = new Group();
         group.setId(UUID.randomUUID());
-        when(groupService.join(topicId, participant.getId())).thenReturn(Mono.just(group));
+        when(groupService.join(topicId, participant.getId(), ACTOR)).thenReturn(Mono.just(group));
 
-        StepVerifier.create(topicJoinService.join(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.join(topicId, requesterUserId, ACTOR))
                 .expectNext(group)
                 .verifyComplete();
     }
@@ -149,11 +152,11 @@ class TopicJoinServiceTest {
         UUID requesterUserId = UUID.randomUUID();
         when(participantService.findByUserId(requesterUserId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId, ACTOR))
                 .expectError(TopicJoinConflictException.class)
                 .verify();
 
-        verify(groupService, never()).leave(any(), any());
+        verify(groupService, never()).leave(any(), any(), any());
     }
 
     @Test
@@ -164,11 +167,11 @@ class TopicJoinServiceTest {
         when(participantService.findByUserId(requesterUserId)).thenReturn(Mono.just(participant));
         when(groupService.findActiveGroupForParticipant(participant.getId())).thenReturn(Mono.empty());
 
-        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId, ACTOR))
                 .expectError(TopicJoinConflictException.class)
                 .verify();
 
-        verify(groupService, never()).leave(any(), any());
+        verify(groupService, never()).leave(any(), any(), any());
     }
 
     @Test
@@ -184,11 +187,11 @@ class TopicJoinServiceTest {
         when(groupService.findActiveGroupForParticipant(participant.getId()))
                 .thenReturn(Mono.just(activeGroupForOtherTopic));
 
-        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId, ACTOR))
                 .expectError(TopicJoinConflictException.class)
                 .verify();
 
-        verify(groupService, never()).leave(any(), any());
+        verify(groupService, never()).leave(any(), any(), any());
     }
 
     @Test
@@ -206,9 +209,9 @@ class TopicJoinServiceTest {
         when(groupService.findActiveGroupForParticipant(participant.getId())).thenReturn(Mono.just(activeGroup));
         Group afterLeave = new Group();
         afterLeave.setId(activeGroup.getId());
-        when(groupService.leave(topicId, participant.getId())).thenReturn(Mono.just(afterLeave));
+        when(groupService.leave(topicId, participant.getId(), ACTOR)).thenReturn(Mono.just(afterLeave));
 
-        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId))
+        StepVerifier.create(topicJoinService.leave(topicId, requesterUserId, ACTOR))
                 .expectNext(afterLeave)
                 .verifyComplete();
 

@@ -40,7 +40,7 @@ Single Spring Boot module (existing layout, no new top-level directories):
 
 **Purpose**: Establish a clean baseline before touching any code.
 
-- [ ] T001 Run `mvn test` from the repository root and confirm the existing 002–005 test suite passes with zero
+- [X] T001 Run `mvn test` from the repository root and confirm the existing 002–005 test suite passes with zero
       failures, so any later failure is attributable to this feature's changes
 
 **Checkpoint**: Clean baseline confirmed.
@@ -54,35 +54,35 @@ depends on these existing first.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] Append the `audit_entries` table DDL and its `(subject_type, subject_id, occurred_at DESC)`
+- [X] T002 [P] Append the `audit_entries` table DDL and its `(subject_type, subject_id, occurred_at DESC)`
       composite index to `src/main/resources/schema.sql`, per data-model.md's schema: `id uuid PRIMARY KEY
       DEFAULT uuidv7()`, `event_type text NOT NULL`, `actor_user_id uuid NOT NULL REFERENCES users (id)`,
       `organiser boolean NOT NULL`, `occurred_at timestamptz NOT NULL DEFAULT now()`, `subject_type text NOT
       NULL`, `subject_id uuid NOT NULL` (no foreign key), `subject_label text NOT NULL`, `old_value text`,
       `new_value text`, `action_id uuid`
-- [ ] T003 [P] Create `AuditEventType` enum (`CREATED`, `EDITED`, `STATUS_CHANGED`, `JOINED`, `LEFT`,
+- [X] T003 [P] Create `AuditEventType` enum (`CREATED`, `EDITED`, `STATUS_CHANGED`, `JOINED`, `LEFT`,
       `DISBANDED`, `DELETED`) in `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditEventType.java`
-- [ ] T004 [P] Create `AuditSubjectType` enum (`TOPIC`, `PARTICIPANT` — no `GROUP` value) in
+- [X] T004 [P] Create `AuditSubjectType` enum (`TOPIC`, `PARTICIPANT` — no `GROUP` value) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditSubjectType.java`
-- [ ] T005 [P] Create `AuditActor` record (`UUID userId, boolean organiser`) in
+- [X] T005 [P] Create `AuditActor` record (`UUID userId, boolean organiser`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditActor.java`
-- [ ] T006 Create `AuditEntryView` read-model record (`Instant occurredAt, AuditEventType eventType, String
+- [X] T006 Create `AuditEntryView` read-model record (`Instant occurredAt, AuditEventType eventType, String
       actorDisplayName, boolean organiser, String subjectLabel, String oldValue, String newValue, UUID
       actionId`) in `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditEntryView.java` (depends on:
       T003)
-- [ ] T007 Create the `AuditEntry` R2DBC entity (`@Table("audit_entries")`, all columns from T002, `id`/
+- [X] T007 Create the `AuditEntry` R2DBC entity (`@Table("audit_entries")`, all columns from T002, `id`/
       `occurredAt` defaulted like every other entity in this codebase, e.g. `Group.java`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditEntry.java` (depends on: T003, T004)
-- [ ] T008 Create `AuditEntryRepository extends ReactiveCrudRepository<AuditEntry, UUID>` in
+- [X] T008 Create `AuditEntryRepository extends ReactiveCrudRepository<AuditEntry, UUID>` in
       `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditEntryRepository.java` — used only for
       `save`/`findBy...` in this feature; no update/delete method is ever added (FR-010) (depends on: T007)
-- [ ] T009 Write `AuditServiceTest` (unit, JUnit 5 + Mockito, `@ExtendWith(MockitoExtension.class)`, mocking
+- [X] T009 Write `AuditServiceTest` (unit, JUnit 5 + Mockito, `@ExtendWith(MockitoExtension.class)`, mocking
       `AuditEntryRepository`, matching `GroupServiceTest.java`'s style) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/audit/AuditServiceTest.java`: `record(...)` saves an
       `AuditEntry` populated from its arguments and returns it; `findForTopic`/`findForParticipant` each query
       by the matching `subject_type` and return entries ordered most-recent-first; confirm this test fails to
       compile/run until T010 exists (depends on: T005, T006, T007, T008)
-- [ ] T010 Implement `AuditService` (`record(AuditEventType type, AuditActor actor, AuditSubjectType
+- [X] T010 Implement `AuditService` (`record(AuditEventType type, AuditActor actor, AuditSubjectType
       subjectType, UUID subjectId, String subjectLabel, String oldValue, String newValue, UUID actionId)`,
       `findForTopic(UUID topicId)`, `findForParticipant(UUID participantId)`) in
       `src/main/java/net/fabcelhaft/hackathonorganiser/audit/AuditService.java` to make T009 pass (depends on:
@@ -109,24 +109,24 @@ and disband a Topic's Group as an Organiser; confirm a correctly-attributed `Aud
 
 > Write these tests FIRST; confirm they fail before starting the implementation tasks below.
 
-- [ ] T011 [P] [US1] Extend `src/test/java/net/fabcelhaft/hackathonorganiser/topic/TopicServiceTest.java`:
+- [X] T011 [P] [US1] Extend `src/test/java/net/fabcelhaft/hackathonorganiser/topic/TopicServiceTest.java`:
       inject a mocked `AuditService`; assert `create`, `update`, `propose`, `updateAsAuthor`, `approve`, and
       `reassignAuthor` each call `AuditService.record(...)` once with the correct `AuditEventType`
       (`CREATED`/`EDITED`/`STATUS_CHANGED`), `AuditSubjectType.TOPIC`, the Topic's id, and the passed-in
       `AuditActor` — `approve` additionally asserts `old="PENDING"`/`new="APPROVED"`; the others assert
       `old=null`/`new=null` (FR-002a: Topic edits are not high-stakes)
-- [ ] T012 [P] [US1] Extend
+- [X] T012 [P] [US1] Extend
       `src/test/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantServiceTest.java`: inject a
       mocked `AuditService`; assert `register`, `submitRegistration`, `submitSelfEdit`, `changeStatus`,
       `replaceSkills`, `setCustomFieldValue`, `selfRevoke`, and `delete` each call `AuditService.record(...)`
       once with the correct event type and `AuditSubjectType.PARTICIPANT` — `changeStatus`/`selfRevoke` assert
       real `old`/`new` status values (FR-002a high-stakes); the others assert `old=null`/`new=null`; `delete`
       asserts the `DELETED` entry is recorded before the repository delete call
-- [ ] T013 [P] [US1] Extend `src/test/java/net/fabcelhaft/hackathonorganiser/group/GroupServiceTest.java`:
+- [X] T013 [P] [US1] Extend `src/test/java/net/fabcelhaft/hackathonorganiser/group/GroupServiceTest.java`:
       inject a mocked `AuditService`; assert `create`, `disband`, and `setComplianceOverride` each call
       `AuditService.record(...)` once with `AuditSubjectType.TOPIC` and the Group's `topicId` (never a Group
       reference) — `setComplianceOverride` asserts real `old`/`new` boolean values
-- [ ] T014 [US1] Create `AuditRecordingIT` (integration, `@SpringBootTest` + `@Testcontainers` + `WebTestClient`
+- [X] T014 [US1] Create `AuditRecordingIT` (integration, `@SpringBootTest` + `@Testcontainers` + `WebTestClient`
       + `mockOidcLogin()`, matching `GroupManagementIT.java`'s existing setup) in
       `src/test/java/net/fabcelhaft/hackathonorganiser/audit/AuditRecordingIT.java`: as a Participant, edit an
       owned Topic via `POST /topics/{id}/edit`; as an Organiser, change a Participant's status via `POST
@@ -136,44 +136,44 @@ and disband a Topic's Group as an Organiser; confirm a correctly-attributed `Aud
 
 ### Implementation for User Story 1
 
-- [ ] T015 [US1] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicService.java`: add an
+- [X] T015 [US1] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicService.java`: add an
       `AuditActor actor` parameter to `create`, `update`, `propose`, `updateAsAuthor`, `approve`, and
       `reassignAuthor`; call `auditService.record(...)` on success of each per T011's expectations (depends on:
       T011, T010)
-- [ ] T016 [US1] Modify
+- [X] T016 [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/topic/TopicController.java`: at the
       `create`/`update`/`approve`/`reassignAuthor` call sites, construct `new AuditActor(currentUserId, true)`
       (resolved via `@AuthenticationPrincipal HackathonOidcUser`, matching `TopicJoinController`'s existing
       pattern) and pass it through (depends on: T015)
-- [ ] T017 [P] [US1] Modify
+- [X] T017 [P] [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/topics/TopicSelfServiceController.java`: at the
       `propose`/`updateAsAuthor` call sites, construct `new AuditActor(userId, false)` and pass it through
       (depends on: T015)
-- [ ] T018 [US1] Modify
+- [X] T018 [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/participant/ParticipantService.java`: add an
       `AuditActor actor` parameter to `register`, `submitRegistration`, `submitSelfEdit`, `changeStatus`,
       `replaceSkills`, `setCustomFieldValue`, `selfRevoke`, and `delete`; call `auditService.record(...)` on
       success of each per T012's expectations — `delete` records **before** issuing the repository delete, in
       the same transaction (depends on: T012, T010)
-- [ ] T019 [US1] Modify
+- [X] T019 [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/participant/ParticipantController.java`: at
       the `register`(`create`)/`changeStatus`/`replaceSkills`/`setCustomFieldValue`/`delete` call sites,
       construct `new AuditActor(currentUserId, true)` and pass it through (depends on: T018)
-- [ ] T020 [P] [US1] Modify
+- [X] T020 [P] [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/RegistrationController.java`: at the
       `submitRegistration` call site, construct `new AuditActor(userId, false)` and pass it through (depends
       on: T018)
-- [ ] T021 [P] [US1] Modify
+- [X] T021 [P] [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/participants/ProfileController.java`: at the
       `submitSelfEdit` call site, construct `new AuditActor(participant's userId, false)` and pass it through
       (depends on: T018)
-- [ ] T022 [P] [US1] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/home/HomeController.java`: at the
+- [X] T022 [P] [US1] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/home/HomeController.java`: at the
       `selfRevoke` call site, construct `new AuditActor(userId, false)` and pass it through (depends on: T018)
-- [ ] T023 [US1] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/group/GroupService.java`: add an
+- [X] T023 [US1] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/group/GroupService.java`: add an
       `AuditActor actor` parameter to `create`, `disband`, and `setComplianceOverride` only (`addMember`,
       `removeMember`, `join`, `leave` are User Story 3's responsibility); call `auditService.record(...)` on
       success of each per T013's expectations (depends on: T013, T010)
-- [ ] T024 [US1] Modify
+- [X] T024 [US1] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/group/GroupController.java`: at the
       `create`/`disband`/`setComplianceOverride` call sites, construct `new AuditActor(currentUserId, true)`
       and pass it through (depends on: T023)
@@ -198,40 +198,40 @@ page; confirm a non-Organiser sees no **Audit** action anywhere and a direct `GE
 
 > Write these tests FIRST; confirm they fail before starting the implementation tasks below.
 
-- [ ] T025 [P] [US2] Extend
+- [X] T025 [P] [US2] Extend
       `src/test/java/net/fabcelhaft/hackathonorganiser/organiser/topic/TopicManagementIT.java`: assert `GET
       /organiser/topics/{id}/audit` returns `200` for an Organiser (via `mockOidcLogin()`) and lists previously
       recorded entries most-recent-first; assert it renders an empty, clearly-labeled history for a Topic with
       no entries yet (not an error); assert an unauthenticated or non-Organiser request is denied before any
       audit content renders; assert an unknown Topic id returns `404`
-- [ ] T026 [P] [US2] Extend
+- [X] T026 [P] [US2] Extend
       `src/test/java/net/fabcelhaft/hackathonorganiser/organiser/participant/ParticipantManagementIT.java`:
       the same four assertions as T025, scoped to `GET /organiser/participants/{id}/audit`
-- [ ] T027 [P] [US2] Extend
+- [X] T027 [P] [US2] Extend
       `src/test/java/net/fabcelhaft/hackathonorganiser/organiser/group/GroupManagementIT.java`: assert the
       Group detail page's rendered "Audit" link's `href` equals `/organiser/topics/{topicId}/audit` for that
       Group's own Topic; assert `GET /organiser/groups/{id}/audit` does not exist (`404`)
 
 ### Implementation for User Story 2
 
-- [ ] T028 [P] [US2] Create the shared audit-entries table fragment in
+- [X] T028 [P] [US2] Create the shared audit-entries table fragment in
       `src/main/resources/templates/organiser/audit/list.html` (Pico CSS `<table>`, columns: timestamp, event
       type, actor display name, capacity (Organiser/Standard User), old → new when present; most-recent-first;
       an empty-state message when there are no entries — FR-011, FR-011a)
-- [ ] T029 [US2] Add a `GET /organiser/topics/{id}/audit` handler to
+- [X] T029 [US2] Add a `GET /organiser/topics/{id}/audit` handler to
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/topic/TopicController.java`, loading via
       `AuditService.findForTopic(id)` and rendering a new `organiser/topics/audit.html` view that includes the
       T028 fragment; unknown `id` → `404` (depends on: T028, T010)
-- [ ] T030 [US2] Add a `GET /organiser/participants/{id}/audit` handler to
+- [X] T030 [US2] Add a `GET /organiser/participants/{id}/audit` handler to
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/participant/ParticipantController.java`,
       loading via `AuditService.findForParticipant(id)` and rendering a new
       `organiser/participants/audit.html` view that includes the T028 fragment; unknown `id` → `404` (depends
       on: T028, T010)
-- [ ] T031 [P] [US2] Add an "Audit" link to `src/main/resources/templates/organiser/topics/detail.html`
+- [X] T031 [P] [US2] Add an "Audit" link to `src/main/resources/templates/organiser/topics/detail.html`
       pointing at the T029 route (depends on: T029)
-- [ ] T032 [P] [US2] Add an "Audit" link to `src/main/resources/templates/organiser/participants/detail.html`
+- [X] T032 [P] [US2] Add an "Audit" link to `src/main/resources/templates/organiser/participants/detail.html`
       pointing at the T030 route (depends on: T030)
-- [ ] T033 [P] [US2] Add an "Audit" link to `src/main/resources/templates/organiser/groups/detail.html`
+- [X] T033 [P] [US2] Add an "Audit" link to `src/main/resources/templates/organiser/groups/detail.html`
       pointing at `/organiser/topics/{topicId}/audit`, using the Group's own `topicId` already present in
       `GroupDetail`'s model (`detail.group().getTopicId()`) — no `GroupController` route change (depends on:
       T029)
@@ -256,12 +256,12 @@ Topic's Group and confirm the identical paired shape results, differing only in 
 
 > Write these tests FIRST; confirm they fail before starting the implementation tasks below.
 
-- [ ] T034 [P] [US3] Extend `src/test/java/net/fabcelhaft/hackathonorganiser/group/GroupServiceTest.java`:
+- [X] T034 [P] [US3] Extend `src/test/java/net/fabcelhaft/hackathonorganiser/group/GroupServiceTest.java`:
       assert `addMember` calls `AuditService.record(...)` exactly twice — once with `AuditSubjectType.TOPIC`/
       the Group's `topicId`/event `JOINED`, once with `AuditSubjectType.PARTICIPANT`/the Participant's id/event
       `JOINED` — both sharing one generated `actionId`, regardless of the `AuditActor` passed in; assert
       `removeMember` does the identical thing with event `LEFT`
-- [ ] T035 [US3] Create `AuditMembershipPairingIT` (integration, matching `TopicJoinManagementIT.java`'s
+- [X] T035 [US3] Create `AuditMembershipPairingIT` (integration, matching `TopicJoinManagementIT.java`'s
       existing setup) in `src/test/java/net/fabcelhaft/hackathonorganiser/audit/AuditMembershipPairingIT.java`:
       (a) a Participant joins a Topic via `POST /topics/{id}/join` — assert, via `AuditEntryRepository`, exactly
       two entries share one `action_id`, event `JOINED`, correct subjects, `organiser=false`; (b) the same
@@ -275,7 +275,7 @@ Topic's Group and confirm the identical paired shape results, differing only in 
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/group/GroupService.java`:
+- [X] T036 [US3] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/group/GroupService.java`:
       in `addMember`, acquire a `pg_advisory_xact_lock(hashtext('participant-join:' || participantId))` lock
       (mirroring the existing `acquireTopicJoinLock` helper) before touching `group_members`, inside the shared
       `TransactionalOperator`; on success, generate one fresh `actionId` and call
@@ -283,16 +283,16 @@ Topic's Group and confirm the identical paired shape results, differing only in 
       and `auditService.record(JOINED, actor, AuditSubjectType.PARTICIPANT, participantId, <topic name>, ...)`
       sharing that `actionId`; apply the identical treatment to `removeMember` with event `LEFT` (depends on:
       T034, T023 (same file, sequential))
-- [ ] T037 [US3] Modify `join`/`leave` in the same `GroupService.java` to accept and forward the `AuditActor`
+- [X] T037 [US3] Modify `join`/`leave` in the same `GroupService.java` to accept and forward the `AuditActor`
       parameter into `addMember`/`removeMember` unchanged — `join`/`leave` make no `AuditService` call of their
       own (depends on: T036)
-- [ ] T038 [US3] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicJoinService.java`: add an
+- [X] T038 [US3] Modify `src/main/java/net/fabcelhaft/hackathonorganiser/topic/TopicJoinService.java`: add an
       `AuditActor actor` parameter to `join` and `leave`, forwarding it unchanged into
       `GroupService.join`/`leave` (depends on: T037)
-- [ ] T039 [US3] Modify
+- [X] T039 [US3] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/topics/TopicJoinController.java`: at the `join`/`leave`
       call sites, construct `new AuditActor(userId, false)` and pass it through (depends on: T038)
-- [ ] T040 [US3] Modify
+- [X] T040 [US3] Modify
       `src/main/java/net/fabcelhaft/hackathonorganiser/organiser/group/GroupController.java`'s
       `addMember`/`removeMember` call sites (`POST /organiser/groups/{id}/members`,
       `POST /organiser/groups/{id}/members/{participantId}/remove`) to construct
@@ -310,10 +310,10 @@ the underlying cross-topic race is closed.
 
 - [ ] T041 [P] Walk through all 7 scenarios in `specs/006-audit-trail/quickstart.md` against a running local
       instance (`docker-compose up -d`, `mvn spring-boot:run`) with one Organiser and one Participant session
-- [ ] T042 [P] Review every new/modified file's class- and method-level Javadoc for consistency with this
+- [X] T042 [P] Review every new/modified file's class- and method-level Javadoc for consistency with this
       codebase's existing documentation density (e.g., `GroupService.java`'s class-level Javadoc referencing
       FR numbers and `research.md` sections)
-- [ ] T043 Run `mvn test` once more for the full suite (002–005 plus this feature's new tests) and confirm zero
+- [X] T043 Run `mvn test` once more for the full suite (002–005 plus this feature's new tests) and confirm zero
       failures and zero regressions
 
 ---

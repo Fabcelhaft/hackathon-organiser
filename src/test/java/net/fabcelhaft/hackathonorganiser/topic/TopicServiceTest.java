@@ -3,13 +3,22 @@ package net.fabcelhaft.hackathonorganiser.topic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEntry;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
@@ -52,19 +61,32 @@ class TopicServiceTest {
     @Mock
     private OrganiserSettingsService organiserSettingsService;
 
+    @Mock
+    private AuditService auditService;
+
+    private static final AuditActor ACTOR = new AuditActor(UUID.randomUUID(), true);
+
     private TopicService topicService;
 
     @BeforeEach
     void setUp() {
+        lenient()
+                .when(auditService.record(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new AuditEntry()));
         topicService = new TopicService(
-                topicRepository, userRepository, skillRepository, databaseClient, organiserSettingsService);
+                topicRepository,
+                userRepository,
+                skillRepository,
+                databaseClient,
+                organiserSettingsService,
+                auditService);
     }
 
     // --- create: name/description/creator required (FR-015) ------------------------------------
 
     @Test
     void createRejectsMissingName() {
-        StepVerifier.create(topicService.create(null, "Description", UUID.randomUUID(), List.of()))
+        StepVerifier.create(topicService.create(null, "Description", UUID.randomUUID(), List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -73,7 +95,7 @@ class TopicServiceTest {
 
     @Test
     void createRejectsBlankName() {
-        StepVerifier.create(topicService.create("   ", "Description", UUID.randomUUID(), List.of()))
+        StepVerifier.create(topicService.create("   ", "Description", UUID.randomUUID(), List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -82,7 +104,7 @@ class TopicServiceTest {
 
     @Test
     void createRejectsMissingDescription() {
-        StepVerifier.create(topicService.create("Name", null, UUID.randomUUID(), List.of()))
+        StepVerifier.create(topicService.create("Name", null, UUID.randomUUID(), List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -91,7 +113,7 @@ class TopicServiceTest {
 
     @Test
     void createRejectsMissingCreator() {
-        StepVerifier.create(topicService.create("Name", "Description", null, List.of()))
+        StepVerifier.create(topicService.create("Name", "Description", null, List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -104,7 +126,7 @@ class TopicServiceTest {
         UUID creatorId = UUID.randomUUID();
         when(userRepository.existsById(creatorId)).thenReturn(Mono.just(false));
 
-        StepVerifier.create(topicService.create("Name", "Description", creatorId, List.of()))
+        StepVerifier.create(topicService.create("Name", "Description", creatorId, List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -118,7 +140,7 @@ class TopicServiceTest {
         when(userRepository.existsById(creatorId)).thenReturn(Mono.just(true));
         when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.empty());
 
-        StepVerifier.create(topicService.create("Name", "Description", creatorId, List.of(unknownSkillId)))
+        StepVerifier.create(topicService.create("Name", "Description", creatorId, List.of(unknownSkillId), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -140,7 +162,7 @@ class TopicServiceTest {
                 });
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.create("Name", "Description", creatorId, List.of(skillId)))
+        StepVerifier.create(topicService.create("Name", "Description", creatorId, List.of(skillId), ACTOR))
                 .assertNext(topic -> {
                     assertThat(topic.getName()).isEqualTo("Name");
                     assertThat(topic.getDescription()).isEqualTo("Description");
@@ -155,7 +177,7 @@ class TopicServiceTest {
 
     @Test
     void updateRejectsMissingName() {
-        StepVerifier.create(topicService.update(UUID.randomUUID(), null, "Description", List.of()))
+        StepVerifier.create(topicService.update(UUID.randomUUID(), null, "Description", List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -164,7 +186,7 @@ class TopicServiceTest {
 
     @Test
     void updateRejectsMissingDescription() {
-        StepVerifier.create(topicService.update(UUID.randomUUID(), "Name", null, List.of()))
+        StepVerifier.create(topicService.update(UUID.randomUUID(), "Name", null, List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -176,7 +198,7 @@ class TopicServiceTest {
         UUID id = UUID.randomUUID();
         when(topicRepository.findById(id)).thenReturn(Mono.empty());
 
-        StepVerifier.create(topicService.update(id, "Name", "Description", List.of()))
+        StepVerifier.create(topicService.update(id, "Name", "Description", List.of(), ACTOR))
                 .verifyComplete();
 
         verify(topicRepository, never()).save(any());
@@ -191,7 +213,7 @@ class TopicServiceTest {
         when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
         when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.empty());
 
-        StepVerifier.create(topicService.update(id, "New Name", "New Description", List.of(unknownSkillId)))
+        StepVerifier.create(topicService.update(id, "New Name", "New Description", List.of(unknownSkillId), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -211,7 +233,7 @@ class TopicServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.update(id, "New Name", "New Description", List.of(skillId)))
+        StepVerifier.create(topicService.update(id, "New Name", "New Description", List.of(skillId), ACTOR))
                 .assertNext(topic -> {
                     assertThat(topic.getName()).isEqualTo("New Name");
                     assertThat(topic.getDescription()).isEqualTo("New Description");
@@ -227,7 +249,7 @@ class TopicServiceTest {
 
     @Test
     void proposeRejectsMissingName() {
-        StepVerifier.create(topicService.propose(UUID.randomUUID(), null, "Description", List.of()))
+        StepVerifier.create(topicService.propose(UUID.randomUUID(), null, "Description", List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -236,7 +258,7 @@ class TopicServiceTest {
 
     @Test
     void proposeRejectsMissingDescription() {
-        StepVerifier.create(topicService.propose(UUID.randomUUID(), "Name", null, List.of()))
+        StepVerifier.create(topicService.propose(UUID.randomUUID(), "Name", null, List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -250,7 +272,7 @@ class TopicServiceTest {
         when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of()))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(), ACTOR))
                 .assertNext(topic -> {
                     assertThat(topic.getApprovalStatus()).isEqualTo(TopicApprovalStatus.PENDING);
                     assertThat(topic.getCreatedByUserId()).isEqualTo(authorId);
@@ -265,7 +287,7 @@ class TopicServiceTest {
         when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of()))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(), ACTOR))
                 .assertNext(topic -> assertThat(topic.getApprovalStatus()).isEqualTo(TopicApprovalStatus.APPROVED))
                 .verifyComplete();
     }
@@ -278,7 +300,7 @@ class TopicServiceTest {
         UUID unknownSkillId = UUID.randomUUID();
         when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.empty());
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(unknownSkillId)))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(unknownSkillId), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -296,7 +318,7 @@ class TopicServiceTest {
         });
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of()))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(), ACTOR))
                 .assertNext(topic -> assertThat(topic.getCreatedByUserId()).isEqualTo(authorId))
                 .verifyComplete();
 
@@ -317,7 +339,7 @@ class TopicServiceTest {
         });
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(skillId)))
+        StepVerifier.create(topicService.propose(authorId, "Name", "Description", List.of(skillId), ACTOR))
                 .assertNext(topic -> assertThat(topic.getCreatedByUserId()).isEqualTo(authorId))
                 .verifyComplete();
 
@@ -329,7 +351,7 @@ class TopicServiceTest {
     @Test
     void updateAsAuthorRejectsMissingName() {
         StepVerifier.create(
-                        topicService.updateAsAuthor(UUID.randomUUID(), UUID.randomUUID(), null, "Description", List.of()))
+                        topicService.updateAsAuthor(UUID.randomUUID(), UUID.randomUUID(), null, "Description", List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -342,7 +364,7 @@ class TopicServiceTest {
         UUID requesterId = UUID.randomUUID();
         when(topicRepository.findById(id)).thenReturn(Mono.empty());
 
-        StepVerifier.create(topicService.updateAsAuthor(id, requesterId, "Name", "Description", List.of()))
+        StepVerifier.create(topicService.updateAsAuthor(id, requesterId, "Name", "Description", List.of(), ACTOR))
                 .verifyComplete();
 
         verify(topicRepository, never()).save(any());
@@ -356,7 +378,7 @@ class TopicServiceTest {
         Topic existing = topicOf(id, "Name", "Description", authorId);
         when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(topicService.updateAsAuthor(id, otherUserId, "New Name", "New Description", List.of()))
+        StepVerifier.create(topicService.updateAsAuthor(id, otherUserId, "New Name", "New Description", List.of(), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -373,7 +395,7 @@ class TopicServiceTest {
         when(skillRepository.findAllById((Iterable<UUID>) any())).thenReturn(Flux.empty());
 
         StepVerifier.create(
-                        topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(unknownSkillId)))
+                        topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(unknownSkillId), ACTOR))
                 .expectError(TopicConflictException.class)
                 .verify();
 
@@ -392,7 +414,7 @@ class TopicServiceTest {
         when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(skillId)))
+        StepVerifier.create(topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(skillId), ACTOR))
                 .assertNext(topic -> {
                     assertThat(topic.getName()).isEqualTo("New Name");
                     assertThat(topic.getDescription()).isEqualTo("New Description");
@@ -455,6 +477,166 @@ class TopicServiceTest {
                     assertThat(view.others()).containsExactly(otherApproved, otherPending);
                 })
                 .verifyComplete();
+    }
+
+    // --- Audit recording (T011, FR-001, FR-002a) --------------------------------------------------
+
+    @Test
+    void createRecordsACreatedAuditEntryWithNoOldOrNewValue() {
+        UUID creatorId = UUID.randomUUID();
+        when(userRepository.existsById(creatorId)).thenReturn(Mono.just(true));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> {
+            Topic topic = invocation.getArgument(0);
+            topic.setId(UUID.randomUUID());
+            return Mono.just(topic);
+        });
+        stubWriteAlwaysSucceeds();
+
+        Topic created = topicService
+                .create("Name", "Description", creatorId, List.of(), ACTOR)
+                .block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.CREATED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(created.getId()),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void updateRecordsAnEditedAuditEntryWithNoOldOrNewValue() {
+        UUID id = UUID.randomUUID();
+        Topic existing = topicOf(id, "Old Name", "Old Description", UUID.randomUUID());
+        when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
+
+        topicService.update(id, "New Name", "New Description", List.of(), ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(id),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void proposeRecordsACreatedAuditEntryWithNoOldOrNewValue() {
+        UUID authorId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false)));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> {
+            Topic topic = invocation.getArgument(0);
+            topic.setId(UUID.randomUUID());
+            return Mono.just(topic);
+        });
+        stubWriteAlwaysSucceeds();
+
+        Topic proposed = topicService
+                .propose(authorId, "Name", "Description", List.of(), ACTOR)
+                .block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.CREATED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(proposed.getId()),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void updateAsAuthorRecordsAnEditedAuditEntryWithNoOldOrNewValue() {
+        UUID id = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Topic existing = topicOf(id, "Old Name", "Old Description", authorId);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
+
+        topicService.updateAsAuthor(id, authorId, "New Name", "New Description", List.of(), ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(id),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void approveRecordsAStatusChangedAuditEntryWithPendingToApprovedValues() {
+        UUID id = UUID.randomUUID();
+        Topic pending =
+                approvalTopicOf("Name", UUID.randomUUID(), TopicApprovalStatus.PENDING, Instant.now());
+        pending.setId(id);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(pending));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        topicService.approve(id, ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.STATUS_CHANGED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(id),
+                        anyString(),
+                        eq("PENDING"),
+                        eq("APPROVED"),
+                        isNull());
+    }
+
+    @Test
+    void approveOfAnAlreadyApprovedTopicDoesNotRecordAnAuditEntry() {
+        UUID id = UUID.randomUUID();
+        Topic approved =
+                approvalTopicOf("Name", UUID.randomUUID(), TopicApprovalStatus.APPROVED, Instant.now());
+        approved.setId(id);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(approved));
+
+        topicService.approve(id, ACTOR).block();
+
+        verify(auditService, never()).record(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void reassignAuthorRecordsAnEditedAuditEntryWithNoOldOrNewValue() {
+        UUID id = UUID.randomUUID();
+        UUID newAuthorId = UUID.randomUUID();
+        Topic existing = topicOf(id, "Name", "Description", UUID.randomUUID());
+        when(topicRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(userRepository.existsById(newAuthorId)).thenReturn(Mono.just(true));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        topicService.reassignAuthor(id, newAuthorId, ACTOR).block();
+
+        verify(auditService, times(1))
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(id),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
     }
 
     // --- test helpers ------------------------------------------------------------------------------

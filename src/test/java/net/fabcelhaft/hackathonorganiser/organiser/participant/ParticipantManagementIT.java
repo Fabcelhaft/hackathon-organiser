@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import static org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.springSecurity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
@@ -17,6 +18,7 @@ import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
+import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -31,7 +33,10 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.OidcLoginMutator;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -180,6 +185,79 @@ class ParticipantManagementIT {
         webTestClient.mutateWith(organiser())
                 .post().uri("/organiser/participants/{id}/status", UUID.randomUUID())
                 .body(BodyInserters.fromFormData("status", "REVOKED"))
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    // --- Audit (T026, Story 2, FR-005-FR-008, FR-011) --------------------------------------------
+
+    @Test
+    void organiserCanViewAnAuditHistoryListingPreviouslyRecordedEntriesMostRecentFirst() {
+        User user = persistUser("Audit Target " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/status", participant.getId())
+                .body(BodyInserters.fromFormData("status", "REVOKED"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/status", participant.getId())
+                .body(BodyInserters.fromFormData("status", "ACTIVE"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/participants/{id}/audit", participant.getId())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("STATUS_CHANGED");
+        assertThat(body).contains("ACTIVE -&gt; REVOKED");
+        assertThat(body).contains("REVOKED -&gt; ACTIVE");
+        // Most-recent-first: the later REVOKED-to-ACTIVE row precedes the earlier one.
+        assertThat(body.indexOf("REVOKED -&gt; ACTIVE")).isLessThan(body.indexOf("ACTIVE -&gt; REVOKED"));
+    }
+
+    @Test
+    void auditHistoryRendersAnEmptyLabeledStateForAParticipantWithNoEntriesYet() {
+        User user = persistUser("Untouched Participant " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/participants/{id}/audit", participant.getId())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).containsIgnoringCase("no changes recorded yet");
+    }
+
+    @Test
+    void auditHistoryIsDeniedToANonOrganiserBeforeAnyContentRenders() {
+        User user = persistUser("Denied Audit Participant " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+
+        webTestClient.mutateWith(standardUser())
+                .get().uri("/organiser/participants/{id}/audit", participant.getId())
+                .exchange()
+                .expectStatus().isForbidden();
+
+        webTestClient
+                .get().uri("/organiser/participants/{id}/audit", participant.getId())
+                .exchange()
+                .expectStatus().is3xxRedirection();
+    }
+
+    @Test
+    void auditHistoryOfAnUnknownParticipantReturnsNotFound() {
+        webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/participants/{id}/audit", UUID.randomUUID())
                 .exchange()
                 .expectStatus().isNotFound();
     }
@@ -526,11 +604,15 @@ class ParticipantManagementIT {
     }
 
     private User persistUser(String displayName) {
+        return persistUser(displayName, false);
+    }
+
+    private User persistUser(String displayName, boolean organiser) {
         User user = new User();
         user.setOidcSubject("sub-" + UUID.randomUUID());
         user.setDisplayName(displayName);
         user.setEmail(displayName.toLowerCase().replace(' ', '.') + "@example.com");
-        user.setOrganiser(false);
+        user.setOrganiser(organiser);
         user.setCreatedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
         return userRepository.save(user).block();
@@ -603,11 +685,35 @@ class ParticipantManagementIT {
         return customFieldOptionRepository.save(option).block();
     }
 
-    private static OidcLoginMutator organiser() {
-        return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_ORGANISER"));
+    /**
+     * A real, persisted Organiser login (feature 006, FR-001-FR-002a): {@code register}/{@code
+     * changeStatus}/{@code replaceSkills}/{@code delete}/{@code setCustomFieldValue} now resolve
+     * {@code @AuthenticationPrincipal HackathonOidcUser} to attribute an {@link
+     * net.fabcelhaft.hackathonorganiser.audit.AuditEntry}'s {@code actor_user_id} (a real FK to
+     * {@code users}), so a bare {@code mockOidcLogin()} (no backing User row) is no longer
+     * sufficient for any route on this controller.
+     */
+    private OidcLoginMutator organiser() {
+        return loginAsUser(persistUser("Organiser " + UUID.randomUUID(), true));
     }
 
-    private static OidcLoginMutator standardUser() {
-        return mockOidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"));
+    private OidcLoginMutator standardUser() {
+        return loginAsUser(persistUser("Standard User " + UUID.randomUUID(), false));
+    }
+
+    private static OidcLoginMutator loginAsUser(User user) {
+        Instant issuedAt = Instant.now();
+        OidcIdToken idToken = OidcIdToken.withTokenValue("token-value")
+                .subject(user.getOidcSubject())
+                .issuedAt(issuedAt)
+                .expiresAt(issuedAt.plusSeconds(300))
+                .claim("name", user.getDisplayName())
+                .build();
+        List<GrantedAuthority> authorities = user.isOrganiser()
+                ? List.of(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("ROLE_ORGANISER"))
+                : List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        DefaultOidcUser delegate = new DefaultOidcUser(authorities, idToken);
+        HackathonOidcUser principal = new HackathonOidcUser(user, delegate);
+        return mockOidcLogin().oidcUser(principal);
     }
 }

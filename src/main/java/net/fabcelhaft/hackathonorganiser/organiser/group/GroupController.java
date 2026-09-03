@@ -3,12 +3,15 @@ package net.fabcelhaft.hackathonorganiser.organiser.group;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupConflictException;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
+import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -54,14 +57,14 @@ public class GroupController {
     }
 
     @PostMapping
-    public Mono<Rendering> create(ServerWebExchange exchange) {
+    public Mono<Rendering> create(ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         // WebFlux's @RequestParam only ever reads URL query parameters, never a form-urlencoded
         // request body (unlike Spring MVC) — so form fields are read via ServerWebExchange.getFormData().
         return exchange.getFormData().flatMap(form -> {
             UUID topicId = parseUuidOrNull(form.getFirst("topic_id"));
             List<UUID> participantIds = toUuidList(form.get("participant_ids"));
             return groupService
-                    .create(topicId, participantIds)
+                    .create(topicId, participantIds, new AuditActor(oidcUser.getUser().getId(), true))
                     .<Rendering>map(group -> Rendering.redirectTo("/organiser/groups/" + group.getId())
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -78,11 +81,12 @@ public class GroupController {
     }
 
     @PostMapping("/{id}/members")
-    public Mono<Rendering> addMember(@PathVariable UUID id, ServerWebExchange exchange) {
+    public Mono<Rendering> addMember(
+            @PathVariable UUID id, ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return exchange.getFormData().flatMap(form -> {
             UUID participantId = parseUuidOrNull(form.getFirst("participant_id"));
             return groupService
-                    .addMember(id, participantId)
+                    .addMember(id, participantId, new AuditActor(oidcUser.getUser().getId(), true))
                     .<Rendering>map(group -> Rendering.redirectTo("/organiser/groups/" + id)
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -92,9 +96,12 @@ public class GroupController {
     }
 
     @PostMapping("/{id}/members/{participantId}/remove")
-    public Mono<Rendering> removeMember(@PathVariable UUID id, @PathVariable UUID participantId) {
+    public Mono<Rendering> removeMember(
+            @PathVariable UUID id,
+            @PathVariable UUID participantId,
+            @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return groupService
-                .removeMember(id, participantId)
+                .removeMember(id, participantId, new AuditActor(oidcUser.getUser().getId(), true))
                 .<Rendering>map(group -> Rendering.redirectTo("/organiser/groups/" + id)
                         .status(HttpStatus.SEE_OTHER)
                         .build())
@@ -102,11 +109,12 @@ public class GroupController {
     }
 
     @PostMapping("/{id}/compliance-override")
-    public Mono<Rendering> setComplianceOverride(@PathVariable UUID id, ServerWebExchange exchange) {
+    public Mono<Rendering> setComplianceOverride(
+            @PathVariable UUID id, ServerWebExchange exchange, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return exchange.getFormData().flatMap(form -> {
             boolean override = "true".equalsIgnoreCase(form.getFirst("override"));
             return groupService
-                    .setComplianceOverride(id, override)
+                    .setComplianceOverride(id, override, new AuditActor(oidcUser.getUser().getId(), true))
                     .<Rendering>map(group -> Rendering.redirectTo("/organiser/groups/" + id + "?flash="
                                     + (override ? "Compliance+override+set." : "Compliance+override+removed."))
                             .status(HttpStatus.SEE_OTHER)
@@ -116,9 +124,9 @@ public class GroupController {
     }
 
     @PostMapping("/{id}/disband")
-    public Mono<Rendering> disband(@PathVariable UUID id) {
+    public Mono<Rendering> disband(@PathVariable UUID id, @AuthenticationPrincipal HackathonOidcUser oidcUser) {
         return groupService
-                .disband(id)
+                .disband(id, new AuditActor(oidcUser.getUser().getId(), true))
                 .<Rendering>map(group -> Rendering.redirectTo("/organiser/groups/" + id)
                         .status(HttpStatus.SEE_OTHER)
                         .build())

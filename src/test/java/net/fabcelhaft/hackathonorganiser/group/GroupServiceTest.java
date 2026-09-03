@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,6 +14,11 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEntry;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
@@ -65,6 +71,11 @@ class GroupServiceTest {
     @Mock
     private ComplianceService complianceService;
 
+    @Mock
+    private AuditService auditService;
+
+    private static final AuditActor ACTOR = new AuditActor(UUID.randomUUID(), true);
+
     private GroupService groupService;
 
     @BeforeEach
@@ -83,6 +94,11 @@ class GroupServiceTest {
                 return mono;
             }
         };
+        lenient().when(topicRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
+        lenient().when(participantRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
+        lenient()
+                .when(auditService.record(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new AuditEntry()));
         groupService = new GroupService(
                 groupRepository,
                 topicRepository,
@@ -91,7 +107,8 @@ class GroupServiceTest {
                 databaseClient,
                 organiserSettingsService,
                 transactionalOperator,
-                complianceService);
+                complianceService,
+                auditService);
     }
 
     // --- create: blocked when the Topic already has an active Group (FR-016a) ------------------
@@ -104,7 +121,7 @@ class GroupServiceTest {
         when(groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE))
                 .thenReturn(Mono.just(existingActive));
 
-        StepVerifier.create(groupService.create(topicId, List.of()))
+        StepVerifier.create(groupService.create(topicId, List.of(), ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
 
@@ -116,14 +133,14 @@ class GroupServiceTest {
         UUID topicId = UUID.randomUUID();
         when(topicRepository.existsById(topicId)).thenReturn(Mono.just(false));
 
-        StepVerifier.create(groupService.create(topicId, List.of())).verifyComplete();
+        StepVerifier.create(groupService.create(topicId, List.of(), ACTOR)).verifyComplete();
 
         verify(groupRepository, never()).save(any());
     }
 
     @Test
     void createRejectsAMissingTopicId() {
-        StepVerifier.create(groupService.create(null, List.of()))
+        StepVerifier.create(groupService.create(null, List.of(), ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
 
@@ -142,7 +159,7 @@ class GroupServiceTest {
             return Mono.just(group);
         });
 
-        StepVerifier.create(groupService.create(topicId, List.of()))
+        StepVerifier.create(groupService.create(topicId, List.of(), ACTOR))
                 .assertNext(group -> {
                     assertThat(group.getTopicId()).isEqualTo(topicId);
                     assertThat(group.getStatus()).isEqualTo(GroupStatus.ACTIVE);
@@ -163,8 +180,9 @@ class GroupServiceTest {
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
         when(participantRepository.existsById(participantId)).thenReturn(Mono.just(true));
         stubActiveGroupIdForParticipant(participantId, otherGroupId);
+        stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.addMember(groupId, participantId))
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
     }
@@ -176,8 +194,9 @@ class GroupServiceTest {
         Group group = groupOf(groupId, UUID.randomUUID(), GroupStatus.ACTIVE);
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
         when(participantRepository.existsById(participantId)).thenReturn(Mono.just(false));
+        stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.addMember(groupId, participantId))
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
     }
@@ -189,7 +208,7 @@ class GroupServiceTest {
         Group disbanded = groupOf(groupId, UUID.randomUUID(), GroupStatus.DISBANDED);
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(disbanded));
 
-        StepVerifier.create(groupService.addMember(groupId, participantId))
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
 
@@ -202,7 +221,7 @@ class GroupServiceTest {
         UUID participantId = UUID.randomUUID();
         when(groupRepository.findById(groupId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(groupService.addMember(groupId, participantId)).verifyComplete();
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR)).verifyComplete();
     }
 
     @Test
@@ -215,7 +234,7 @@ class GroupServiceTest {
         stubNoActiveGroupForParticipant(participantId);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.addMember(groupId, participantId))
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR))
                 .expectNext(group)
                 .verifyComplete();
     }
@@ -230,9 +249,115 @@ class GroupServiceTest {
         stubActiveGroupIdForParticipant(participantId, groupId);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.addMember(groupId, participantId))
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR))
                 .expectNext(group)
                 .verifyComplete();
+    }
+
+    // --- Audit recording (T034, US3, FR-004, FR-004a): addMember/removeMember write a paired ----
+    // --- JOINED/LEFT entry sharing one actionId, regardless of the AuditActor passed in. --------
+
+    @Test
+    void addMemberRecordsAJoinedPairSharingOneActionIdRegardlessOfActor() {
+        UUID groupId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        UUID participantId = UUID.randomUUID();
+        Group group = groupOf(groupId, topicId, GroupStatus.ACTIVE);
+        when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
+        when(participantRepository.existsById(participantId)).thenReturn(Mono.just(true));
+        stubNoActiveGroupForParticipant(participantId);
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(groupService.addMember(groupId, participantId, ACTOR))
+                .expectNext(group)
+                .verifyComplete();
+
+        org.mockito.ArgumentCaptor<UUID> actionIdCaptor = org.mockito.ArgumentCaptor.forClass(UUID.class);
+        verify(auditService, org.mockito.Mockito.times(2))
+                .record(
+                        eq(AuditEventType.JOINED),
+                        eq(ACTOR),
+                        any(),
+                        any(),
+                        anyString(),
+                        isNull(),
+                        anyString(),
+                        actionIdCaptor.capture());
+        List<UUID> actionIds = actionIdCaptor.getAllValues();
+        assertThat(actionIds).hasSize(2);
+        assertThat(actionIds.get(0)).isNotNull().isEqualTo(actionIds.get(1));
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.JOINED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(topicId),
+                        anyString(),
+                        isNull(),
+                        anyString(),
+                        any());
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.JOINED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        isNull(),
+                        anyString(),
+                        any());
+    }
+
+    @Test
+    void removeMemberRecordsALeftPairSharingOneActionIdRegardlessOfActor() {
+        UUID groupId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        UUID participantId = UUID.randomUUID();
+        Group group = groupOf(groupId, topicId, GroupStatus.ACTIVE);
+        when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
+        stubIsActiveMember(true);
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(groupService.removeMember(groupId, participantId, ACTOR))
+                .expectNext(group)
+                .verifyComplete();
+
+        org.mockito.ArgumentCaptor<UUID> actionIdCaptor = org.mockito.ArgumentCaptor.forClass(UUID.class);
+        verify(auditService, org.mockito.Mockito.times(2))
+                .record(
+                        eq(AuditEventType.LEFT),
+                        eq(ACTOR),
+                        any(),
+                        any(),
+                        anyString(),
+                        isNull(),
+                        anyString(),
+                        actionIdCaptor.capture());
+        List<UUID> actionIds = actionIdCaptor.getAllValues();
+        assertThat(actionIds).hasSize(2);
+        assertThat(actionIds.get(0)).isNotNull().isEqualTo(actionIds.get(1));
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.LEFT),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(topicId),
+                        anyString(),
+                        isNull(),
+                        anyString(),
+                        any());
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.LEFT),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        isNull(),
+                        anyString(),
+                        any());
     }
 
     // --- disband: flips the Group DISBANDED and every membership active=false (FR-016b) --------
@@ -245,7 +370,7 @@ class GroupServiceTest {
         when(groupRepository.save(any(Group.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.disband(groupId))
+        StepVerifier.create(groupService.disband(groupId, ACTOR))
                 .assertNext(group -> {
                     assertThat(group.getStatus()).isEqualTo(GroupStatus.DISBANDED);
                     assertThat(group.getDisbandedAt()).isNotNull();
@@ -260,7 +385,7 @@ class GroupServiceTest {
         UUID groupId = UUID.randomUUID();
         when(groupRepository.findById(groupId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(groupService.disband(groupId)).verifyComplete();
+        StepVerifier.create(groupService.disband(groupId, ACTOR)).verifyComplete();
 
         verify(groupRepository, never()).save(any());
     }
@@ -271,11 +396,62 @@ class GroupServiceTest {
         Group disbanded = groupOf(groupId, UUID.randomUUID(), GroupStatus.DISBANDED);
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(disbanded));
 
-        StepVerifier.create(groupService.disband(groupId))
+        StepVerifier.create(groupService.disband(groupId, ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
 
         verify(groupRepository, never()).save(any());
+    }
+
+    // --- Audit recording (T013, FR-001, FR-004): create/disband/setComplianceOverride only ------
+    // — audited as AuditSubjectType.TOPIC/the Group's own topicId, never a Group reference.
+
+    @Test
+    void createRecordsACreatedAuditEntryAgainstTheTopicSubject() {
+        UUID topicId = UUID.randomUUID();
+        when(topicRepository.existsById(topicId)).thenReturn(Mono.just(true));
+        when(groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE)).thenReturn(Mono.empty());
+        when(groupRepository.save(any(Group.class))).thenAnswer(invocation -> {
+            Group group = invocation.getArgument(0);
+            group.setId(UUID.randomUUID());
+            return Mono.just(group);
+        });
+
+        StepVerifier.create(groupService.create(topicId, List.of(), ACTOR)).expectNextCount(1).verifyComplete();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.CREATED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(topicId),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void disbandRecordsADisbandedAuditEntryAgainstTheTopicSubject() {
+        UUID groupId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        Group active = groupOf(groupId, topicId, GroupStatus.ACTIVE);
+        when(groupRepository.findById(groupId)).thenReturn(Mono.just(active));
+        when(groupRepository.save(any(Group.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(groupService.disband(groupId, ACTOR)).expectNextCount(1).verifyComplete();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.DISBANDED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(topicId),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
     }
 
     // --- removeMember: only an active membership can be removed ----------------------------------
@@ -288,7 +464,7 @@ class GroupServiceTest {
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
         stubIsActiveMember(false);
 
-        StepVerifier.create(groupService.removeMember(groupId, participantId)).verifyComplete();
+        StepVerifier.create(groupService.removeMember(groupId, participantId, ACTOR)).verifyComplete();
     }
 
     @Test
@@ -300,7 +476,7 @@ class GroupServiceTest {
         stubIsActiveMember(true);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.removeMember(groupId, participantId))
+        StepVerifier.create(groupService.removeMember(groupId, participantId, ACTOR))
                 .expectNext(group)
                 .verifyComplete();
     }
@@ -350,7 +526,7 @@ class GroupServiceTest {
         stubNoActiveGroupForParticipant(participantId);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.join(topicId, participantId))
+        StepVerifier.create(groupService.join(topicId, participantId, ACTOR))
                 .assertNext(group -> {
                     assertThat(group.getTopicId()).isEqualTo(topicId);
                     assertThat(group.getStatus()).isEqualTo(GroupStatus.ACTIVE);
@@ -371,7 +547,7 @@ class GroupServiceTest {
         stubNoActiveGroupForParticipant(participantId);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.join(topicId, participantId))
+        StepVerifier.create(groupService.join(topicId, participantId, ACTOR))
                 .expectNext(existing)
                 .verifyComplete();
     }
@@ -386,7 +562,7 @@ class GroupServiceTest {
         stubCount(existing.getId(), 3);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.join(topicId, participantId))
+        StepVerifier.create(groupService.join(topicId, participantId, ACTOR))
                 .expectErrorSatisfies(ex -> assertThat(ex)
                         .isInstanceOf(GroupConflictException.class)
                         .hasMessageContaining("full"))
@@ -409,7 +585,7 @@ class GroupServiceTest {
         stubNoActiveGroupForParticipant(participantId);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.join(topicId, participantId))
+        StepVerifier.create(groupService.join(topicId, participantId, ACTOR))
                 .expectNext(existing)
                 .verifyComplete();
     }
@@ -428,7 +604,7 @@ class GroupServiceTest {
         stubActiveGroupIdForParticipant(participantId, otherGroupId);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.join(topicId, participantId))
+        StepVerifier.create(groupService.join(topicId, participantId, ACTOR))
                 .expectError(GroupConflictException.class)
                 .verify();
     }
@@ -441,7 +617,7 @@ class GroupServiceTest {
         when(topicRepository.existsById(topicId)).thenReturn(Mono.just(false));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.join(topicId, participantId)).verifyComplete();
+        StepVerifier.create(groupService.join(topicId, participantId, ACTOR)).verifyComplete();
 
         verify(groupRepository, never()).save(any());
     }
@@ -455,7 +631,7 @@ class GroupServiceTest {
         when(groupRepository.findByTopicIdAndStatus(topicId, GroupStatus.ACTIVE)).thenReturn(Mono.empty());
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.leave(topicId, participantId))
+        StepVerifier.create(groupService.leave(topicId, participantId, ACTOR))
                 .expectErrorSatisfies(ex -> assertThat(ex)
                         .isInstanceOf(GroupConflictException.class)
                         .hasMessageContaining("not currently a member"))
@@ -472,7 +648,7 @@ class GroupServiceTest {
         stubWriteAlwaysSucceeds();
         stubIsActiveMember(false);
 
-        StepVerifier.create(groupService.leave(topicId, participantId))
+        StepVerifier.create(groupService.leave(topicId, participantId, ACTOR))
                 .expectErrorSatisfies(ex -> assertThat(ex)
                         .isInstanceOf(GroupConflictException.class)
                         .hasMessageContaining("not currently a member"))
@@ -490,7 +666,7 @@ class GroupServiceTest {
         stubCount(existing.getId(), 1);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.leave(topicId, participantId))
+        StepVerifier.create(groupService.leave(topicId, participantId, ACTOR))
                 .assertNext(group -> {
                     assertThat(group.getId()).isEqualTo(existing.getId());
                     assertThat(group.getStatus()).isEqualTo(GroupStatus.ACTIVE);
@@ -512,7 +688,7 @@ class GroupServiceTest {
         stubCount(existing.getId(), 0);
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(groupService.leave(topicId, participantId))
+        StepVerifier.create(groupService.leave(topicId, participantId, ACTOR))
                 .assertNext(group -> {
                     assertThat(group.getStatus()).isEqualTo(GroupStatus.DISBANDED);
                     assertThat(group.getDisbandedAt()).isNotNull();
@@ -536,7 +712,7 @@ class GroupServiceTest {
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
         when(groupRepository.save(any(Group.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(groupService.setComplianceOverride(groupId, true))
+        StepVerifier.create(groupService.setComplianceOverride(groupId, true, ACTOR))
                 .assertNext(saved -> assertThat(saved.isComplianceOverride()).isTrue())
                 .verifyComplete();
     }
@@ -549,7 +725,7 @@ class GroupServiceTest {
         when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
         when(groupRepository.save(any(Group.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(groupService.setComplianceOverride(groupId, false))
+        StepVerifier.create(groupService.setComplianceOverride(groupId, false, ACTOR))
                 .assertNext(saved -> assertThat(saved.isComplianceOverride()).isFalse())
                 .verifyComplete();
     }
@@ -559,9 +735,33 @@ class GroupServiceTest {
         UUID groupId = UUID.randomUUID();
         when(groupRepository.findById(groupId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(groupService.setComplianceOverride(groupId, true)).verifyComplete();
+        StepVerifier.create(groupService.setComplianceOverride(groupId, true, ACTOR)).verifyComplete();
 
         verify(groupRepository, never()).save(any());
+    }
+
+    @Test
+    void setComplianceOverrideRecordsAnEditedAuditEntryWithTheRealOldAndNewBooleanValues() {
+        UUID groupId = UUID.randomUUID();
+        UUID topicId = UUID.randomUUID();
+        Group group = groupOf(groupId, topicId, GroupStatus.ACTIVE);
+        when(groupRepository.findById(groupId)).thenReturn(Mono.just(group));
+        when(groupRepository.save(any(Group.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(groupService.setComplianceOverride(groupId, true, ACTOR))
+                .expectNextCount(1)
+                .verifyComplete();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.TOPIC),
+                        eq(topicId),
+                        anyString(),
+                        eq("false"),
+                        eq("true"),
+                        isNull());
     }
 
     // --- activeMemberCount / activeMemberParticipantIds (FR-011c's read-shared query, US2/US3) ---
@@ -680,8 +880,9 @@ class GroupServiceTest {
         when(executeSpec.bind(anyString(), any())).thenReturn(executeSpec);
         when(executeSpec.mapValue(Boolean.class)).thenReturn(fetch);
         when(fetch.one()).thenReturn(active ? Mono.just(true) : Mono.empty());
-        if (active) {
-            when(executeSpec.then()).thenReturn(Mono.empty());
-        }
+        // Always stubbed (not just for the active branch): addMember/removeMember now acquire a
+        // participant-scoped advisory lock via this same databaseClient.sql(...).then() shape
+        // before reaching the isActiveMember check at all (research.md §5).
+        when(executeSpec.then()).thenReturn(Mono.empty());
     }
 }

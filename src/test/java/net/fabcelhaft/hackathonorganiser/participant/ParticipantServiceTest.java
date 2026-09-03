@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -15,6 +16,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEntry;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
@@ -82,6 +88,11 @@ class ParticipantServiceTest {
     @Mock
     private CustomFieldService customFieldService;
 
+    @Mock
+    private AuditService auditService;
+
+    private static final AuditActor ACTOR = new AuditActor(UUID.randomUUID(), true);
+
     private ParticipantService participantService;
 
     @BeforeEach
@@ -101,6 +112,10 @@ class ParticipantServiceTest {
                 return mono;
             }
         };
+        lenient().when(userRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
+        lenient()
+                .when(auditService.record(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(new AuditEntry()));
         participantService = new ParticipantService(
                 participantRepository,
                 userRepository,
@@ -111,7 +126,8 @@ class ParticipantServiceTest {
                 organiserSettingsService,
                 groupService,
                 customFieldService,
-                transactionalOperator);
+                transactionalOperator,
+                auditService);
     }
 
     // --- register: single Participant per User (FR-006a), initial status ACTIVE (FR-006b) ------
@@ -124,7 +140,7 @@ class ParticipantServiceTest {
         when(participantRepository.save(any(Participant.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(participantService.register(userId))
+        StepVerifier.create(participantService.register(userId, ACTOR))
                 .assertNext(participant -> {
                     assertThat(participant.getUserId()).isEqualTo(userId);
                     assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
@@ -139,7 +155,7 @@ class ParticipantServiceTest {
         UUID userId = UUID.randomUUID();
         when(userRepository.existsById(userId)).thenReturn(Mono.just(false));
 
-        StepVerifier.create(participantService.register(userId))
+        StepVerifier.create(participantService.register(userId, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -156,7 +172,7 @@ class ParticipantServiceTest {
         when(userRepository.existsById(userId)).thenReturn(Mono.just(true));
         when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(participantService.register(userId))
+        StepVerifier.create(participantService.register(userId, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -174,7 +190,7 @@ class ParticipantServiceTest {
             when(participantRepository.save(any(Participant.class)))
                     .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-            StepVerifier.create(participantService.changeStatus(id, status))
+            StepVerifier.create(participantService.changeStatus(id, status, ACTOR))
                     .assertNext(participant -> assertThat(participant.getStatus()).isEqualTo(status))
                     .verifyComplete();
         }
@@ -185,7 +201,7 @@ class ParticipantServiceTest {
         UUID id = UUID.randomUUID();
         when(participantRepository.findById(id)).thenReturn(Mono.empty());
 
-        StepVerifier.create(participantService.changeStatus(id, ParticipantStatus.REVOKED)).verifyComplete();
+        StepVerifier.create(participantService.changeStatus(id, ParticipantStatus.REVOKED, ACTOR)).verifyComplete();
 
         verify(participantRepository, never()).save(any());
     }
@@ -202,7 +218,7 @@ class ParticipantServiceTest {
         when(customFieldDefinitionRepository.findById(fieldId)).thenReturn(Mono.just(definition));
 
         StepVerifier.create(participantService.setCustomFieldValue(
-                        participantId, fieldId, null, List.of(UUID.randomUUID())))
+                        participantId, fieldId, null, List.of(UUID.randomUUID()), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
     }
@@ -217,7 +233,7 @@ class ParticipantServiceTest {
         when(customFieldDefinitionRepository.findById(fieldId)).thenReturn(Mono.just(definition));
 
         StepVerifier.create(
-                        participantService.setCustomFieldValue(participantId, fieldId, "some free text", null))
+                        participantService.setCustomFieldValue(participantId, fieldId, "some free text", null, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
     }
@@ -237,7 +253,7 @@ class ParticipantServiceTest {
         when(customFieldOptionRepository.findByCustomFieldDefinitionId(fieldId)).thenReturn(Flux.just(ownOption));
 
         StepVerifier.create(participantService.setCustomFieldValue(
-                        participantId, fieldId, null, List.of(foreignOptionId)))
+                        participantId, fieldId, null, List.of(foreignOptionId), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
     }
@@ -253,7 +269,7 @@ class ParticipantServiceTest {
         stubWriteAlwaysSucceeds();
 
         StepVerifier.create(
-                        participantService.setCustomFieldValue(participantId, fieldId, "Size M", List.of()))
+                        participantService.setCustomFieldValue(participantId, fieldId, "Size M", List.of(), ACTOR))
                 .expectNext(participant)
                 .verifyComplete();
     }
@@ -274,7 +290,7 @@ class ParticipantServiceTest {
         stubWriteAlwaysSucceeds();
 
         StepVerifier.create(
-                        participantService.setCustomFieldValue(participantId, fieldId, null, List.of(optionId)))
+                        participantService.setCustomFieldValue(participantId, fieldId, null, List.of(optionId), ACTOR))
                 .expectNext(participant)
                 .verifyComplete();
     }
@@ -285,7 +301,7 @@ class ParticipantServiceTest {
         UUID fieldId = UUID.randomUUID();
         when(participantRepository.findById(participantId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(participantService.setCustomFieldValue(participantId, fieldId, "x", null))
+        StepVerifier.create(participantService.setCustomFieldValue(participantId, fieldId, "x", null, ACTOR))
                 .verifyComplete();
     }
 
@@ -297,7 +313,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(customFieldDefinitionRepository.findById(fieldId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(participantService.setCustomFieldValue(participantId, fieldId, "x", null))
+        StepVerifier.create(participantService.setCustomFieldValue(participantId, fieldId, "x", null, ACTOR))
                 .verifyComplete();
     }
 
@@ -409,7 +425,7 @@ class ParticipantServiceTest {
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(participantService.selfRevoke(participantId))
+        StepVerifier.create(participantService.selfRevoke(participantId, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -423,7 +439,7 @@ class ParticipantServiceTest {
         UUID userId = UUID.randomUUID();
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(false, true)));
 
-        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission(), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -437,7 +453,7 @@ class ParticipantServiceTest {
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
         when(participantRepository.findByUserId(userId)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission(), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -454,7 +470,7 @@ class ParticipantServiceTest {
         when(customFieldService.registrationFields()).thenReturn(Flux.just(required));
         stubCapacityGuardPasses();
 
-        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission(), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -476,7 +492,7 @@ class ParticipantServiceTest {
         ProfileFormSubmission submission =
                 new ProfileFormSubmission(Map.of(fieldId, new Options(Set.of(option1, option2))), List.of());
 
-        StepVerifier.create(participantService.submitRegistration(userId, submission))
+        StepVerifier.create(participantService.submitRegistration(userId, submission, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -496,7 +512,7 @@ class ParticipantServiceTest {
         ProfileFormSubmission submission =
                 new ProfileFormSubmission(Map.of(fieldId, new FreeText("ZZ")), List.of());
 
-        StepVerifier.create(participantService.submitRegistration(userId, submission))
+        StepVerifier.create(participantService.submitRegistration(userId, submission, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -513,7 +529,7 @@ class ParticipantServiceTest {
                 .thenAnswer(invocation -> Mono.just(withId(invocation.getArgument(0))));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission(), ACTOR))
                 .assertNext(participant -> {
                     assertThat(participant.getUserId()).isEqualTo(userId);
                     assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
@@ -532,7 +548,7 @@ class ParticipantServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission()))
+        StepVerifier.create(participantService.submitRegistration(userId, emptySubmission(), ACTOR))
                 .assertNext(participant -> {
                     assertThat(participant.getId()).isEqualTo(existing.getId());
                     assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.ACTIVE);
@@ -549,7 +565,7 @@ class ParticipantServiceTest {
         settings.setSelfEditEnabled(false);
         when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
 
-        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission(), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -566,7 +582,7 @@ class ParticipantServiceTest {
         when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
 
-        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission(), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -586,7 +602,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
         when(customFieldService.registrationFields()).thenReturn(Flux.just(required));
 
-        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission(), ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -604,7 +620,7 @@ class ParticipantServiceTest {
         when(customFieldService.registrationFields()).thenReturn(Flux.empty());
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission()))
+        StepVerifier.create(participantService.submitSelfEdit(participantId, emptySubmission(), ACTOR))
                 .expectNext(existing)
                 .verifyComplete();
 
@@ -628,7 +644,7 @@ class ParticipantServiceTest {
         UUID participantId = UUID.randomUUID();
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, false)));
 
-        StepVerifier.create(participantService.selfRevoke(participantId))
+        StepVerifier.create(participantService.selfRevoke(participantId, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -647,13 +663,13 @@ class ParticipantServiceTest {
         when(participantRepository.save(any(Participant.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.just(group));
-        when(groupService.removeMember(groupId, participantId)).thenReturn(Mono.just(group));
+        when(groupService.removeMember(groupId, participantId, ACTOR)).thenReturn(Mono.just(group));
 
-        StepVerifier.create(participantService.selfRevoke(participantId))
+        StepVerifier.create(participantService.selfRevoke(participantId, ACTOR))
                 .assertNext(participant -> assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.REVOKED))
                 .verifyComplete();
 
-        verify(groupService).removeMember(groupId, participantId);
+        verify(groupService).removeMember(groupId, participantId, ACTOR);
     }
 
     @Test
@@ -666,11 +682,11 @@ class ParticipantServiceTest {
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
         when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(participantService.selfRevoke(participantId))
+        StepVerifier.create(participantService.selfRevoke(participantId, ACTOR))
                 .assertNext(participant -> assertThat(participant.getStatus()).isEqualTo(ParticipantStatus.REVOKED))
                 .verifyComplete();
 
-        verify(groupService, never()).removeMember(any(UUID.class), any(UUID.class));
+        verify(groupService, never()).removeMember(any(UUID.class), any(UUID.class), any());
     }
 
     // --- delete: only the Participant, blocked while it belongs to an active Group -------------
@@ -684,7 +700,7 @@ class ParticipantServiceTest {
         when(participantRepository.deleteById(participantId)).thenReturn(Mono.empty());
         stubWriteAlwaysSucceeds();
 
-        StepVerifier.create(participantService.delete(participantId)).verifyComplete();
+        StepVerifier.create(participantService.delete(participantId, ACTOR)).verifyComplete();
 
         verify(participantRepository).deleteById(participantId);
     }
@@ -698,7 +714,7 @@ class ParticipantServiceTest {
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
         when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.just(group));
 
-        StepVerifier.create(participantService.delete(participantId))
+        StepVerifier.create(participantService.delete(participantId, ACTOR))
                 .expectError(ParticipantConflictException.class)
                 .verify();
 
@@ -710,9 +726,200 @@ class ParticipantServiceTest {
         UUID participantId = UUID.randomUUID();
         when(participantRepository.findById(participantId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(participantService.delete(participantId)).verifyComplete();
+        StepVerifier.create(participantService.delete(participantId, ACTOR)).verifyComplete();
 
         verify(participantRepository, never()).deleteById(any(UUID.class));
+    }
+
+    // --- Audit recording (T012, FR-001, FR-002a) ----------------------------------------------
+
+    @Test
+    void registerRecordsACreatedAuditEntryWithNoOldOrNewValue() {
+        UUID userId = UUID.randomUUID();
+        when(userRepository.existsById(userId)).thenReturn(Mono.just(true));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.getArgument(0))));
+
+        Participant registered = participantService.register(userId, ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.CREATED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(registered.getId()),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void changeStatusRecordsAStatusChangedAuditEntryWithRealOldAndNewValues() {
+        UUID id = UUID.randomUUID();
+        Participant existing = participantOf(id, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        participantService.changeStatus(id, ParticipantStatus.REVOKED, ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.STATUS_CHANGED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(id),
+                        anyString(),
+                        eq("ACTIVE"),
+                        eq("REVOKED"),
+                        isNull());
+    }
+
+    @Test
+    void replaceSkillsRecordsAnEditedAuditEntryWithNoOldOrNewValue() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        stubWriteAlwaysSucceeds();
+
+        participantService.replaceSkills(participantId, List.of(), ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void setCustomFieldValueRecordsAnEditedAuditEntryWithNoOldOrNewValue() {
+        UUID participantId = UUID.randomUUID();
+        UUID fieldId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        CustomFieldDefinition definition = definitionOf(fieldId, CustomFieldType.FREE_TEXT);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(customFieldDefinitionRepository.findById(fieldId)).thenReturn(Mono.just(definition));
+        stubWriteAlwaysSucceeds();
+
+        participantService.setCustomFieldValue(participantId, fieldId, "Size M", List.of(), ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void submitRegistrationRecordsACreatedAuditEntryWithNoOldOrNewValue() {
+        UUID userId = UUID.randomUUID();
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findByUserId(userId)).thenReturn(Mono.empty());
+        when(customFieldService.registrationFields()).thenReturn(Flux.empty());
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.getArgument(0))));
+        stubWriteAlwaysSucceeds();
+
+        Participant created = participantService
+                .submitRegistration(userId, emptySubmission(), ACTOR)
+                .block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.CREATED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(created.getId()),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void submitSelfEditRecordsAnEditedAuditEntryWithNoOldOrNewValue() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        OrganiserSettings settings = settingsOf(true, true);
+        settings.setSelfEditEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(customFieldService.registrationFields()).thenReturn(Flux.empty());
+        stubWriteAlwaysSucceeds();
+
+        participantService.submitSelfEdit(participantId, emptySubmission(), ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.EDITED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+    }
+
+    @Test
+    void selfRevokeRecordsAStatusChangedAuditEntryWithRealOldAndNewValues() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(participantRepository.save(any(Participant.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.empty());
+
+        participantService.selfRevoke(participantId, ACTOR).block();
+
+        verify(auditService)
+                .record(
+                        eq(AuditEventType.STATUS_CHANGED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        eq("ACTIVE"),
+                        eq("REVOKED"),
+                        isNull());
+    }
+
+    @Test
+    void deleteRecordsADeletedAuditEntryBeforeIssuingTheRepositoryDelete() {
+        UUID participantId = UUID.randomUUID();
+        Participant existing = participantOf(participantId, UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(existing));
+        when(groupService.findActiveGroupForParticipant(participantId)).thenReturn(Mono.empty());
+        when(participantRepository.deleteById(participantId)).thenReturn(Mono.empty());
+        stubWriteAlwaysSucceeds();
+
+        StepVerifier.create(participantService.delete(participantId, ACTOR)).verifyComplete();
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(auditService, participantRepository);
+        inOrder.verify(auditService)
+                .record(
+                        eq(AuditEventType.DELETED),
+                        eq(ACTOR),
+                        eq(AuditSubjectType.PARTICIPANT),
+                        eq(participantId),
+                        anyString(),
+                        isNull(),
+                        isNull(),
+                        isNull());
+        inOrder.verify(participantRepository).deleteById(participantId);
     }
 
     // --- findDirectoryListing: only ACTIVE, alphabetical by display name (FR-027, FR-027a) -------

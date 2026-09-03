@@ -8,6 +8,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
+import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
@@ -29,6 +33,13 @@ import reactor.core.publisher.Mono;
  * back (research.md §4), so this service manipulates it directly via {@link DatabaseClient} —
  * the same approach {@code participant_skills} uses in {@code ParticipantService} for the same
  * reason.
+ *
+ * <p><b>Audit (006-audit-trail, FR-001, FR-002a):</b> {@code create}/{@code update}/{@code
+ * propose}/{@code updateAsAuthor}/{@code approve}/{@code reassignAuthor} each take an explicit
+ * {@link net.fabcelhaft.hackathonorganiser.audit.AuditActor} and record a corresponding {@link
+ * net.fabcelhaft.hackathonorganiser.audit.AuditService} entry on success — only {@code approve}
+ * carries real old/new values ({@code PENDING}/{@code APPROVED}, FR-002a's one high-stakes Topic
+ * field); every other entry's old/new stay {@code null}.
  */
 @Service
 public class TopicService {
@@ -38,18 +49,21 @@ public class TopicService {
     private final SkillRepository skillRepository;
     private final DatabaseClient databaseClient;
     private final OrganiserSettingsService organiserSettingsService;
+    private final AuditService auditService;
 
     public TopicService(
             TopicRepository topicRepository,
             UserRepository userRepository,
             SkillRepository skillRepository,
             DatabaseClient databaseClient,
-            OrganiserSettingsService organiserSettingsService) {
+            OrganiserSettingsService organiserSettingsService,
+            AuditService auditService) {
         this.topicRepository = topicRepository;
         this.userRepository = userRepository;
         this.skillRepository = skillRepository;
         this.databaseClient = databaseClient;
         this.organiserSettingsService = organiserSettingsService;
+        this.auditService = auditService;
     }
 
     public Flux<Topic> findAll() {
@@ -75,7 +89,8 @@ public class TopicService {
      * {@code createdByUserId} or an unknown {@code createdByUserId} (FR-015) with a friendly
      * {@link TopicConflictException}, then replaces its Skill association set (FR-010).
      */
-    public Mono<Topic> create(String name, String description, UUID createdByUserId, List<UUID> skillIds) {
+    public Mono<Topic> create(
+            String name, String description, UUID createdByUserId, List<UUID> skillIds, AuditActor actor) {
         List<UUID> ids = distinct(skillIds);
         if (isBlank(name) || isBlank(description) || createdByUserId == null) {
             return Mono.error(
@@ -92,9 +107,24 @@ public class TopicService {
                 }
                 return topicRepository
                         .save(newTopic(name, description, createdByUserId))
-                        .flatMap(topic -> replaceTopicSkills(topic.getId(), ids).thenReturn(topic));
+                        .flatMap(topic -> replaceTopicSkills(topic.getId(), ids).thenReturn(topic))
+                        .flatMap(topic -> recordCreated(topic, actor));
             });
         });
+    }
+
+    private Mono<Topic> recordCreated(Topic topic, AuditActor actor) {
+        return auditService
+                .record(
+                        AuditEventType.CREATED,
+                        actor,
+                        AuditSubjectType.TOPIC,
+                        topic.getId(),
+                        topic.getName(),
+                        null,
+                        null,
+                        null)
+                .thenReturn(topic);
     }
 
     /**
@@ -103,7 +133,8 @@ public class TopicService {
      * no parameter for it at all, so there is no code path by which this route could ever
      * reassign it. Completes empty if no Topic exists with the given id.
      */
-    public Mono<Topic> update(UUID id, String name, String description, List<UUID> skillIds) {
+    public Mono<Topic> update(
+            UUID id, String name, String description, List<UUID> skillIds, AuditActor actor) {
         List<UUID> ids = distinct(skillIds);
         if (isBlank(name) || isBlank(description)) {
             return Mono.error(new TopicConflictException("name and description are required"));
@@ -117,8 +148,23 @@ public class TopicService {
             topic.setUpdatedAt(Instant.now());
             return topicRepository
                     .save(topic)
-                    .flatMap(saved -> replaceTopicSkills(id, ids).thenReturn(saved));
+                    .flatMap(saved -> replaceTopicSkills(id, ids).thenReturn(saved))
+                    .flatMap(saved -> recordEdited(saved, actor));
         }));
+    }
+
+    private Mono<Topic> recordEdited(Topic topic, AuditActor actor) {
+        return auditService
+                .record(
+                        AuditEventType.EDITED,
+                        actor,
+                        AuditSubjectType.TOPIC,
+                        topic.getId(),
+                        topic.getName(),
+                        null,
+                        null,
+                        null)
+                .thenReturn(topic);
     }
 
     // --- Self-service propose/edit (FR-009-FR-013, FR-016, research.md §6) -----------------------
@@ -132,7 +178,8 @@ public class TopicService {
      * OrganiserSettings.topicApprovalRequired} value (FR-013) — never re-derived later, so
      * disabling that setting afterward is not retroactive (FR-016).
      */
-    public Mono<Topic> propose(UUID authorUserId, String name, String description, List<UUID> skillIds) {
+    public Mono<Topic> propose(
+            UUID authorUserId, String name, String description, List<UUID> skillIds, AuditActor actor) {
         List<UUID> ids = distinct(skillIds);
         if (isBlank(name) || isBlank(description)) {
             return Mono.error(new TopicConflictException("name and description are required"));
@@ -155,7 +202,8 @@ public class TopicService {
                 topic.setUpdatedAt(now);
                 return topicRepository
                         .save(topic)
-                        .flatMap(saved -> replaceTopicSkills(saved.getId(), ids).thenReturn(saved));
+                        .flatMap(saved -> replaceTopicSkills(saved.getId(), ids).thenReturn(saved))
+                        .flatMap(saved -> recordCreated(saved, actor));
             });
         });
     }
@@ -180,7 +228,12 @@ public class TopicService {
      * (research.md §6). Completes empty if no Topic exists with the given id.
      */
     public Mono<Topic> updateAsAuthor(
-            UUID id, UUID requesterUserId, String name, String description, List<UUID> skillIds) {
+            UUID id,
+            UUID requesterUserId,
+            String name,
+            String description,
+            List<UUID> skillIds,
+            AuditActor actor) {
         List<UUID> ids = distinct(skillIds);
         if (isBlank(name) || isBlank(description)) {
             return Mono.error(new TopicConflictException("name and description are required"));
@@ -198,7 +251,8 @@ public class TopicService {
                 topic.setUpdatedAt(Instant.now());
                 return topicRepository
                         .save(topic)
-                        .flatMap(saved -> replaceTopicSkills(id, ids).thenReturn(saved));
+                        .flatMap(saved -> replaceTopicSkills(id, ids).thenReturn(saved))
+                        .flatMap(saved -> recordEdited(saved, actor));
             });
         });
     }
@@ -250,14 +304,26 @@ public class TopicService {
     }
 
     /** Organiser-only: moves a Pending Topic to Approved (FR-014); a no-op if already Approved. */
-    public Mono<Topic> approve(UUID topicId) {
+    public Mono<Topic> approve(UUID topicId, AuditActor actor) {
         return topicRepository.findById(topicId).flatMap(topic -> {
             if (topic.getApprovalStatus() == TopicApprovalStatus.APPROVED) {
                 return Mono.just(topic);
             }
             topic.setApprovalStatus(TopicApprovalStatus.APPROVED);
             topic.setUpdatedAt(Instant.now());
-            return topicRepository.save(topic);
+            return topicRepository
+                    .save(topic)
+                    .flatMap(saved -> auditService
+                            .record(
+                                    AuditEventType.STATUS_CHANGED,
+                                    actor,
+                                    AuditSubjectType.TOPIC,
+                                    saved.getId(),
+                                    saved.getName(),
+                                    "PENDING",
+                                    "APPROVED",
+                                    null)
+                            .thenReturn(saved));
         });
     }
 
@@ -269,7 +335,7 @@ public class TopicService {
      * field-associated error (FR-037) instead of a bare 404. Completes empty if {@code topicId} is
      * unknown.
      */
-    public Mono<Topic> reassignAuthor(UUID topicId, UUID newAuthorUserId) {
+    public Mono<Topic> reassignAuthor(UUID topicId, UUID newAuthorUserId, AuditActor actor) {
         return topicRepository.findById(topicId).flatMap(topic -> userRepository
                 .existsById(newAuthorUserId)
                 .flatMap(exists -> {
@@ -278,7 +344,7 @@ public class TopicService {
                     }
                     topic.setCreatedByUserId(newAuthorUserId);
                     topic.setUpdatedAt(Instant.now());
-                    return topicRepository.save(topic);
+                    return topicRepository.save(topic).flatMap(saved -> recordEdited(saved, actor));
                 }));
     }
 

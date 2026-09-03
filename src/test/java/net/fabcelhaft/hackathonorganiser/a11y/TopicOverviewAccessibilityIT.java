@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
@@ -143,7 +144,9 @@ class TopicOverviewAccessibilityIT {
         User author = persistUser(false);
         Participant participant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
         Topic topic = persistTopic(author.getId(), "Compliant Overview Topic");
-        groupService.create(topic.getId(), List.of(participant.getId())).block();
+        groupService
+                .create(topic.getId(), List.of(participant.getId()), new AuditActor(author.getId(), false))
+                .block();
         loginAs(author);
 
         Page page = context.newPage();
