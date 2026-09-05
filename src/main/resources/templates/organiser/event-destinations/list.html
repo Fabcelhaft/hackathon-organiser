@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Event Destinations')}">
+    <title>Event Destinations</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Event Destinations', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <div class="actions"><a th:href="@{/organiser/event-destinations/new}" role="button">New Destination</a></div>
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Connection</th>
+                <th>Status</th>
+                <th>Subscribed Event Types</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${destinations}">
+                <td th:text="${row.destination().getName()}">Name</td>
+                <td th:text="${row.destination().getType()}">Type</td>
+                <td th:text="${row.destination().getType() == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA
+                             ? (row.destination().getKafkaBootstrapServers() + ' / ' + row.destination().getKafkaTopic())
+                             : row.destination().getHttpUrl()}">Connection</td>
+                <td th:text="${row.destination().isEnabled()} ? 'Enabled' : 'Disabled'">Status</td>
+                <td>
+                    <span th:each="eventType, iter : ${row.eventTypes()}">
+                        <span th:text="${eventType.displayName()}">Event Type</span><span th:unless="${iter.last}">, </span>
+                    </span>
+                    <span th:if="${#lists.isEmpty(row.eventTypes())}">None selected</span>
+                </td>
+                <td class="actions">
+                    <a th:href="@{/organiser/event-destinations/{id}/edit(id=${row.destination().getId()})}" role="button"
+                       class="outline secondary">Edit</a>
+                    <form th:if="${row.destination().isEnabled()}"
+                          th:action="@{/organiser/event-destinations/{id}/disable(id=${row.destination().getId()})}" method="post">
+                        <button type="submit" class="outline secondary">Disable</button>
+                    </form>
+                    <form th:unless="${row.destination().isEnabled()}"
+                          th:action="@{/organiser/event-destinations/{id}/enable(id=${row.destination().getId()})}" method="post">
+                        <button type="submit" class="outline secondary">Enable</button>
+                    </form>
+                    <form th:action="@{/organiser/event-destinations/{id}/delete(id=${row.destination().getId()})}" method="post">
+                        <button type="submit" class="outline danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</th:block>
+</body>
+</html>

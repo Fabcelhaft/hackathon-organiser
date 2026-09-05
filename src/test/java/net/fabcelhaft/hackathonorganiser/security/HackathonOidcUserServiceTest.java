@@ -8,6 +8,8 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.user.User;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -46,9 +48,15 @@ class HackathonOidcUserServiceTest {
     @Mock
     private ReactiveOAuth2UserService<OidcUserRequest, OidcUser> delegate;
 
+    @Mock
+    private EventPublisher eventPublisher;
+
+    @Mock
+    private EventPayloadFactory eventPayloadFactory;
+
     @Test
     void createsUserOnFirstLoginKeyedBySubject() {
-        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate);
+        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate, eventPublisher, eventPayloadFactory);
         OidcUserRequest request = someRequest();
         OidcUser upstreamUser = oidcUser("sub-123", "Jane Doe", "jane@example.com");
 
@@ -74,7 +82,7 @@ class HackathonOidcUserServiceTest {
 
     @Test
     void refreshesProfileOnSubsequentLoginWithoutCreatingDuplicateAndMatchesBySubjectNotProfile() {
-        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate);
+        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate, eventPublisher, eventPayloadFactory);
         OidcUserRequest request = someRequest();
         // Upstream now reports a changed display name/email for the same stable subject.
         OidcUser upstreamUser = oidcUser("sub-123", "Jane Renamed", "jane.new@example.com");
@@ -117,7 +125,7 @@ class HackathonOidcUserServiceTest {
 
     @Test
     void stripsStrayLeadingAndTrailingBracketsFromTheDisplayNameIndependently() {
-        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate);
+        HackathonOidcUserService service = new HackathonOidcUserService(userRepository, delegate, eventPublisher, eventPayloadFactory);
 
         assertDisplayNameStrippedTo("[Jane Doe]", "Jane Doe", service);
         assertDisplayNameStrippedTo("[Jane Doe", "Jane Doe", service);

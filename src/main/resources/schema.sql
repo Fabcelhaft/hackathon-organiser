@@ -352,3 +352,41 @@ CREATE TABLE IF NOT EXISTS audit_entries (
 
 CREATE INDEX IF NOT EXISTS audit_entries_subject_idx
     ON audit_entries (subject_type, subject_id, occurred_at DESC);
+
+-- Feature 007: Event Notification System (data-model.md "Event Destination"; FR-001-FR-020c).
+-- One row per Organiser-configured outbound Destination (Kafka or HTTP POST). The CHECK constraint
+-- is the structural half of FR-002/FR-003's per-type required fields (EventDestinationService
+-- re-validates for a friendly error, matching this project's existing double-enforcement
+-- convention, e.g. organiser_settings_max_group_members_check).
+CREATE TABLE IF NOT EXISTS event_destinations (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    name text NOT NULL,
+    type text NOT NULL,
+    enabled boolean NOT NULL DEFAULT false,
+    kafka_bootstrap_servers text,
+    kafka_topic text,
+    http_url text,
+    credential text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_destinations_name_key ON event_destinations (name);
+
+ALTER TABLE event_destinations DROP CONSTRAINT IF EXISTS event_destinations_type_fields_check;
+ALTER TABLE event_destinations
+    ADD CONSTRAINT event_destinations_type_fields_check
+    CHECK (
+        (type = 'KAFKA' AND kafka_bootstrap_servers IS NOT NULL AND kafka_topic IS NOT NULL)
+        OR (type = 'HTTP_POST' AND http_url IS NOT NULL)
+    );
+
+-- Feature 007: Event Destination <-> Event Type association (data-model.md "Event Destination x
+-- Event Type") — pure association table, composite PK, no independent UUID, mirroring
+-- topic_skills exactly. event_type has no FK: EventType is a fixed Java enum, not a table
+-- (mirrors audit_entries.event_type's existing precedent).
+CREATE TABLE IF NOT EXISTS event_destination_event_types (
+    event_destination_id uuid NOT NULL REFERENCES event_destinations (id),
+    event_type text NOT NULL,
+    PRIMARY KEY (event_destination_id, event_type)
+);
