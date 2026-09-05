@@ -69,6 +69,13 @@ public class KafkaDestinationSender {
         properties.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, destination.getKafkaBootstrapServers());
         properties.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         properties.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        // A single send() attempt must fail fast — the outer Retry.backoff(3, 2s) in send() above
+        // is what provides the bounded retrying (research.md §7). Without this, the Kafka client's
+        // own default (60s to block waiting for topic metadata) lets one unreachable-broker attempt
+        // run for a minute, and its background threads keep retrying past that even after the
+        // caller has given up, starving unrelated work sharing this JVM. 10s still leaves headroom
+        // for a real, just-started broker's first-contact metadata/topic-auto-creation latency.
+        properties.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000");
         if (StringUtils.hasText(destination.getCredential())) {
             properties.put("security.protocol", "SASL_PLAINTEXT");
             properties.put("sasl.mechanism", "PLAIN");

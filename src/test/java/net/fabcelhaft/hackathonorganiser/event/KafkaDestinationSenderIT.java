@@ -59,14 +59,19 @@ class KafkaDestinationSenderIT {
         destination.setKafkaBootstrapServers("localhost:1");
         destination.setKafkaTopic("events");
 
-        // research.md §7: bounded retries then a swallowed completion (FR-020b) — a misconfigured
-        // client-side producer (no real broker to even attempt a TCP connection) fails fast enough
-        // that the default StepVerifier timeout is sufficient here.
-        StepVerifier.create(sender.send(destination, "{}"))
-                .expectComplete()
-                .verify(Duration.ofSeconds(30));
-
-        sender.disposeCacheFor(destination.getId());
+        try {
+            // research.md §7: bounded retries then a swallowed completion (FR-020b). With
+            // max.block.ms=10s (KafkaDestinationSender) and 3 Reactor-level retries backing off
+            // 2s/4s/8s, the worst case is ~54s, so the verify budget is set well above that.
+            StepVerifier.create(sender.send(destination, "{}"))
+                    .expectComplete()
+                    .verify(Duration.ofSeconds(90));
+        } finally {
+            // Always dispose, even on failure — an undisposed producer against this unreachable
+            // broker keeps retrying in background threads for the rest of the test JVM's lifetime,
+            // starving unrelated tests that share this fork.
+            sender.disposeCacheFor(destination.getId());
+        }
     }
 
     private EventDestination kafkaDestination(String topic) {

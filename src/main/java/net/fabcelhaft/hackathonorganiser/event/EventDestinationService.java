@@ -88,14 +88,17 @@ public class EventDestinationService {
                         .findById(id)
                         .switchIfEmpty(Mono.error(new EventDestinationConflictException("Event Destination not found")))
                         .flatMap(existing -> {
-                            // Compared at microsecond precision — Postgres' timestamptz column stores at most
-                            // microsecond resolution, while the hidden form field round-trips the value this
-                            // service itself last wrote via Instant#toString(), which can carry Java's finer
-                            // (nanosecond-capable) Instant precision; comparing at full precision would reject
-                            // even a same-value resubmission as a false stale-write conflict.
+                            // Compared at microsecond precision, rounded rather than truncated — Postgres'
+                            // timestamptz column rounds (not truncates) to microsecond resolution on write, while
+                            // the hidden form field round-trips the value this service itself last wrote via
+                            // Instant#toString(), which can carry Java's finer (nanosecond-capable) Instant
+                            // precision. Truncating both sides looks symmetric but isn't: whenever the discarded
+                            // sub-microsecond remainder is >= 500ns, Postgres rounds that stored value up a
+                            // microsecond while a plain truncation does not, rejecting even a same-value
+                            // resubmission as a false stale-write conflict.
                             if (!existing.getUpdatedAt()
                                     .truncatedTo(java.time.temporal.ChronoUnit.MICROS)
-                                    .equals(expectedUpdatedAt.truncatedTo(java.time.temporal.ChronoUnit.MICROS))) {
+                                    .equals(roundToMicros(expectedUpdatedAt))) {
                                 return Mono.error(new EventDestinationConflictException(
                                         "This Event Destination was changed by someone else — reload and try again"));
                             }
@@ -113,6 +116,13 @@ public class EventDestinationService {
                     return eventDestinationRepository.save(existing);
                 })
                 .flatMap(saved -> replaceEventTypeSelections(saved.getId(), eventTypes).thenReturn(saved));
+    }
+
+    /** Rounds (not truncates) to microsecond precision, matching Postgres' timestamptz storage. */
+    private static Instant roundToMicros(Instant instant) {
+        long subMicroNanos = instant.getNano() % 1000;
+        Instant truncated = instant.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        return subMicroNanos >= 500 ? truncated.plusNanos(1000) : truncated;
     }
 
     public Mono<EventDestination> enable(UUID id) {
