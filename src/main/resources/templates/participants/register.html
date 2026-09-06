@@ -11,6 +11,12 @@
          it gets its own role="status" treatment for consistency with the layout's flash banner. */-->
     <p th:if="${atCapacity}" role="status">Maximum registrations reached.</p>
 
+    <!--/* Feature 008 FR-016/FR-016b: the USER_REGISTRATION-designated page's body only — no title,
+         no card — flowing directly above the form. MarkdownRenderer keeps its headings at <h2>+,
+         so the layout's <h1>Register</h1> stays the page's single top-level heading (FR-016c).
+         th:utext is deliberate: bodyHtml is pre-sanitized by MarkdownRenderer (003 research.md §1). */-->
+    <div th:if="${designatedContent} != null" id="designated-content" th:utext="${designatedContent.bodyHtml()}">Body</div>
+
     <form th:unless="${atCapacity}" th:action="@{/register}" method="post" id="register-form">
         <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 

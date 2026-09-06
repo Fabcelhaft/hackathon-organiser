@@ -7,6 +7,9 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.content.ContentPage;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupRepository;
 import net.fabcelhaft.hackathonorganiser.group.GroupStatus;
@@ -83,6 +86,9 @@ class TopicManagementIT {
 
     @Autowired
     ParticipantRepository participantRepository;
+
+    @Autowired
+    ContentPageRepository contentPageRepository;
 
     @BeforeEach
     void resetOrganiserSettingsToDefaults() {
@@ -209,6 +215,35 @@ class TopicManagementIT {
                 .get().uri("/organiser/topics/new")
                 .exchange()
                 .expectStatus().isOk();
+    }
+
+    @Test
+    void organiserNewTopicFormNeverRendersTopicCreationDesignatedContent() {
+        // Feature 008 (FR-016a): the designation targets the participant-facing /topics/new only.
+        contentPageRepository
+                .findByContext(ContentPageContext.TOPIC_CREATION)
+                .flatMap(page -> {
+                    page.setContext(ContentPageContext.NONE);
+                    return contentPageRepository.save(page);
+                })
+                .block();
+        String marker = "Participant-only guidance " + UUID.randomUUID();
+        ContentPage designated = new ContentPage();
+        designated.setTitle("Topic Guidance " + UUID.randomUUID());
+        designated.setBodyMarkdown(marker);
+        designated.setSortIndex(0);
+        designated.setContext(ContentPageContext.TOPIC_CREATION);
+        designated.setCreatedAt(Instant.now());
+        designated.setUpdatedAt(Instant.now());
+        contentPageRepository.save(designated).block();
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/topics/new")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+
+        assertThat(body).doesNotContain(marker);
     }
 
     // --- Edit / Skill associations (FR-010) ----------------------------------------------------------

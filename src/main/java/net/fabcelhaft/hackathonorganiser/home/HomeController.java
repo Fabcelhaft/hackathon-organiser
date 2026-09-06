@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageService;
 import net.fabcelhaft.hackathonorganiser.group.Group;
 import net.fabcelhaft.hackathonorganiser.group.GroupService;
@@ -103,7 +104,7 @@ public class HomeController {
                                                     userId, viewerParticipantId, HOME_PAGE_TOPIC_LIMIT)
                                             .collectList(),
                                     contentPageService
-                                            .findRenderedHomepage()
+                                            .findRenderedByContext(ContentPageContext.HOMEPAGE)
                                             .map(Optional::of)
                                             .defaultIfEmpty(Optional.empty()))
                             .map(results -> {

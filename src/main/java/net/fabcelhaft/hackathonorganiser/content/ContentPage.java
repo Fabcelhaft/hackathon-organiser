@@ -7,9 +7,10 @@ import org.springframework.data.relational.core.mapping.Table;
 
 /**
  * An Organiser-authored markdown page (spec.md Key Entities: Content Page; data-model.md
- * "Content Page" — FR-018–FR-020a). At most one Content Page may have {@code isHomepage = true}
- * at a time — enforced by the partial unique index {@code content_pages_is_homepage_key}
- * (schema.sql, FR-019).
+ * "Content Page" — FR-018–FR-020a). A page optionally holds one {@link ContentPageContext}
+ * designation (Feature 008, FR-012); at most one Content Page may hold each non-{@code NONE}
+ * value at a time — enforced by the partial unique index {@code content_pages_context_key}
+ * (schema.sql, FR-013).
  *
  * <p>{@code id} is left {@code null} on construction: PostgreSQL assigns it via the
  * {@code content_pages.id} column's {@code DEFAULT uuidv7()} (research.md §1) — no
@@ -30,7 +31,7 @@ public class ContentPage {
 
     private int sortIndex;
 
-    private boolean isHomepage;
+    private ContentPageContext context;
 
     private Instant createdAt;
 
@@ -68,12 +69,12 @@ public class ContentPage {
         this.sortIndex = sortIndex;
     }
 
-    public boolean isHomepage() {
-        return isHomepage;
+    public ContentPageContext getContext() {
+        return context;
     }
 
-    public void setHomepage(boolean homepage) {
-        isHomepage = homepage;
+    public void setContext(ContentPageContext context) {
+        this.context = context;
     }
 
     public Instant getCreatedAt() {

@@ -8,6 +8,12 @@
         th:replace="~{fragments/layout :: layout(title=${topicId} != null ? 'Edit Topic' : 'Propose Topic', content=~{::#content})}">
     <div id="content">
         <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+        <!--/* Feature 008 FR-015/FR-016b: the TOPIC_CREATION-designated page's body only — no title,
+             no card — above the propose form. Only newForm/create populate designatedContent, so
+             the edit path never renders it. MarkdownRenderer keeps its headings at <h2>+, so the
+             layout's <h1> stays the single top-level heading (FR-016c). th:utext is deliberate:
+             bodyHtml is pre-sanitized by MarkdownRenderer (003 research.md §1). */-->
+        <div th:if="${designatedContent} != null" id="designated-content" th:utext="${designatedContent.bodyHtml()}">Body</div>
         <form th:action="${topicId} != null ? @{/topics/{id}(id=${topicId})} : @{/topics}" method="post">
             <label for="name">Name</label>
             <input type="text" id="name" name="name" th:value="${name}" required="required"/>

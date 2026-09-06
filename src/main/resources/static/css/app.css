@@ -357,3 +357,43 @@ nav ul {
             "topics";
     }
 }
+
+/* ------------------------------------------------------------- info wiki */
+
+/* Feature 008 (FR-001): a persistent page menu on the left, the selected page's content on the
+   right. The menu column is sized to its titles (bounded) so a long page body never squeezes it;
+   align-items:start keeps a short menu from stretching to the height of a long page. Narrow-screen
+   layout is out of scope for 008 (spec Assumptions). */
+.wiki-grid {
+    display: grid;
+    grid-template-columns: minmax(12rem, 1fr) 3fr;
+    gap: var(--app-gap);
+    align-items: start;
+}
+
+/* Pico lays every nav out as a horizontal flex row; the wiki menu stacks it instead and resets the
+   horizontal-nav paddings so the entries read as a plain list of links. */
+.wiki-menu nav ul {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+}
+
+.wiki-menu nav li {
+    padding: 0;
+}
+
+.wiki-menu nav a {
+    display: block;
+    white-space: normal;
+    border-left: 3px solid transparent;
+    padding-left: calc(var(--pico-spacing) * 0.5);
+}
+
+/* FR-003: the current entry is marked by aria-current (what assistive technology announces);
+   the visual indicator derives from that same attribute, so the two can never disagree. */
+.wiki-menu nav a[aria-current="page"] {
+    font-weight: bold;
+    color: var(--pico-color);
+    border-left-color: var(--pico-primary);
+}
