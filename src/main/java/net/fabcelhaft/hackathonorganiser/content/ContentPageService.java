@@ -1,16 +1,18 @@
 package net.fabcelhaft.hackathonorganiser.content;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Read paths for {@link ContentPage} (T041): the homepage's designated right-column page, the
- * Info section listing (every page except the homepage one, FR-018), and one page's rendered
- * detail view — all markdown -> HTML conversion goes through {@link MarkdownRenderer}, the single
- * sanitization boundary (research.md §1).
+ * Read paths for {@link ContentPage} (T041; Feature 008 T007): the page designated for a given
+ * {@link ContentPageContext} (homepage, topic creation, user registration), the Info wiki's menu
+ * (every undesignated page, FR-014) with its default and per-id rendered detail, and the sort-index
+ * pre-fill for the New page form — all markdown -> HTML conversion goes through
+ * {@link MarkdownRenderer}, the single sanitization boundary (research.md §1).
  */
 @Service
 public class ContentPageService {
@@ -23,31 +25,53 @@ public class ContentPageService {
         this.markdownRenderer = markdownRenderer;
     }
 
-    /** The Content Page currently designated as the homepage's right-column content, if any (FR-019). */
-    public Mono<ContentPage> findHomepage() {
-        return contentPageRepository.findByIsHomepageTrue();
+    /** The Content Page currently designated for a non-{@code NONE} {@code context}, if any (FR-013). */
+    public Mono<ContentPage> findByContext(ContentPageContext context) {
+        return contentPageRepository.findByContext(context);
     }
 
     /**
-     * The Info section listing (FR-018): every Content Page except the one currently designated
-     * as the homepage page, ordered ascending by {@code sortIndex} (tie-break {@code createdAt}).
+     * The Info menu (FR-001, FR-002, FR-014): every Content Page with {@code context == NONE},
+     * ordered ascending by {@code sortIndex}, ties broken alphabetically by {@code title}.
      */
     public Flux<ContentPage> findInfoList() {
-        return contentPageRepository.findAllByOrderBySortIndexAscCreatedAtAsc().filter(page -> !page.isHomepage());
-    }
-
-    /** One Content Page rendered as sanitized HTML (FR-036). Completes empty if {@code id} is unknown. */
-    public Mono<RenderedContentPage> findRenderedDetail(UUID id) {
-        return contentPageRepository.findById(id).map(this::render);
+        return contentPageRepository
+                .findAllByOrderBySortIndexAscTitleAsc()
+                .filter(page -> page.getContext() == ContentPageContext.NONE);
     }
 
     /**
-     * The homepage's designated right-column page, rendered as sanitized HTML. Completes empty if
-     * none is currently designated — {@code HomeController} treats that as a valid, renderable
-     * empty/unset state, not an error (Edge Cases).
+     * One undesignated Content Page rendered as sanitized HTML (FR-005, FR-006). Completes empty
+     * if {@code id} is unknown, deleted, <em>or currently designated for a context</em> — a
+     * designated page is never reachable at {@code /info/{id}} (FR-008, FR-014).
      */
-    public Mono<RenderedContentPage> findRenderedHomepage() {
-        return findHomepage().map(this::render);
+    public Mono<RenderedContentPage> findRenderedDetail(UUID id) {
+        return contentPageRepository
+                .findById(id)
+                .filter(page -> page.getContext() == ContentPageContext.NONE)
+                .map(this::render);
+    }
+
+    /** The wiki's default page (FR-004): the first entry of {@link #findInfoList()}, rendered. Empty if none. */
+    public Mono<RenderedContentPage> findRenderedDefault() {
+        return findInfoList().next().map(this::render);
+    }
+
+    /**
+     * The page designated for {@code context}, rendered as sanitized HTML. Completes empty if none
+     * is currently designated — every caller treats that as the valid "render unchanged" state
+     * (FR-017), never an error.
+     */
+    public Mono<RenderedContentPage> findRenderedByContext(ContentPageContext context) {
+        return findByContext(context).map(this::render);
+    }
+
+    /**
+     * The pre-filled {@code sort_index} for the New page form (FR-019a/FR-019b): one above the
+     * highest index in use, or {@code 0} when no Content Page exists yet.
+     */
+    public Mono<Integer> nextSortIndex() {
+        return contentPageRepository.findMaxSortIndex().map(max -> max + 1).defaultIfEmpty(0);
     }
 
     private RenderedContentPage render(ContentPage page) {
@@ -56,7 +80,7 @@ public class ContentPageService {
 
     // --- Organiser-only management (T047; FR-019, FR-020a, FR-037) -------------------------------
 
-    /** Every Content Page, including the homepage one, for management (contracts/content-pages-and-info.md). */
+    /** Every Content Page, designated or not, for management (contracts/wiki-info-and-content-pages.md). */
     public Flux<ContentPage> findAll() {
         return contentPageRepository.findAll();
     }
@@ -68,20 +92,20 @@ public class ContentPageService {
 
     /**
      * Creates a Content Page, rejecting a blank {@code title}/{@code body_markdown} with a
-     * {@link ContentPageConflictException} (FR-037). If {@code homepage} is {@code true}, first
-     * un-designates whichever page currently holds that flag (FR-019) — the partial unique index
-     * {@code content_pages_is_homepage_key} is the concurrency-safe backstop for this invariant.
+     * {@link ContentPageConflictException} (FR-037). If {@code context} is not {@code NONE}, first
+     * clears that same context from whichever page currently holds it (FR-013) — the partial
+     * unique index {@code content_pages_context_key} is the concurrency-safe backstop.
      */
-    public Mono<ContentPage> create(String title, String bodyMarkdown, int sortIndex, boolean homepage) {
+    public Mono<ContentPage> create(String title, String bodyMarkdown, int sortIndex, ContentPageContext context) {
         if (isBlank(title) || isBlank(bodyMarkdown)) {
             return Mono.error(new ContentPageConflictException("title and body_markdown are required"));
         }
-        return unsetPreviousHomepageIfNeeded(homepage, null).then(Mono.defer(() -> {
+        return unsetPreviousContextIfNeeded(context, null).then(Mono.defer(() -> {
             ContentPage page = new ContentPage();
             page.setTitle(title);
             page.setBodyMarkdown(bodyMarkdown);
             page.setSortIndex(sortIndex);
-            page.setHomepage(homepage);
+            page.setContext(context);
             Instant now = Instant.now();
             page.setCreatedAt(now);
             page.setUpdatedAt(now);
@@ -91,19 +115,20 @@ public class ContentPageService {
 
     /**
      * Updates a Content Page's {@code title}/{@code bodyMarkdown}/{@code sortIndex} (FR-020a) and
-     * homepage designation (FR-019), with the same blank-field rejection and un-designation swap
-     * as {@link #create}. Completes empty if no Content Page exists with the given id.
+     * context designation (FR-012, FR-013), with the same blank-field rejection and swap as
+     * {@link #create}. Completes empty if no Content Page exists with the given id.
      */
-    public Mono<ContentPage> update(UUID id, String title, String bodyMarkdown, int sortIndex, boolean homepage) {
+    public Mono<ContentPage> update(
+            UUID id, String title, String bodyMarkdown, int sortIndex, ContentPageContext context) {
         if (isBlank(title) || isBlank(bodyMarkdown)) {
             return Mono.error(new ContentPageConflictException("title and body_markdown are required"));
         }
-        return contentPageRepository.findById(id).flatMap(page -> unsetPreviousHomepageIfNeeded(homepage, id)
+        return contentPageRepository.findById(id).flatMap(page -> unsetPreviousContextIfNeeded(context, id)
                 .then(Mono.defer(() -> {
                     page.setTitle(title);
                     page.setBodyMarkdown(bodyMarkdown);
                     page.setSortIndex(sortIndex);
-                    page.setHomepage(homepage);
+                    page.setContext(context);
                     page.setUpdatedAt(Instant.now());
                     return contentPageRepository.save(page);
                 })));
@@ -114,15 +139,19 @@ public class ContentPageService {
         return contentPageRepository.findById(id).flatMap(page -> contentPageRepository.deleteById(id).thenReturn(page));
     }
 
-    private Mono<Void> unsetPreviousHomepageIfNeeded(boolean designatingHomepage, UUID excludeId) {
-        if (!designatingHomepage) {
+    /**
+     * Clears {@code context} from whichever page (other than {@code excludeId}) currently holds it
+     * — only that one context, never the other two (FR-013). No-op for {@code NONE}.
+     */
+    private Mono<Void> unsetPreviousContextIfNeeded(ContentPageContext context, UUID excludeId) {
+        if (context == ContentPageContext.NONE) {
             return Mono.empty();
         }
         return contentPageRepository
-                .findByIsHomepageTrue()
-                .filter(existing -> !existing.getId().equals(excludeId))
+                .findByContext(context)
+                .filter(existing -> !Objects.equals(existing.getId(), excludeId))
                 .flatMap(existing -> {
-                    existing.setHomepage(false);
+                    existing.setContext(ContentPageContext.NONE);
                     return contentPageRepository.save(existing);
                 })
                 .then();

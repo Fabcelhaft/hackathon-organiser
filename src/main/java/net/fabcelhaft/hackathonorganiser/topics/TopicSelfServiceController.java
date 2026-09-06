@@ -1,8 +1,12 @@
 package net.fabcelhaft.hackathonorganiser.topics;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageService;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageService.RenderedContentPage;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
@@ -30,6 +34,11 @@ import reactor.core.publisher.Mono;
  * <p>{@link TopicService#findVisibleTo} enforces FR-012a's Pending-visibility rule before this
  * controller ever inspects authorship, giving exactly the 404-vs-403 split the contract requires:
  * unknown id or an invisible Pending Topic -> 404; visible but authored by someone else -> 403.
+ *
+ * <p>Feature 008 (FR-015, FR-017): the Content Page designated for {@code TOPIC_CREATION}, if any,
+ * is rendered above the fields of the <em>propose</em> form only ({@link #newForm} and its
+ * validation re-render) as {@code designatedContent}; {@link #editForm}/{@link #update} never
+ * populate it, so the edit path is naturally unchanged.
  */
 @Controller
 @RequestMapping("/topics")
@@ -38,14 +47,17 @@ public class TopicSelfServiceController {
     private final TopicService topicService;
     private final TopicDiscoveryService topicDiscoveryService;
     private final OrganiserSettingsService organiserSettingsService;
+    private final ContentPageService contentPageService;
 
     public TopicSelfServiceController(
             TopicService topicService,
             TopicDiscoveryService topicDiscoveryService,
-            OrganiserSettingsService organiserSettingsService) {
+            OrganiserSettingsService organiserSettingsService,
+            ContentPageService contentPageService) {
         this.topicService = topicService;
         this.topicDiscoveryService = topicDiscoveryService;
         this.organiserSettingsService = organiserSettingsService;
+        this.contentPageService = contentPageService;
     }
 
     /**
@@ -74,13 +86,20 @@ public class TopicSelfServiceController {
 
     @GetMapping("/new")
     public Mono<Rendering> newForm(@AuthenticationPrincipal HackathonOidcUser oidcUser) {
-        return topicService
-                .allSkills()
-                .collectList()
-                .map(allSkills -> Rendering.view("topics/form")
-                        .modelAttribute("allSkills", allSkills)
+        return Mono.zip(topicService.allSkills().collectList(), designatedContent())
+                .map(tuple -> Rendering.view("topics/form")
+                        .modelAttribute("allSkills", tuple.getT1())
                         .modelAttribute("selectedSkillIds", List.<UUID>of())
+                        .modelAttribute("designatedContent", tuple.getT2().orElse(null))
                         .build());
+    }
+
+    /** The TOPIC_CREATION-designated page, rendered — empty is a valid state (FR-017), so it is lifted into an Optional for zip. */
+    private Mono<Optional<RenderedContentPage>> designatedContent() {
+        return contentPageService
+                .findRenderedByContext(ContentPageContext.TOPIC_CREATION)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
     }
 
     @PostMapping
@@ -95,15 +114,15 @@ public class TopicSelfServiceController {
                     .<Rendering>map(topic -> Rendering.redirectTo("/")
                             .status(HttpStatus.SEE_OTHER)
                             .build())
-                    .onErrorResume(TopicConflictException.class, ex -> topicService
-                            .allSkills()
-                            .collectList()
-                            .map(allSkills -> Rendering.view("topics/form")
+                    .onErrorResume(TopicConflictException.class, ex -> Mono.zip(
+                                    topicService.allSkills().collectList(), designatedContent())
+                            .map(tuple -> Rendering.view("topics/form")
                                     .modelAttribute("error", ex.getMessage())
                                     .modelAttribute("name", name)
                                     .modelAttribute("description", description)
-                                    .modelAttribute("allSkills", allSkills)
+                                    .modelAttribute("allSkills", tuple.getT1())
                                     .modelAttribute("selectedSkillIds", skillIds)
+                                    .modelAttribute("designatedContent", tuple.getT2().orElse(null))
                                     .build()));
         });
     }

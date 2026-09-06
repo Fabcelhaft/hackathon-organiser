@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import net.fabcelhaft.hackathonorganiser.content.ContentPage;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
@@ -371,7 +372,7 @@ class HomepageAccessibilityIT {
         page.setTitle("Scanned Page " + UUID.randomUUID());
         page.setBodyMarkdown("# Heading\n\nSome *content*.");
         page.setSortIndex(0);
-        page.setHomepage(false);
+        page.setContext(ContentPageContext.NONE);
         Instant now = Instant.now();
         page.setCreatedAt(now);
         page.setUpdatedAt(now);

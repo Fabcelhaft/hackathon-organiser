@@ -13,7 +13,7 @@
             <tr>
                 <th>Title</th>
                 <th>Sort Index</th>
-                <th>Homepage</th>
+                <th>Designation</th>
                 <th></th>
             </tr>
             </thead>
@@ -21,12 +21,17 @@
             <tr th:each="page : ${pages}">
                 <td th:text="${page.title}">Title</td>
                 <td th:text="${page.sortIndex}">0</td>
-                <td th:text="${page.homepage} ? 'Yes' : 'No'">No</td>
+                <!--/* Feature 008 FR-018: the context this page is designated for, or a dash. */-->
+                <td th:text="${page.context.name() == 'NONE'} ? '—' : ${page.context.displayName}">—</td>
                 <td class="actions">
                     <a th:href="@{/organiser/content-pages/{id}/edit(id=${page.id})}" role="button"
                        class="outline secondary">Edit</a>
                     <form th:action="@{/organiser/content-pages/{id}/delete(id=${page.id})}" method="post">
-                        <button type="submit" class="outline danger">Delete</button>
+                        <!--/* Feature 008 FR-018a: only a designated page's Delete carries the
+                             confirmation (data-confirm, wired below); an undesignated page's button
+                             renders exactly as before, with no added attribute or step. */-->
+                        <button type="submit" class="outline danger"
+                                th:data-confirm="${page.context.name() == 'NONE'} ? null : |This page is designated for: ${page.context.displayName}. Deleting it leaves that screen without its content. Delete anyway?|">Delete</button>
                     </form>
                 </td>
             </tr>
@@ -34,5 +39,19 @@
         </table>
     </div>
 </th:block>
+<!--/* Feature 008 FR-018a (research.md §9): the native confirm() dialog, attached only to buttons
+     that carry a data-confirm message — no client-side framework, no modal component. */-->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var buttons = document.querySelectorAll('button[data-confirm]');
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].addEventListener('click', function (event) {
+                if (!window.confirm(event.currentTarget.getAttribute('data-confirm'))) {
+                    event.preventDefault();
+                }
+            });
+        }
+    });
+</script>
 </body>
 </html>

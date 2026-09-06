@@ -10,6 +10,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageService;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageService.RenderedContentPage;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldAnswer;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
@@ -43,6 +46,11 @@ import reactor.core.publisher.Mono;
  * now links here instead (FR-001). Sits outside {@code /organiser/**}, gated by plain
  * authentication like {@code home}/{@code info}/{@code topics} (research.md, plan.md Structure
  * Decision): every registered/unregistered authenticated user may reach it.
+ *
+ * <p>Feature 008 (FR-016, FR-017): the Content Page designated for {@code USER_REGISTRATION}, if
+ * any, is rendered above the form fields on every render of the form (fresh GET and validation
+ * re-render alike) as {@code designatedContent}; with none designated the attribute is null and the
+ * template renders exactly as before.
  */
 @Controller
 public class RegistrationController {
@@ -50,14 +58,17 @@ public class RegistrationController {
     private final ParticipantService participantService;
     private final OrganiserSettingsService organiserSettingsService;
     private final CustomFieldService customFieldService;
+    private final ContentPageService contentPageService;
 
     public RegistrationController(
             ParticipantService participantService,
             OrganiserSettingsService organiserSettingsService,
-            CustomFieldService customFieldService) {
+            CustomFieldService customFieldService,
+            ContentPageService contentPageService) {
         this.participantService = participantService;
         this.organiserSettingsService = organiserSettingsService;
         this.customFieldService = customFieldService;
+        this.contentPageService = contentPageService;
     }
 
     @GetMapping("/register")
@@ -109,27 +120,42 @@ public class RegistrationController {
         return Mono.zip(
                         participantService.registrationFieldViewsForUser(userId),
                         participantService.allSkills().collectList(),
-                        participantService.currentSkillIdsForUser(userId))
-                .map(tuple -> formView(tuple.getT1(), tuple.getT2(), tuple.getT3(), error));
+                        participantService.currentSkillIdsForUser(userId),
+                        designatedContent())
+                .map(tuple -> formView(tuple.getT1(), tuple.getT2(), tuple.getT3(), tuple.getT4().orElse(null), error));
     }
 
     private Mono<Rendering> renderFormWithSubmittedValues(
             List<CustomFieldDefinition> fields, ProfileFormSubmission submission, String error) {
-        return Mono.zip(viewsFromSubmission(fields, submission), participantService.allSkills().collectList())
-                .map(tuple -> formView(tuple.getT1(), tuple.getT2(), submission.skillIds(), error));
+        return Mono.zip(
+                        viewsFromSubmission(fields, submission),
+                        participantService.allSkills().collectList(),
+                        designatedContent())
+                .map(tuple -> formView(
+                        tuple.getT1(), tuple.getT2(), submission.skillIds(), tuple.getT3().orElse(null), error));
+    }
+
+    /** The USER_REGISTRATION-designated page, rendered — empty is a valid state (FR-017), so it is lifted into an Optional for zip. */
+    private Mono<Optional<RenderedContentPage>> designatedContent() {
+        return contentPageService
+                .findRenderedByContext(ContentPageContext.USER_REGISTRATION)
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty());
     }
 
     private Rendering formView(
             List<CustomFieldAnswer> fields,
             List<net.fabcelhaft.hackathonorganiser.skill.Skill> skills,
             List<UUID> selectedSkillIds,
+            RenderedContentPage designatedContent,
             String error) {
         Rendering.Builder<?> builder = Rendering.view("participants/register")
                 .modelAttribute("fields", fields)
                 .modelAttribute("skills", skills)
                 .modelAttribute("selectedSkillIds", selectedSkillIds)
                 .modelAttribute("countries", IsoCountryCatalog.all())
-                .modelAttribute("atCapacity", false);
+                .modelAttribute("atCapacity", false)
+                .modelAttribute("designatedContent", designatedContent);
         if (error != null) {
             builder = builder.modelAttribute("error", error);
         }

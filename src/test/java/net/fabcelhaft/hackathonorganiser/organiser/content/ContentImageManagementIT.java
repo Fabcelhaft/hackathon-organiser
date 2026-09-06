@@ -10,6 +10,7 @@ import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.content.ContentImage;
 import net.fabcelhaft.hackathonorganiser.content.ContentImageRepository;
 import net.fabcelhaft.hackathonorganiser.content.ContentPage;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -301,7 +302,7 @@ class ContentImageManagementIT {
         page.setTitle(title);
         page.setBodyMarkdown(bodyMarkdown);
         page.setSortIndex(0);
-        page.setHomepage(false);
+        page.setContext(ContentPageContext.NONE);
         Instant now = Instant.now();
         page.setCreatedAt(now);
         page.setUpdatedAt(now);
