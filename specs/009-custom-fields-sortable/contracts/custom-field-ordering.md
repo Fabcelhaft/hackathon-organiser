@@ -63,8 +63,37 @@ Setting `sort_index` is independent of the `field_type` lock: a request that cha
 field with recorded Participant values succeeds; a request that changes both `field_type` and `sort_index` on
 such a field is rejected as a whole by the existing lock (nothing stored), exactly as today for the flags.
 
+## Option display order (User Story 4; FR-018)
+
+Wherever a select-type field's options are offered or displayed, they are ordered by option `sort_index`
+ascending, then option label case-insensitively, then option `created_at` ascending — independently of the
+owning field's index. Bound views: the registration and self-edit forms (radio/checkbox order), the field's
+organiser edit page (option list), and every rendering of a Participant's selected options (Participants
+directory cells, both Participant detail views, topic detail member listing).
+
+## GET /organiser/custom-fields/{id}/edit — option section
+
+**Extended.** Each existing option row shows its label, its current `sort_index`, an inline form to change
+that index (see the new route below), and the existing Remove form. Rows are in option display order. The
+add-option form gains a `sort_index` input (default 0).
+
+## POST /organiser/custom-fields/{id}/options
+
+**Extended.** New optional form field `sort_index`, same acceptance table as the field-level one: blank → 0;
+whole number in 32-bit range → stored; anything else → **200** edit page re-rendered with `error` = "Sort index
+must be a whole number" and **no option created**. Success remains 303 → `/organiser/custom-fields/{id}/edit`.
+
+## POST /organiser/custom-fields/{id}/options/{optionId}
+
+**New.** Organiser-only. Form field `sort_index` (same acceptance table). Updates only that option's index;
+label and selections are untouched (FR-019).
+
+- 303 → `/organiser/custom-fields/{id}/edit` on success.
+- 200 edit page re-render with the error on a malformed value; nothing stored.
+- 404 if `{optionId}` does not exist or does not belong to `{id}`.
+
 ## Not in scope of this contract
 
-- No new routes. No JSON/API surface — the app is server-rendered only.
-- Option order inside a select-type field is unchanged.
-- Sort index changes are not audited (spec Clarifications, FR-014).
+- No JSON/API surface — the app is server-rendered only.
+- Option labels remain non-editable.
+- Sort index changes (field or option) are not audited (spec Clarifications, FR-014).

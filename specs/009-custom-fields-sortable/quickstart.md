@@ -101,3 +101,18 @@ distinguishing Required flag so you can tell them apart in the list.
 
 On a database where no index was ever set (or after resetting every fixture field to `0`): all views show
 fields purely alphabetically — the pre-feature behaviour.
+
+## 10. Options inside a select field follow their own index (User Story 4)
+
+1. As the Organiser, create a single-select field "Size" (index 0, public + overview) with initial options
+   entered as `L`, `M`, `S`. Open **Edit** on it.
+   **Expected**: the option list reads L, M, S (all index 0, alphabetical) with an index shown per row.
+2. In each option row set the index: S=1, M=2, L=3 (Save each). Then add an option `XL` with index 4 via the
+   add-option form, and one `XXL` with the index left blank.
+   **Expected**: the list now reads XXL (0), S (1), M (2), L (3), XL (4) — blank means 0. Set XXL to 5.
+3. Enter `abc` as the index for M and save. **Expected**: the edit page re-renders with "Sort index must be a
+   whole number"; M is still at 2.
+4. As a Participant, open **Edit profile** (or `/register`). **Expected**: the Size choices are offered S, M, L,
+   XL, XXL. Select S and L, save.
+5. Open the Participants directory and the Participant's detail page. **Expected**: the Size cell/value reads
+   S, L (index order, not selection or alphabetical order).

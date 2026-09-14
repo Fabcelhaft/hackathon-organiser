@@ -19,7 +19,12 @@ places in `ParticipantService` that still read `CustomFieldDefinitionRepository.
 re-pointed at the service so no view can bypass the order. Invalid sort-index input is rejected server-side
 with the same 200 form re-render the form already uses for every other conflict (the existing
 `ContentPageController` precedent silently coerces garbage to 0, which the spec explicitly forbids here).
-No audit, no drag-and-drop, no option reordering.
+No audit, no drag-and-drop. **Amended during implementation** (spec Clarifications, third entry; User Story 4): the
+options of single/multi-select fields get the same treatment — a `custom_field_options.sort_index` column, a
+`CustomFieldOption.DISPLAY_ORDER` comparator applied in `CustomFieldService.findOptions()` (the single ordering
+point for options), an index input on the edit page's add-option form plus an inline per-option index form
+backed by one new route, and the participant service's two option loads that feed rendering re-pointed at the
+service (research.md §7).
 
 ## Technical Context
 
@@ -49,10 +54,12 @@ same streams the views already consume, before their existing `filter(...)` call
 the `field_type` lock and the COUNTRY-row restrictions (FR-006). Invalid input must be a rejection, not a
 coercion (FR-005).
 
-**Scale/Scope**: One column, one comparator, one new form input and one new list column, two service-method
-signature extensions (`create`/`update` gain an `int sortIndex`), two call-site redirects in
-`ParticipantService`, no new routes, no new templates. Hackathon-scale data (a handful to a few dozen Custom
-Fields).
+**Scale/Scope**: Two columns (definitions and options), two comparators, form inputs on the create/edit form
+and the edit page's option section, one new list column, three service-method signature extensions
+(`create`/`update`/`addOption` gain an `int sortIndex`) plus one new service method
+(`updateOptionSortIndex`), four call-site redirects in `ParticipantService` (two for definitions, two for
+options), one new route (`POST /organiser/custom-fields/{id}/options/{optionId}`), no new templates.
+Hackathon-scale data (a handful to a few dozen Custom Fields, a handful of options each).
 
 ## Constitution Check
 
@@ -92,14 +99,21 @@ that already own Custom Field definitions and the views that list them:
 src/main/java/net/fabcelhaft/hackathonorganiser/
 ├── customfield/
 │   ├── CustomFieldDefinition.java          # MODIFIED: + int sortIndex (column sort_index) + DISPLAY_ORDER comparator
+│   ├── CustomFieldOption.java              # MODIFIED (US4): + int sortIndex (column sort_index) + DISPLAY_ORDER comparator
 │   └── CustomFieldService.java             # MODIFIED: findAll()/registrationFields() apply DISPLAY_ORDER;
-│                                            #   create(..., int sortIndex) / update(..., int sortIndex)
+│                                            #   create(..., int sortIndex) / update(..., int sortIndex);
+│                                            #   (US4) findOptions() applies CustomFieldOption.DISPLAY_ORDER,
+│                                            #   addOption(id, label, int sortIndex), new updateOptionSortIndex(...)
 ├── participant/ParticipantService.java     # MODIFIED: loadCustomFieldValueViews() and findDirectoryListing()
-│                                            #   read customFieldService.findAll() instead of the repository
+│                                            #   read customFieldService.findAll() instead of the repository;
+│                                            #   (US4) loadFieldViews() and blankFieldViews() read
+│                                            #   customFieldService.findOptions() instead of the option repository
 └── organiser/customfield/CustomFieldController.java
                                              # MODIFIED: parse sort_index (blank → 0, non-integer → error
                                              #   re-render), pass to service, expose sortIndex to the form
-                                             #   (0 on /new, current value on /{id}/edit and on re-renders)
+                                             #   (0 on /new, current value on /{id}/edit and on re-renders);
+                                             #   (US4) addOption parses sort_index; new
+                                             #   POST /{id}/options/{optionId} updates one option's index
 
 # UNCHANGED but now ordered for free (they consume the service streams above):
 #   organiser/compliance/ComplianceController.java   (availableFields via customFieldService.findAll())
@@ -109,9 +123,12 @@ src/main/java/net/fabcelhaft/hackathonorganiser/
 
 src/main/resources/
 ├── schema.sql                              # MODIFIED: append ALTER TABLE custom_field_definitions
-│                                            #   ADD COLUMN IF NOT EXISTS sort_index integer NOT NULL DEFAULT 0
+│                                            #   ADD COLUMN IF NOT EXISTS sort_index integer NOT NULL DEFAULT 0;
+│                                            #   (US4) same for custom_field_options
 └── templates/organiser/custom-fields/
-    ├── form.html                           # MODIFIED: + "Sort index" number input (name=sort_index)
+    ├── form.html                           # MODIFIED: + "Sort index" number input (name=sort_index);
+    │                                        #   (US4) option rows show index + inline index form; add-option
+    │                                        #   form gains a sort_index input
     └── list.html                           # MODIFIED: + "Sort index" column
 
 # UNCHANGED templates (order comes from the model): fragments/profile-fields-form.html,

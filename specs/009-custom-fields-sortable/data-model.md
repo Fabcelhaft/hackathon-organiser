@@ -29,6 +29,21 @@ used by every listing:
 2. `label` ascending, `String.CASE_INSENSITIVE_ORDER`
 3. `createdAt` ascending (`nullsLast`)
 
+### Custom Field Option (`custom_field_options`; FR-015–FR-019, User Story 4 — added during implementation)
+
+| Attribute | Type | Constraints | Notes |
+|---|---|---|---|
+| `sort_index` (Java `sortIndex`) | `integer` | `NOT NULL DEFAULT 0`; any signed 32-bit value | **New.** Ascending display precedence within the owning field. Backfilled to 0 for pre-existing options; initial options of a newly created field are stored at 0. |
+| `label` | `text` | unchanged | Secondary key, case-insensitive. Not editable (as today). |
+| `created_at` | `timestamptz` | unchanged | Tertiary key, oldest first. |
+
+**Validation rules**: identical to the field's (`CustomFieldController`, research.md §7): blank → 0; otherwise a
+whole number in `int` range, else rejected with an edit-page re-render and no write. `updateOptionSortIndex`
+requires the option to belong to the definition in the URL; otherwise 404.
+
+**Derived ordering rule** — `CustomFieldOption.DISPLAY_ORDER`: `sortIndex` asc → `label` case-insensitive →
+`createdAt` asc (`nullsLast`). Independent of the owning definition's index.
+
 ## Service Surface Changes
 
 ### `CustomFieldService`
@@ -39,6 +54,9 @@ used by every listing:
 | `Flux<CustomFieldDefinition> registrationFields()` | Filters the ordered `findAll()` stream; order preserved. |
 | `Mono<CustomFieldDefinition> create(String label, CustomFieldType fieldType, boolean required, List<String> optionLabels, boolean public_, boolean overview, int sortIndex)` | New trailing `sortIndex` parameter, persisted on the new definition. |
 | `Mono<CustomFieldDefinition> update(UUID id, String label, boolean required, CustomFieldType requestedFieldType, Boolean public_, Boolean overview, int sortIndex)` | New trailing `sortIndex` parameter, applied unconditionally (outside the type-change guard and the COUNTRY type restriction). |
+| `Flux<CustomFieldOption> findOptions(UUID definitionId)` | (US4) Now emits in `CustomFieldOption.DISPLAY_ORDER`. |
+| `Mono<CustomFieldOption> addOption(UUID definitionId, String label, int sortIndex)` | (US4) New trailing `sortIndex` parameter. |
+| `Mono<CustomFieldOption> updateOptionSortIndex(UUID definitionId, UUID optionId, int sortIndex)` | (US4) New. Empty unless the option exists and belongs to `definitionId`. |
 
 ### `ParticipantService` (behavioural only)
 
@@ -46,6 +64,7 @@ used by every listing:
 |---|---|
 | `loadCustomFieldValueViews(UUID)` (private; feeds `findDetail` and `findDetailForViewer`) | Reads `customFieldService.findAll()` instead of `customFieldDefinitionRepository.findAll()`. |
 | `findDirectoryListing()` | Same redirection; the `filter(isOverview)` and per-row `loadFieldViews` are unchanged, so overview columns inherit the order. |
+| `loadFieldViews(...)`, `blankFieldViews(...)` (private; feed every rendered `CustomFieldValueView.options()`) | (US4) Read `customFieldService.findOptions(...)` instead of `customFieldOptionRepository.findByCustomFieldDefinitionId(...)`. The two validation-only option loads are unchanged. |
 
 `CustomFieldDefinitionRepository` keeps its `findById` usages in `ParticipantService`; no repository method is
 added or removed.

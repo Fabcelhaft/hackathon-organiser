@@ -31,18 +31,26 @@ public class CustomFieldService {
         this.databaseClient = databaseClient;
     }
 
+    /**
+     * Every Custom Field Definition in display order — {@link CustomFieldDefinition#DISPLAY_ORDER}:
+     * ascending {@code sortIndex}, then label case-insensitively, then creation time (feature 009,
+     * FR-007). This is the single ordering point for the whole application: every view that lists
+     * Custom Fields (organiser management list, compliance rule form, registration/self-edit form,
+     * Participants directory columns, both Participant detail views) reads through this method or
+     * {@link #registrationFields()}, so they agree by construction (contracts/custom-field-ordering.md).
+     */
     public Flux<CustomFieldDefinition> findAll() {
-        return definitionRepository.findAll();
+        return definitionRepository.findAll().sort(CustomFieldDefinition.DISPLAY_ORDER);
     }
 
     /**
      * The fields presented on the registration/self-edit form (data-model.md; FR-002a): every
      * non-{@code COUNTRY} definition, plus the {@code COUNTRY} definition only when its {@code
-     * enabled} column is {@code true} (research.md §1).
+     * enabled} column is {@code true} (research.md §1). Filters the already-ordered {@link
+     * #findAll()} stream, so the form inherits {@link CustomFieldDefinition#DISPLAY_ORDER}.
      */
     public Flux<CustomFieldDefinition> registrationFields() {
-        return definitionRepository
-                .findAll()
+        return findAll()
                 .filter(definition -> definition.getFieldType() != CustomFieldType.COUNTRY || definition.isEnabled());
     }
 
@@ -50,8 +58,15 @@ public class CustomFieldService {
         return definitionRepository.findById(id);
     }
 
+    /**
+     * A definition's options in display order — {@link CustomFieldOption#DISPLAY_ORDER} (feature
+     * 009, FR-018). The single ordering point for options: every rendering of a field's choices or
+     * of a Participant's selected options reads through here.
+     */
     public Flux<CustomFieldOption> findOptions(UUID customFieldDefinitionId) {
-        return optionRepository.findByCustomFieldDefinitionId(customFieldDefinitionId);
+        return optionRepository
+                .findByCustomFieldDefinitionId(customFieldDefinitionId)
+                .sort(CustomFieldOption.DISPLAY_ORDER);
     }
 
     /**
@@ -68,7 +83,8 @@ public class CustomFieldService {
      * (FR-016). A {@code MULTI_SELECT}/{@code SINGLE_SELECT} definition MUST be submitted with at
      * least one option (FR-012); its initial options are persisted alongside it. {@code field_type
      * = COUNTRY} is rejected outright — that row is seeded once and never created by an Organiser
-     * (FR-013, research.md §1).
+     * (FR-013, research.md §1). {@code sortIndex} (feature 009, FR-003) is stored as given — the
+     * controller has already resolved blank input to 0 and rejected anything non-integer.
      */
     public Mono<CustomFieldDefinition> create(
             String label,
@@ -76,7 +92,8 @@ public class CustomFieldService {
             boolean required,
             List<String> optionLabels,
             boolean public_,
-            boolean overview) {
+            boolean overview,
+            int sortIndex) {
         if (fieldType == CustomFieldType.COUNTRY) {
             return Mono.error(new CustomFieldConflictException("The Country field cannot be created"));
         }
@@ -95,6 +112,7 @@ public class CustomFieldService {
         definition.setRequired(required);
         definition.setPublic_(public_);
         definition.setOverview(overview);
+        definition.setSortIndex(sortIndex);
         // Every field type other than COUNTRY has no create/enable distinction — its row existing
         // *is* "enabled" (research.md §1) — so a newly-created definition is always enabled=true
         // regardless of the DB column's own DEFAULT true, since save() issues an explicit INSERT
@@ -108,8 +126,9 @@ public class CustomFieldService {
                     if (!isSelectType || options.isEmpty()) {
                         return Mono.just(saved);
                     }
+                    // Initial options land at sort index 0 (FR-015); the Organiser orders them on the edit page.
                     return Flux.fromIterable(options)
-                            .concatMap(optionLabel -> saveOption(saved.getId(), optionLabel))
+                            .concatMap(optionLabel -> saveOption(saved.getId(), optionLabel, 0))
                             .then(Mono.just(saved));
                 });
     }
@@ -122,7 +141,9 @@ public class CustomFieldService {
      * public}/{@code overview} visibility flags (FR-016), each applied independently of the
      * {@code field_type} lock whenever the corresponding argument is non-null. A requested {@code
      * field_type} change on the {@code COUNTRY} row is always rejected — its type is fixed
-     * (FR-013, research.md §1). Completes empty if no definition exists with the given id.
+     * (FR-013, research.md §1). {@code sortIndex} (feature 009, FR-006) is applied unconditionally,
+     * like the visibility flags: it is editable on a type-locked field and on the {@code COUNTRY}
+     * row alike. Completes empty if no definition exists with the given id.
      */
     public Mono<CustomFieldDefinition> update(
             UUID id,
@@ -130,7 +151,8 @@ public class CustomFieldService {
             boolean required,
             CustomFieldType requestedFieldType,
             Boolean public_,
-            Boolean overview) {
+            Boolean overview,
+            int sortIndex) {
         return definitionRepository.findById(id)
                 .flatMap(definition -> {
                     boolean typeChangeRequested =
@@ -154,6 +176,7 @@ public class CustomFieldService {
                         if (overview != null) {
                             definition.setOverview(overview);
                         }
+                        definition.setSortIndex(sortIndex);
                         definition.setUpdatedAt(Instant.now());
                         return definitionRepository.save(definition);
                     }));
@@ -208,10 +231,11 @@ public class CustomFieldService {
 
     /**
      * Adds a selectable option to a {@code MULTI_SELECT} definition, rejecting a label that
-     * duplicates an existing option of the same definition case-insensitively. Completes empty if
-     * no definition exists with the given id.
+     * duplicates an existing option of the same definition case-insensitively. {@code sortIndex}
+     * (feature 009, FR-016) is stored as given. Completes empty if no definition exists with the
+     * given id.
      */
-    public Mono<CustomFieldOption> addOption(UUID customFieldDefinitionId, String label) {
+    public Mono<CustomFieldOption> addOption(UUID customFieldDefinitionId, String label, int sortIndex) {
         return definitionRepository.findById(customFieldDefinitionId)
                 .flatMap(definition -> optionRepository
                         .existsByCustomFieldDefinitionIdAndLabelIgnoreCase(customFieldDefinitionId, label)
@@ -220,8 +244,25 @@ public class CustomFieldService {
                                 return Mono.error(new CustomFieldConflictException(
                                         "An option named '" + label + "' already exists for this custom field"));
                             }
-                            return saveOption(customFieldDefinitionId, label);
+                            return saveOption(customFieldDefinitionId, label, sortIndex);
                         }));
+    }
+
+    /**
+     * Changes one option's sort index (feature 009, FR-016, FR-019) — nothing else: the label and
+     * every Participant's selection of it are untouched. Completes empty (the controller maps that
+     * to 404) unless the option exists <em>and</em> belongs to {@code customFieldDefinitionId}, so
+     * an option can never be re-indexed through another definition's URL.
+     */
+    public Mono<CustomFieldOption> updateOptionSortIndex(UUID customFieldDefinitionId, UUID optionId, int sortIndex) {
+        return optionRepository
+                .findById(optionId)
+                .filter(option -> customFieldDefinitionId.equals(option.getCustomFieldDefinitionId()))
+                .flatMap(option -> {
+                    option.setSortIndex(sortIndex);
+                    option.setUpdatedAt(Instant.now());
+                    return optionRepository.save(option);
+                });
     }
 
     /**
@@ -239,11 +280,12 @@ public class CustomFieldService {
                 });
     }
 
-    private Mono<CustomFieldOption> saveOption(UUID customFieldDefinitionId, String label) {
+    private Mono<CustomFieldOption> saveOption(UUID customFieldDefinitionId, String label, int sortIndex) {
         Instant now = Instant.now();
         CustomFieldOption option = new CustomFieldOption();
         option.setCustomFieldDefinitionId(customFieldDefinitionId);
         option.setLabel(label);
+        option.setSortIndex(sortIndex);
         option.setCreatedAt(now);
         option.setUpdatedAt(now);
         return optionRepository.save(option);

@@ -508,8 +508,8 @@ public class ParticipantService {
 
     private Mono<List<CustomFieldValueView>> blankFieldViews(List<CustomFieldDefinition> fields) {
         return Flux.fromIterable(fields)
-                .concatMap(definition -> customFieldOptionRepository
-                        .findByCustomFieldDefinitionId(definition.getId())
+                .concatMap(definition -> customFieldService
+                        .findOptions(definition.getId())
                         .collectList()
                         .map(options -> new CustomFieldValueView(definition, options, "", List.of())))
                 .collectList();
@@ -851,7 +851,8 @@ public class ParticipantService {
     }
 
     private Mono<List<CustomFieldValueView>> loadCustomFieldValueViews(UUID participantId) {
-        return customFieldDefinitionRepository.findAll().collectList().flatMap(fields -> loadFieldViews(participantId, fields));
+        // Feature 009: read through the service so the fields arrive in CustomFieldDefinition.DISPLAY_ORDER.
+        return customFieldService.findAll().collectList().flatMap(fields -> loadFieldViews(participantId, fields));
     }
 
     /**
@@ -861,11 +862,11 @@ public class ParticipantService {
      * CustomFieldService#registrationFields()}).
      */
     private Mono<List<CustomFieldValueView>> loadFieldViews(UUID participantId, List<CustomFieldDefinition> fields) {
+        // Options come through the service so they arrive in CustomFieldOption.DISPLAY_ORDER
+        // (feature 009, FR-018); the validation-only option loads elsewhere keep using the repository.
         return Flux.fromIterable(fields)
                 .concatMap(definition -> Mono.zip(
-                                customFieldOptionRepository
-                                        .findByCustomFieldDefinitionId(definition.getId())
-                                        .collectList(),
+                                customFieldService.findOptions(definition.getId()).collectList(),
                                 loadFreeTextValue(participantId, definition.getId()),
                                 loadSelectedOptionIds(participantId, definition.getId()))
                         .map(tuple -> new CustomFieldValueView(
@@ -903,10 +904,13 @@ public class ParticipantService {
     /**
      * The Participants directory table's read model (FR-027): only {@code ACTIVE} Participants,
      * ordered alphabetically ascending by display name (FR-027a), one value per
-     * {@code overview = true} Custom Field Definition (FR-027) — never Skills (FR-027).
+     * {@code overview = true} Custom Field Definition (FR-027) — never Skills (FR-027). The
+     * columns follow {@link CustomFieldDefinition#DISPLAY_ORDER} (feature 009, FR-008), inherited
+     * from {@link CustomFieldService#findAll()}; every row's cells are built from that same list, so
+     * header and cells stay aligned by construction.
      */
     public Flux<DirectoryRow> findDirectoryListing() {
-        return customFieldDefinitionRepository
+        return customFieldService
                 .findAll()
                 .filter(CustomFieldDefinition::isOverview)
                 .collectList()

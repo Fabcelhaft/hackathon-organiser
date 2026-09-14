@@ -929,7 +929,7 @@ class ParticipantServiceTest {
 
     @Test
     void findDirectoryListingIncludesOnlyActiveParticipantsOrderedAlphabetically() {
-        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        when(customFieldService.findAll()).thenReturn(Flux.empty());
         Participant zoe = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.ACTIVE);
         Participant alice = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.ACTIVE);
         Participant revoked = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.REVOKED);
@@ -954,7 +954,7 @@ class ParticipantServiceTest {
         Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
-        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        when(customFieldService.findAll()).thenReturn(Flux.empty());
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -977,7 +977,7 @@ class ParticipantServiceTest {
         Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
-        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        when(customFieldService.findAll()).thenReturn(Flux.empty());
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -1000,7 +1000,7 @@ class ParticipantServiceTest {
         Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
-        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.empty());
+        when(customFieldService.findAll()).thenReturn(Flux.empty());
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
         settings.setSkillVisibilityEnabled(false);
@@ -1043,7 +1043,7 @@ class ParticipantServiceTest {
         privateField.setPublic_(false);
         when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
         when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
-        when(customFieldDefinitionRepository.findAll()).thenReturn(Flux.just(publicField, privateField));
+        when(customFieldService.findAll()).thenReturn(Flux.just(publicField, privateField));
         stubNoStoredFieldValues();
         stubSkills(participantId, List.of());
         OrganiserSettings settings = settingsOf(true, true);
@@ -1067,6 +1067,56 @@ class ParticipantServiceTest {
                 .verifyComplete();
     }
 
+    // --- feature 009: field lists are consumed in CustomFieldService's display order, untouched ----
+
+    @Test
+    void findDirectoryListingKeepsOverviewColumnsInServiceOrder() {
+        Participant participant = participantOf(UUID.randomUUID(), UUID.randomUUID(), ParticipantStatus.ACTIVE);
+        CustomFieldDefinition second = definitionOf(UUID.randomUUID(), CustomFieldType.FREE_TEXT);
+        second.setLabel("B");
+        second.setOverview(true);
+        CustomFieldDefinition first = definitionOf(UUID.randomUUID(), CustomFieldType.FREE_TEXT);
+        first.setLabel("A");
+        first.setOverview(true);
+        // The service is the ordering authority; this read model must pass its order through untouched.
+        when(customFieldService.findAll()).thenReturn(Flux.just(second, first));
+        when(participantRepository.findAll()).thenReturn(Flux.just(participant));
+        when(userRepository.findById(participant.getUserId()))
+                .thenReturn(Mono.just(userOf(participant.getUserId(), "Someone")));
+        stubNoStoredFieldValues();
+
+        StepVerifier.create(participantService.findDirectoryListing())
+                .assertNext(row -> assertThat(row.overviewValues())
+                        .extracting(view -> view.definition().getId())
+                        .containsExactly(second.getId(), first.getId()))
+                .verifyComplete();
+    }
+
+    @Test
+    void findDetailForViewerKeepsFieldsInServiceOrder() {
+        UUID participantId = UUID.randomUUID();
+        UUID ownerUserId = UUID.randomUUID();
+        Participant participant = participantOf(participantId, ownerUserId, ParticipantStatus.ACTIVE);
+        CustomFieldDefinition second = definitionOf(UUID.randomUUID(), CustomFieldType.FREE_TEXT);
+        second.setLabel("B");
+        second.setPublic_(true);
+        CustomFieldDefinition first = definitionOf(UUID.randomUUID(), CustomFieldType.FREE_TEXT);
+        first.setLabel("A");
+        first.setPublic_(true);
+        when(participantRepository.findById(participantId)).thenReturn(Mono.just(participant));
+        when(userRepository.findById(ownerUserId)).thenReturn(Mono.just(userOf(ownerUserId, "Owner")));
+        when(customFieldService.findAll()).thenReturn(Flux.just(second, first));
+        stubNoStoredFieldValues();
+        stubSkills(participantId, List.of());
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(true, true)));
+
+        StepVerifier.create(participantService.findDetailForViewer(participantId, UUID.randomUUID(), false))
+                .assertNext(detail -> assertThat(detail.fields())
+                        .extracting(field -> field.definition().getId())
+                        .containsExactly(second.getId(), first.getId()))
+                .verifyComplete();
+    }
+
     @SuppressWarnings("unchecked")
     private void stubNoStoredFieldValues() {
         org.springframework.r2dbc.core.RowsFetchSpec<Object> fetch = mock(org.springframework.r2dbc.core.RowsFetchSpec.class);
@@ -1078,6 +1128,9 @@ class ParticipantServiceTest {
         lenient()
                 .when(customFieldOptionRepository.findByCustomFieldDefinitionId(any(UUID.class)))
                 .thenReturn(Flux.empty());
+        // Feature 009 (US4): rendering loads read options through the service (display order);
+        // the repository stub above still serves the validation-only loads.
+        lenient().when(customFieldService.findOptions(any(UUID.class))).thenReturn(Flux.empty());
     }
 
     private void stubSkills(UUID participantId, List<net.fabcelhaft.hackathonorganiser.skill.Skill> skills) {

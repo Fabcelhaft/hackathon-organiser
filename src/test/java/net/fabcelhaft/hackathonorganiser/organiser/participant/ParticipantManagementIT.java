@@ -152,6 +152,35 @@ class ParticipantManagementIT {
                 .expectStatus().isNotFound();
     }
 
+    // Feature 009 (FR-009): the organiser detail view lists Custom Fields in sort-index-then-label order.
+    @Test
+    void organiserDetailListsCustomFieldsInSortIndexThenLabelOrder() {
+        User user = persistUser("Ordered Detail " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition omega = persistDefinitionAt("Omega " + suffix, 3);
+        CustomFieldDefinition mid = persistDefinitionAt("Mid " + suffix, 0);
+        CustomFieldDefinition zeta = persistDefinitionAt("Zeta " + suffix, -1);
+        CustomFieldDefinition alpha = persistDefinitionAt("Alpha " + suffix, 0);
+
+        String body = detailBody(participant.getId());
+
+        int zetaAt = body.indexOf(zeta.getLabel());
+        int alphaAt = body.indexOf(alpha.getLabel());
+        int midAt = body.indexOf(mid.getLabel());
+        int omegaAt = body.indexOf(omega.getLabel());
+        assertThat(zetaAt).isGreaterThanOrEqualTo(0);
+        assertThat(zetaAt).isLessThan(alphaAt);
+        assertThat(alphaAt).isLessThan(midAt);
+        assertThat(midAt).isLessThan(omegaAt);
+    }
+
+    private CustomFieldDefinition persistDefinitionAt(String label, int sortIndex) {
+        CustomFieldDefinition definition = persistDefinition(label, CustomFieldType.FREE_TEXT, false);
+        definition.setSortIndex(sortIndex);
+        return customFieldDefinitionRepository.save(definition).block();
+    }
+
     @Test
     void organiserCanViewTheRegistrationForm() {
         webTestClient.mutateWith(organiser())

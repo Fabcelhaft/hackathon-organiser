@@ -58,7 +58,7 @@ class CustomFieldServiceTest {
 
     @Test
     void createRejectsMultiSelectWithNoOptions() {
-        StepVerifier.create(customFieldService.create("Languages", CustomFieldType.MULTI_SELECT, false, List.of(), false, false))
+        StepVerifier.create(customFieldService.create("Languages", CustomFieldType.MULTI_SELECT, false, List.of(), false, false, 0))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
@@ -70,7 +70,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldDefinition>getArgument(0))));
 
-        StepVerifier.create(customFieldService.create("T-Shirt Size", CustomFieldType.FREE_TEXT, true, null, false, false))
+        StepVerifier.create(customFieldService.create("T-Shirt Size", CustomFieldType.FREE_TEXT, true, null, false, false, 0))
                 .assertNext(definition -> {
                     assertThat(definition.getLabel()).isEqualTo("T-Shirt Size");
                     assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.FREE_TEXT);
@@ -89,7 +89,7 @@ class CustomFieldServiceTest {
                 .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldOption>getArgument(0))));
 
         StepVerifier.create(customFieldService.create(
-                        "Languages", CustomFieldType.MULTI_SELECT, false, List.of("Java", "Python"), false, false))
+                        "Languages", CustomFieldType.MULTI_SELECT, false, List.of("Java", "Python"), false, false, 0))
                 .assertNext(definition -> assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.MULTI_SELECT))
                 .verifyComplete();
 
@@ -105,9 +105,10 @@ class CustomFieldServiceTest {
                 definitionOf(UUID.randomUUID(), "Languages", CustomFieldType.MULTI_SELECT, false);
         when(definitionRepository.findAll()).thenReturn(Flux.just(freeText, multiSelect));
 
+        // Both at sortIndex 0, so display order is alphabetical: "Languages" before "Size" (feature 009).
         StepVerifier.create(customFieldService.registrationFields())
-                .expectNext(freeText)
                 .expectNext(multiSelect)
+                .expectNext(freeText)
                 .verifyComplete();
     }
 
@@ -129,6 +130,71 @@ class CustomFieldServiceTest {
                 .verifyComplete();
     }
 
+    // --- findAll / registrationFields: display order (feature 009, FR-007, FR-012) -------------
+
+    @Test
+    void findAllOrdersBySortIndexThenLabelRegardlessOfRepositoryOrder() {
+        CustomFieldDefinition omega = definitionAt("Omega", 3);
+        CustomFieldDefinition mid = definitionAt("Mid", 0);
+        CustomFieldDefinition zeta = definitionAt("Zeta", -1);
+        CustomFieldDefinition alpha = definitionAt("Alpha", 0);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(omega, mid, zeta, alpha));
+
+        StepVerifier.create(customFieldService.findAll().map(CustomFieldDefinition::getLabel))
+                .expectNext("Zeta", "Alpha", "Mid", "Omega")
+                .verifyComplete();
+    }
+
+    @Test
+    void findAllBreaksIndexTiesAlphabeticallyIgnoringCase() {
+        CustomFieldDefinition banana = definitionAt("Banana", 0);
+        CustomFieldDefinition apple = definitionAt("apple", 0);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(banana, apple));
+
+        StepVerifier.create(customFieldService.findAll().map(CustomFieldDefinition::getLabel))
+                .expectNext("apple", "Banana")
+                .verifyComplete();
+    }
+
+    @Test
+    void findAllBreaksIdenticalLabelTiesByCreationTimeOldestFirst() {
+        Instant base = Instant.parse("2026-09-14T10:00:00Z");
+        CustomFieldDefinition newer = definitionAt("Twin", 0);
+        newer.setCreatedAt(base.plusSeconds(10));
+        CustomFieldDefinition older = definitionAt("Twin", 0);
+        older.setCreatedAt(base);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(newer, older));
+
+        StepVerifier.create(customFieldService.findAll())
+                .expectNext(older, newer)
+                .verifyComplete();
+    }
+
+    @Test
+    void findAllToleratesAMissingCreationTimeAndSortsItLastWithinItsGroup() {
+        CustomFieldDefinition dated = definitionAt("Twin", 0);
+        CustomFieldDefinition undated = definitionAt("Twin", 0);
+        undated.setCreatedAt(null);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(undated, dated));
+
+        StepVerifier.create(customFieldService.findAll())
+                .expectNext(dated, undated)
+                .verifyComplete();
+    }
+
+    @Test
+    void registrationFieldsPreservesDisplayOrderWhileStillOmittingADisabledCountry() {
+        CustomFieldDefinition country = countryDefinition(false);
+        country.setSortIndex(-5);
+        CustomFieldDefinition omega = definitionAt("Omega", 3);
+        CustomFieldDefinition alpha = definitionAt("Alpha", 0);
+        when(definitionRepository.findAll()).thenReturn(Flux.just(omega, country, alpha));
+
+        StepVerifier.create(customFieldService.registrationFields().map(CustomFieldDefinition::getLabel))
+                .expectNext("Alpha", "Omega")
+                .verifyComplete();
+    }
+
     // --- update: field_type lock once a value exists (FR-012a) ---------------------------------
 
     @Test
@@ -138,7 +204,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.findById(id)).thenReturn(Mono.just(existing));
         stubValueReferenceCounts(1L, 0L, 0L);
 
-        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null))
+        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null, 0))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
@@ -154,7 +220,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null))
+        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.MULTI_SELECT, null, null, 0))
                 .assertNext(definition -> assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.MULTI_SELECT))
                 .verifyComplete();
     }
@@ -167,7 +233,7 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(customFieldService.update(id, "Renamed", true, CustomFieldType.FREE_TEXT, null, null))
+        StepVerifier.create(customFieldService.update(id, "Renamed", true, CustomFieldType.FREE_TEXT, null, null, 0))
                 .assertNext(definition -> {
                     assertThat(definition.getLabel()).isEqualTo("Renamed");
                     assertThat(definition.isRequired()).isTrue();
@@ -298,7 +364,7 @@ class CustomFieldServiceTest {
 
     @Test
     void createRejectsSingleSelectWithNoOptionsTheSameWayAsMultiSelect() {
-        StepVerifier.create(customFieldService.create("Size", CustomFieldType.SINGLE_SELECT, false, List.of(), false, false))
+        StepVerifier.create(customFieldService.create("Size", CustomFieldType.SINGLE_SELECT, false, List.of(), false, false, 0))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
@@ -313,7 +379,7 @@ class CustomFieldServiceTest {
                 .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldOption>getArgument(0))));
 
         StepVerifier.create(
-                        customFieldService.create("Size", CustomFieldType.SINGLE_SELECT, false, List.of("S", "L"), false, false))
+                        customFieldService.create("Size", CustomFieldType.SINGLE_SELECT, false, List.of("S", "L"), false, false, 0))
                 .assertNext(definition -> assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.SINGLE_SELECT))
                 .verifyComplete();
 
@@ -322,7 +388,7 @@ class CustomFieldServiceTest {
 
     @Test
     void createRejectsFieldTypeCountry() {
-        StepVerifier.create(customFieldService.create("Country", CustomFieldType.COUNTRY, false, List.of(), false, false))
+        StepVerifier.create(customFieldService.create("Country", CustomFieldType.COUNTRY, false, List.of(), false, false, 0))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
@@ -339,14 +405,14 @@ class CustomFieldServiceTest {
         when(definitionRepository.save(any(CustomFieldDefinition.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(customFieldService.update(id, "Languages", false, null, true, null))
+        StepVerifier.create(customFieldService.update(id, "Languages", false, null, true, null, 0))
                 .assertNext(definition -> {
                     assertThat(definition.isPublic_()).isTrue();
                     assertThat(definition.isOverview()).isFalse();
                 })
                 .verifyComplete();
 
-        StepVerifier.create(customFieldService.update(id, "Languages", false, null, null, true))
+        StepVerifier.create(customFieldService.update(id, "Languages", false, null, null, true, 0))
                 .assertNext(definition -> {
                     assertThat(definition.isPublic_()).isTrue();
                     assertThat(definition.isOverview()).isTrue();
@@ -361,11 +427,57 @@ class CustomFieldServiceTest {
         country.setId(id);
         when(definitionRepository.findById(id)).thenReturn(Mono.just(country));
 
-        StepVerifier.create(customFieldService.update(id, "Country", false, CustomFieldType.FREE_TEXT, null, null))
+        StepVerifier.create(customFieldService.update(id, "Country", false, CustomFieldType.FREE_TEXT, null, null, 0))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
         verify(definitionRepository, never()).save(any());
+    }
+
+    // --- create/update: sortIndex persisted, editable outside every lock (feature 009, FR-003, FR-006)
+
+    @Test
+    void createPersistsTheGivenSortIndex() {
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldDefinition>getArgument(0))));
+
+        StepVerifier.create(customFieldService.create("T-Shirt Size", CustomFieldType.FREE_TEXT, true, null, false, false, -5))
+                .assertNext(definition -> assertThat(definition.getSortIndex()).isEqualTo(-5))
+                .verifyComplete();
+    }
+
+    @Test
+    void updateChangesSortIndexWithoutConsultingTheFieldTypeLock() {
+        UUID id = UUID.randomUUID();
+        CustomFieldDefinition existing = definitionOf(id, "Languages", CustomFieldType.FREE_TEXT, false);
+        when(definitionRepository.findById(id)).thenReturn(Mono.just(existing));
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(customFieldService.update(id, "Languages", false, CustomFieldType.FREE_TEXT, null, null, 7))
+                .assertNext(definition -> assertThat(definition.getSortIndex()).isEqualTo(7))
+                .verifyComplete();
+
+        // A locked field (values exist) is exactly the case where no type change is requested,
+        // and that path never touches the value-count guard at all.
+        verify(databaseClient, never()).sql(anyString());
+    }
+
+    @Test
+    void updateChangesSortIndexOnTheCountryRow() {
+        UUID id = UUID.randomUUID();
+        CustomFieldDefinition country = countryDefinition(true);
+        country.setId(id);
+        when(definitionRepository.findById(id)).thenReturn(Mono.just(country));
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(customFieldService.update(id, "Country", false, null, null, null, 4))
+                .assertNext(definition -> {
+                    assertThat(definition.getFieldType()).isEqualTo(CustomFieldType.COUNTRY);
+                    assertThat(definition.getSortIndex()).isEqualTo(4);
+                })
+                .verifyComplete();
     }
 
     // --- setCountryEnabled: toggles the singleton COUNTRY row (FR-013, FR-015) -------------------
@@ -397,11 +509,94 @@ class CustomFieldServiceTest {
         when(optionRepository.existsByCustomFieldDefinitionIdAndLabelIgnoreCase(definitionId, "java"))
                 .thenReturn(Mono.just(true));
 
-        StepVerifier.create(customFieldService.addOption(definitionId, "java"))
+        StepVerifier.create(customFieldService.addOption(definitionId, "java", 0))
                 .expectError(CustomFieldConflictException.class)
                 .verify();
 
         verify(optionRepository, never()).save(any());
+    }
+
+    // --- options: display order, sort index on add/update (feature 009, US4; FR-015–FR-019) -------
+
+    @Test
+    void findOptionsOrdersBySortIndexThenLabelThenCreation() {
+        UUID definitionId = UUID.randomUUID();
+        when(optionRepository.findByCustomFieldDefinitionId(definitionId)).thenReturn(Flux.just(
+                optionOf(definitionId, "Large", 3),
+                optionOf(definitionId, "Small", 1),
+                optionOf(definitionId, "Medium", 2),
+                optionOf(definitionId, "Banana", 1),
+                optionOf(definitionId, "apple", 1)));
+
+        StepVerifier.create(customFieldService.findOptions(definitionId).map(CustomFieldOption::getLabel))
+                .expectNext("apple", "Banana", "Small", "Medium", "Large")
+                .verifyComplete();
+    }
+
+    @Test
+    void addOptionPersistsTheGivenSortIndex() {
+        UUID definitionId = UUID.randomUUID();
+        when(definitionRepository.findById(definitionId))
+                .thenReturn(Mono.just(definitionOf(definitionId, "Sizes", CustomFieldType.SINGLE_SELECT, false)));
+        when(optionRepository.existsByCustomFieldDefinitionIdAndLabelIgnoreCase(definitionId, "M"))
+                .thenReturn(Mono.just(false));
+        when(optionRepository.save(any(CustomFieldOption.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldOption>getArgument(0))));
+
+        StepVerifier.create(customFieldService.addOption(definitionId, "M", 2))
+                .assertNext(option -> {
+                    assertThat(option.getLabel()).isEqualTo("M");
+                    assertThat(option.getSortIndex()).isEqualTo(2);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void updateOptionSortIndexChangesOnlyTheIndex() {
+        UUID definitionId = UUID.randomUUID();
+        CustomFieldOption option = optionOf(definitionId, "L", 0);
+        when(optionRepository.findById(option.getId())).thenReturn(Mono.just(option));
+        when(optionRepository.save(any(CustomFieldOption.class)))
+                .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        StepVerifier.create(customFieldService.updateOptionSortIndex(definitionId, option.getId(), 7))
+                .assertNext(updated -> {
+                    assertThat(updated.getSortIndex()).isEqualTo(7);
+                    assertThat(updated.getLabel()).isEqualTo("L");
+                    assertThat(updated.getCustomFieldDefinitionId()).isEqualTo(definitionId);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void updateOptionSortIndexCompletesEmptyForAnOptionOfAnotherDefinition() {
+        CustomFieldOption option = optionOf(UUID.randomUUID(), "L", 1);
+        when(optionRepository.findById(option.getId())).thenReturn(Mono.just(option));
+
+        StepVerifier.create(customFieldService.updateOptionSortIndex(UUID.randomUUID(), option.getId(), 9))
+                .verifyComplete();
+
+        verify(optionRepository, never()).save(any());
+    }
+
+    @Test
+    void createStoresInitialOptionsAtIndexZero() {
+        List<CustomFieldOption> saved = new java.util.ArrayList<>();
+        when(definitionRepository.save(any(CustomFieldDefinition.class)))
+                .thenAnswer(invocation -> Mono.just(withId(invocation.<CustomFieldDefinition>getArgument(0))));
+        when(optionRepository.save(any(CustomFieldOption.class))).thenAnswer(invocation -> {
+            CustomFieldOption option = withId(invocation.<CustomFieldOption>getArgument(0));
+            saved.add(option);
+            return Mono.just(option);
+        });
+
+        StepVerifier.create(customFieldService.create(
+                        "Sizes", CustomFieldType.SINGLE_SELECT, false, List.of("L", "S"), false, false, 4))
+                .assertNext(definition -> assertThat(definition.getSortIndex()).isEqualTo(4))
+                .verifyComplete();
+
+        assertThat(saved).hasSize(2);
+        assertThat(saved).allSatisfy(option -> assertThat(option.getSortIndex()).isZero());
     }
 
     // --- test helpers ----------------------------------------------------------------------------
@@ -415,6 +610,23 @@ class CustomFieldServiceTest {
         definition.setCreatedAt(Instant.now());
         definition.setUpdatedAt(Instant.now());
         return definition;
+    }
+
+    private CustomFieldDefinition definitionAt(String label, int sortIndex) {
+        CustomFieldDefinition definition = definitionOf(UUID.randomUUID(), label, CustomFieldType.FREE_TEXT, false);
+        definition.setSortIndex(sortIndex);
+        return definition;
+    }
+
+    private CustomFieldOption optionOf(UUID definitionId, String label, int sortIndex) {
+        CustomFieldOption option = new CustomFieldOption();
+        option.setId(UUID.randomUUID());
+        option.setCustomFieldDefinitionId(definitionId);
+        option.setLabel(label);
+        option.setSortIndex(sortIndex);
+        option.setCreatedAt(Instant.now());
+        option.setUpdatedAt(Instant.now());
+        return option;
     }
 
     private CustomFieldDefinition countryDefinition(boolean enabled) {

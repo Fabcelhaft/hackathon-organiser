@@ -98,6 +98,10 @@ public class ComplianceController {
                 .then(Mono.just(redirectWithFlash("Requirement removed.")));
     }
 
+    /**
+     * {@code availableFields} is a stream filter over {@code customFieldService.findAll()}, so the
+     * dropdown preserves {@code CustomFieldDefinition.DISPLAY_ORDER} (feature 009, FR-009).
+     */
     private Mono<Rendering> renderForm(String flash, String error) {
         return Mono.zip(
                         organiserSettingsService.current(),

@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
+import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOptionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldType;
 import net.fabcelhaft.hackathonorganiser.organisersettings.DirectoryAudience;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
@@ -61,6 +63,9 @@ class ParticipantsDirectoryManagementIT {
 
     @Autowired
     CustomFieldDefinitionRepository customFieldDefinitionRepository;
+
+    @Autowired
+    CustomFieldOptionRepository customFieldOptionRepository;
 
     @Autowired
     OrganiserSettingsRepository organiserSettingsRepository;
@@ -147,6 +152,60 @@ class ParticipantsDirectoryManagementIT {
         assertThat(body).contains("Not provided"); // Zoe's own empty cell
         assertThat(body).doesNotContain(revokedDisplayName);
         assertThat(body.indexOf(aliceDisplayName)).isLessThan(body.indexOf(zoeDisplayName));
+    }
+
+    // --- Feature 009: display order of fields and options (FR-008, FR-013, FR-018) ------------------
+
+    @Test
+    void directoryColumnsAndDetailFieldsFollowSortIndexThenLabel() {
+        String suffix = UUID.randomUUID().toString();
+        // Created in neither index nor alphabetical order on purpose.
+        CustomFieldDefinition omega = persistDefinition("Omega " + suffix, CustomFieldType.FREE_TEXT, false, true, true, 3);
+        CustomFieldDefinition mid = persistDefinition("Mid " + suffix, CustomFieldType.FREE_TEXT, false, true, true, 0);
+        CustomFieldDefinition zeta = persistDefinition("Zeta " + suffix, CustomFieldType.FREE_TEXT, false, true, true, -1);
+        CustomFieldDefinition alpha = persistDefinition("Alpha " + suffix, CustomFieldType.FREE_TEXT, false, true, true, 0);
+        // Lowest index of all, but not public: ordering must never make it visible to another viewer.
+        CustomFieldDefinition hidden =
+                persistDefinition("Hidden " + suffix, CustomFieldType.FREE_TEXT, false, false, true, -10);
+        User viewer = persistUser(false);
+        User owner = persistUser(false);
+        Participant participant = persistParticipant(owner.getId(), ParticipantStatus.ACTIVE, "Owner " + suffix);
+        insertFreeTextValue(participant.getId(), omega.getId(), "ValOmega" + suffix);
+        insertFreeTextValue(participant.getId(), mid.getId(), "ValMid" + suffix);
+        insertFreeTextValue(participant.getId(), zeta.getId(), "ValZeta" + suffix);
+        insertFreeTextValue(participant.getId(), alpha.getId(), "ValAlpha" + suffix);
+        insertFreeTextValue(participant.getId(), hidden.getId(), "ValHidden" + suffix);
+
+        String list = bodyOf(viewer, "/participants");
+        assertOrdered(list, zeta.getLabel(), alpha.getLabel(), mid.getLabel(), omega.getLabel());
+        assertOrdered(list, "ValZeta" + suffix, "ValAlpha" + suffix, "ValMid" + suffix, "ValOmega" + suffix);
+
+        String detail = bodyOf(viewer, "/participants/" + participant.getId());
+        assertOrdered(detail, zeta.getLabel(), alpha.getLabel(), mid.getLabel(), omega.getLabel());
+        assertThat(detail).doesNotContain(hidden.getLabel());
+        assertThat(detail).doesNotContain("ValHidden" + suffix);
+    }
+
+    @Test
+    void selectedOptionsAreShownInSortIndexOrder() {
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition size =
+                persistDefinition("Size " + suffix, CustomFieldType.MULTI_SELECT, false, true, true, 0);
+        CustomFieldOption large = persistOption(size.getId(), "Large" + suffix, 3);
+        CustomFieldOption small = persistOption(size.getId(), "Small" + suffix, 1);
+        CustomFieldOption medium = persistOption(size.getId(), "Medium" + suffix, 2);
+        User viewer = persistUser(false);
+        User owner = persistUser(false);
+        Participant participant = persistParticipant(owner.getId(), ParticipantStatus.ACTIVE, "Owner " + suffix);
+        insertOptionSelections(participant.getId(), size.getId(), List.of(large.getId(), small.getId()));
+
+        String list = bodyOf(viewer, "/participants");
+        assertOrdered(list, small.getLabel(), large.getLabel());
+        assertThat(list).doesNotContain(medium.getLabel());
+
+        String detail = bodyOf(viewer, "/participants/" + participant.getId());
+        assertOrdered(detail, small.getLabel(), large.getLabel());
+        assertThat(detail).doesNotContain(medium.getLabel());
     }
 
     // --- GET /participants/{id} visibility modes (FR-017, FR-019, FR-029, FR-030) ------------------
@@ -379,6 +438,11 @@ class ParticipantsDirectoryManagementIT {
 
     private CustomFieldDefinition persistDefinition(
             String label, CustomFieldType type, boolean required, boolean public_, boolean overview) {
+        return persistDefinition(label, type, required, public_, overview, 0);
+    }
+
+    private CustomFieldDefinition persistDefinition(
+            String label, CustomFieldType type, boolean required, boolean public_, boolean overview, int sortIndex) {
         CustomFieldDefinition definition = new CustomFieldDefinition();
         definition.setLabel(label);
         definition.setFieldType(type);
@@ -386,10 +450,70 @@ class ParticipantsDirectoryManagementIT {
         definition.setPublic_(public_);
         definition.setOverview(overview);
         definition.setEnabled(true);
+        definition.setSortIndex(sortIndex);
         Instant now = Instant.now();
         definition.setCreatedAt(now);
         definition.setUpdatedAt(now);
         return customFieldDefinitionRepository.save(definition).block();
+    }
+
+    private CustomFieldOption persistOption(UUID definitionId, String label, int sortIndex) {
+        CustomFieldOption option = new CustomFieldOption();
+        option.setCustomFieldDefinitionId(definitionId);
+        option.setLabel(label);
+        option.setSortIndex(sortIndex);
+        Instant now = Instant.now();
+        option.setCreatedAt(now);
+        option.setUpdatedAt(now);
+        return customFieldOptionRepository.save(option).block();
+    }
+
+    private void insertOptionSelections(UUID participantId, UUID definitionId, List<UUID> optionIds) {
+        databaseClient
+                .sql(
+                        "INSERT INTO custom_field_values"
+                                + " (participant_id, custom_field_definition_id, free_text_value)"
+                                + " VALUES (:pid, :fid, NULL)")
+                .bind("pid", participantId)
+                .bind("fid", definitionId)
+                .then()
+                .block();
+        for (UUID optionId : optionIds) {
+            databaseClient
+                    .sql(
+                            "INSERT INTO custom_field_value_options"
+                                    + " (participant_id, custom_field_definition_id, custom_field_option_id)"
+                                    + " VALUES (:pid, :fid, :oid)")
+                    .bind("pid", participantId)
+                    .bind("fid", definitionId)
+                    .bind("oid", optionId)
+                    .then()
+                    .block();
+        }
+    }
+
+    private String bodyOf(User user, String uri) {
+        return webTestClient
+                .mutateWith(loginAs(user))
+                .get()
+                .uri(uri)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+    }
+
+    /** Asserts every given snippet is present and that they occur in the given order. */
+    private static void assertOrdered(String body, String... snippets) {
+        int previous = -1;
+        for (String snippet : snippets) {
+            int at = body.indexOf(snippet);
+            assertThat(at).as("'%s' present", snippet).isGreaterThanOrEqualTo(0);
+            assertThat(at).as("'%s' after the previous snippet", snippet).isGreaterThan(previous);
+            previous = at;
+        }
     }
 
     private User persistUser(boolean organiser) {

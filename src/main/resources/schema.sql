@@ -352,3 +352,13 @@ CREATE TABLE IF NOT EXISTS audit_entries (
 
 CREATE INDEX IF NOT EXISTS audit_entries_subject_idx
     ON audit_entries (subject_type, subject_id, occurred_at DESC);
+
+-- Feature 009: Sortable Custom Fields (data-model.md "Custom Field Definition"; FR-001, FR-002).
+-- Display precedence of a Custom Field Definition in every listing: ascending sort_index, then label
+-- (case-insensitive), then created_at — the rule lives in CustomFieldDefinition.DISPLAY_ORDER. The
+-- column DEFAULT backfills every pre-existing row (and the seeded COUNTRY row) to 0, which keeps an
+-- installation that never sets an index purely alphabetical.
+ALTER TABLE custom_field_definitions ADD COLUMN IF NOT EXISTS sort_index integer NOT NULL DEFAULT 0;
+-- The options of a SINGLE_SELECT/MULTI_SELECT definition are ordered the same way inside their
+-- field (User Story 4; CustomFieldOption.DISPLAY_ORDER), independently of the field's own index.
+ALTER TABLE custom_field_options ADD COLUMN IF NOT EXISTS sort_index integer NOT NULL DEFAULT 0;

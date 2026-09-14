@@ -125,6 +125,39 @@ so header and cells stay aligned by construction (spec scenario 2.3).
 
 **Rationale**: Minimal diff; no risk of one template drifting from another.
 
+## 7. Option ordering (User Story 4, added during implementation): the same pattern, one level down
+
+**Decision**: Mirror §1–§4 for `custom_field_options`:
+- `ALTER TABLE custom_field_options ADD COLUMN IF NOT EXISTS sort_index integer NOT NULL DEFAULT 0;`
+- `CustomFieldOption.sortIndex` + `CustomFieldOption.DISPLAY_ORDER` (`sortIndex`, then label
+  `CASE_INSENSITIVE_ORDER`, then `createdAt` nullsLast).
+- `CustomFieldService.findOptions(definitionId)` becomes the single ordering point for options
+  (`optionRepository.findByCustomFieldDefinitionId(id).sort(DISPLAY_ORDER)`). `ParticipantService`'s two
+  *rendering* loads (`loadFieldViews`, `blankFieldViews`) switch to it; its two *validation* loads
+  (`validateSelectedOptions`, `validateOptionsBelongToDefinition`) only build an id set, so they keep reading
+  the repository — order is irrelevant there and changing them would churn unrelated test stubs for nothing.
+  `RegistrationController`/`ProfileController` already call `findOptions`.
+- `addOption(definitionId, label, int sortIndex)`; initial options passed to `create(...)` are saved at 0.
+- New `updateOptionSortIndex(definitionId, optionId, int sortIndex)`: completes empty (→ 404 in the
+  controller) unless the option exists *and* belongs to that definition — the same ownership check the option
+  delete route relies on implicitly via its URL shape.
+- Controller: `POST /{id}/options` parses `sort_index` with the same `Mono.fromCallable(parse).flatMap(...)`
+  chain shape as §4 so a malformed value re-renders the edit page; new `POST /{id}/options/{optionId}` with
+  `sort_index` does the same and redirects back to the edit page on success.
+- Template: each existing option row shows its label and an inline form (`number` input + Save) next to the
+  existing Remove form; the add-option form gains a `sort_index` input (default 0). Option labels stay
+  non-editable, as today.
+
+**Rationale**: The user clarified mid-implementation that options need ordering too (spec Clarifications).
+Reusing the identical rule and mechanism keeps one mental model ("index, then name, then age") for both
+levels, and the template pattern (inline `<form>` per row) already exists on this very page for Remove.
+
+**Alternatives considered**:
+- A single "reorder options" page with all indices in one form — rejected: needs a new route *and* template
+  for a handful of options per field; the inline per-row form is the existing page idiom.
+- Assigning indices 0,1,2… to a new field's initial options in entry order — rejected: it would silently
+  differ from the "default 0" rule everywhere else; the Organiser can set indices on the edit page.
+
 ## 6. Test strategy (Constitution V)
 
 **Decision** (red first, then green):
