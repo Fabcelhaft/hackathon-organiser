@@ -188,25 +188,44 @@ INSERT INTO organiser_settings (singleton) VALUES (true) ON CONFLICT (singleton)
 ALTER TABLE topics ADD COLUMN IF NOT EXISTS approval_status text NOT NULL DEFAULT 'APPROVED';
 
 -- Feature 003: Content Pages (data-model.md "Content Page", research.md §5, §6, FR-018-FR-020a).
--- The partial unique index guarantees "exactly one Content Page may be designated... the homepage
--- page" (FR-019) at the database level; ContentPageService must un-set the previous is_homepage
--- row in the same write or this index rejects it.
+-- Feature 008 generalised the original is_homepage boolean into the four-value `context` column
+-- (NONE / HOMEPAGE / TOPIC_CREATION / USER_REGISTRATION, stored as ContentPageContext#name()).
+-- The partial unique index below guarantees "at most one Content Page per context" (008 FR-013)
+-- at the database level; ContentPageService must reset the previous holder's context to 'NONE'
+-- in the same write or this index rejects it.
 CREATE TABLE IF NOT EXISTS content_pages (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
     title text NOT NULL,
     body_markdown text NOT NULL,
     sort_index integer NOT NULL DEFAULT 0,
-    is_homepage boolean NOT NULL DEFAULT false,
+    context text NOT NULL DEFAULT 'NONE',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS content_pages_is_homepage_key ON content_pages (is_homepage) WHERE is_homepage;
+-- Feature 008 migration: is_homepage boolean -> context text (data-model.md "Schema change"). This
+-- is the first column this file has ever dropped, and it re-runs on every startup, so every
+-- statement must be a no-op once applied. Spring's script runner splits on `;` with no $$-block
+-- support (see the organiser_settings constraint note above), so the "only while is_homepage still
+-- exists" guard cannot be a DO block: the backfill instead reads the row through to_jsonb(), which
+-- parses whether or not the column exists and yields NULL (matching no row) once it is gone, and
+-- the drop uses DROP COLUMN IF EXISTS. Net effect: a genuine one-time backfill-then-drop on the
+-- first startup against a pre-008 database, a silent no-op on every startup after that.
+ALTER TABLE content_pages ADD COLUMN IF NOT EXISTS context text NOT NULL DEFAULT 'NONE';
+
+UPDATE content_pages SET context = 'HOMEPAGE'
+WHERE (to_jsonb(content_pages) ->> 'is_homepage') = 'true';
+
+DROP INDEX IF EXISTS content_pages_is_homepage_key;
+
+ALTER TABLE content_pages DROP COLUMN IF EXISTS is_homepage;
+
+CREATE UNIQUE INDEX IF NOT EXISTS content_pages_context_key ON content_pages (context) WHERE context <> 'NONE';
 
 -- FR-019a: fires only when the table is completely empty (first-ever startup) — an Organiser who
 -- later deletes this placeholder made a deliberate choice; it is not re-seeded on next restart.
-INSERT INTO content_pages (title, body_markdown, sort_index, is_homepage)
-SELECT 'Welcome', '# Welcome to the Hackathon', 0, true
+INSERT INTO content_pages (title, body_markdown, sort_index, context)
+SELECT 'Welcome', '# Welcome to the Hackathon', 0, 'HOMEPAGE'
 WHERE NOT EXISTS (SELECT 1 FROM content_pages);
 
 -- Feature 003: Content Images (data-model.md "Content Image", research.md §2, §3, FR-024-FR-029).
@@ -362,3 +381,41 @@ ALTER TABLE custom_field_definitions ADD COLUMN IF NOT EXISTS sort_index integer
 -- The options of a SINGLE_SELECT/MULTI_SELECT definition are ordered the same way inside their
 -- field (User Story 4; CustomFieldOption.DISPLAY_ORDER), independently of the field's own index.
 ALTER TABLE custom_field_options ADD COLUMN IF NOT EXISTS sort_index integer NOT NULL DEFAULT 0;
+
+-- Feature 007: Event Notification System (data-model.md "Event Destination"; FR-001-FR-020c).
+-- One row per Organiser-configured outbound Destination (Kafka or HTTP POST). The CHECK constraint
+-- is the structural half of FR-002/FR-003's per-type required fields (EventDestinationService
+-- re-validates for a friendly error, matching this project's existing double-enforcement
+-- convention, e.g. organiser_settings_max_group_members_check).
+CREATE TABLE IF NOT EXISTS event_destinations (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    name text NOT NULL,
+    type text NOT NULL,
+    enabled boolean NOT NULL DEFAULT false,
+    kafka_bootstrap_servers text,
+    kafka_topic text,
+    http_url text,
+    credential text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS event_destinations_name_key ON event_destinations (name);
+
+ALTER TABLE event_destinations DROP CONSTRAINT IF EXISTS event_destinations_type_fields_check;
+ALTER TABLE event_destinations
+    ADD CONSTRAINT event_destinations_type_fields_check
+    CHECK (
+        (type = 'KAFKA' AND kafka_bootstrap_servers IS NOT NULL AND kafka_topic IS NOT NULL)
+        OR (type = 'HTTP_POST' AND http_url IS NOT NULL)
+    );
+
+-- Feature 007: Event Destination <-> Event Type association (data-model.md "Event Destination x
+-- Event Type") — pure association table, composite PK, no independent UUID, mirroring
+-- topic_skills exactly. event_type has no FK: EventType is a fixed Java enum, not a table
+-- (mirrors audit_entries.event_type's existing precedent).
+CREATE TABLE IF NOT EXISTS event_destination_event_types (
+    event_destination_id uuid NOT NULL REFERENCES event_destinations (id),
+    event_type text NOT NULL,
+    PRIMARY KEY (event_destination_id, event_type)
+);

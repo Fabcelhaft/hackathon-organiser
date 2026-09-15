@@ -63,6 +63,29 @@
             <version>20260101.1</version>
         </dependency>
 
+        <!-- Feature 007 (Event Notification System): lean producer-only Kafka client for
+             KafkaDestinationSender (research.md §2) — not the spring-kafka starter, since each
+             Event Destination configures its own broker and this feature never consumes. -->
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+        </dependency>
+
+        <!-- Feature 007 (Event Notification System): EventPublisher serializes each Event's JSON
+             envelope via Jackson (research.md §9) — not otherwise a compile-scope dependency of
+             this Thymeleaf-only application. jackson-datatype-jsr310 renders Instant fields as
+             ISO-8601 strings (contracts/event-payloads.md's worked examples), matching how Jackson
+             behaves when Spring Boot auto-configures an ObjectMapper — which this app's minimal
+             context does not do on its own (research.md §9). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
         <!-- Test dependencies -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -129,6 +152,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Feature 007 (Event Notification System): KafkaDestinationSenderTest (research.md §8) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

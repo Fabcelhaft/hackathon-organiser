@@ -7,6 +7,9 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.content.ContentPage;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
@@ -95,6 +98,9 @@ class ParticipantManagementIT {
 
     @Autowired
     DatabaseClient databaseClient;
+
+    @Autowired
+    ContentPageRepository contentPageRepository;
 
     // --- Registration (FR-006a, FR-006b) ---------------------------------------------------------
 
@@ -187,6 +193,35 @@ class ParticipantManagementIT {
                 .get().uri("/organiser/participants/new")
                 .exchange()
                 .expectStatus().isOk();
+    }
+
+    @Test
+    void organiserRegistrationFormNeverRendersUserRegistrationDesignatedContent() {
+        // Feature 008 (FR-016a): the designation targets the participant-facing /register only.
+        contentPageRepository
+                .findByContext(ContentPageContext.USER_REGISTRATION)
+                .flatMap(page -> {
+                    page.setContext(ContentPageContext.NONE);
+                    return contentPageRepository.save(page);
+                })
+                .block();
+        String marker = "Participant-only guidance " + UUID.randomUUID();
+        ContentPage designated = new ContentPage();
+        designated.setTitle("Registration Guidance " + UUID.randomUUID());
+        designated.setBodyMarkdown(marker);
+        designated.setSortIndex(0);
+        designated.setContext(ContentPageContext.USER_REGISTRATION);
+        designated.setCreatedAt(Instant.now());
+        designated.setUpdatedAt(Instant.now());
+        contentPageRepository.save(designated).block();
+
+        String body = webTestClient.mutateWith(organiser())
+                .get().uri("/organiser/participants/new")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+
+        assertThat(body).doesNotContain(marker);
     }
 
     // --- Status change (FR-007) -------------------------------------------------------------------

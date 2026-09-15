@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Event Destination')}">
+    <title>Event Destination</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Event Destination', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+
+        <form th:action="${isEdit} ? @{/organiser/event-destinations/{id}(id=${destinationId})} : @{/organiser/event-destinations}"
+              method="post">
+            <input th:if="${isEdit}" type="hidden" name="updated_at" th:value="${updatedAt}"/>
+
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" th:value="${name}" required="required"/>
+
+            <label for="type">Type</label>
+            <select id="type" name="type" onchange="toggleTypeFields()">
+                <option value="KAFKA" th:selected="${type == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA}">
+                    Kafka
+                </option>
+                <option value="HTTP_POST" th:selected="${type == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).HTTP_POST}">
+                    HTTP POST
+                </option>
+            </select>
+
+            <div id="kafkaFields">
+                <label for="kafkaBootstrapServers">Kafka broker(s)</label>
+                <input type="text" id="kafkaBootstrapServers" name="kafka_bootstrap_servers"
+                       th:value="${kafkaBootstrapServers}" placeholder="host:9092,host2:9092"/>
+
+                <label for="kafkaTopic">Kafka topic</label>
+                <input type="text" id="kafkaTopic" name="kafka_topic" th:value="${kafkaTopic}"/>
+            </div>
+
+            <div id="httpFields">
+                <label for="httpUrl">Target URL</label>
+                <input type="url" id="httpUrl" name="http_url" th:value="${httpUrl}"
+                       placeholder="https://example.com/webhook"/>
+            </div>
+
+            <label for="credential">Credential (API key / token / broker password)</label>
+            <input type="password" id="credential" name="credential"
+                   th:placeholder="${isEdit} ? 'Leave blank to keep the current value' : 'Optional'"/>
+
+            <fieldset>
+                <legend>Event Types this Destination receives</legend>
+                <label th:each="eventType : ${eventTypes}">
+                    <input type="checkbox" name="event_types" th:value="${eventType}"
+                           th:checked="${selectedEventTypes.contains(eventType)}"/>
+                    <span th:text="${eventType.displayName()}">Event Type</span>
+                </label>
+            </fieldset>
+
+            <button type="submit">Save</button>
+        </form>
+    </div>
+
+    <script>
+        function toggleTypeFields() {
+            var select = document.getElementById('type');
+            var kafka = document.getElementById('kafkaFields');
+            var http = document.getElementById('httpFields');
+            if (select && kafka && http) {
+                var isKafka = select.value === 'KAFKA';
+                kafka.style.display = isKafka ? 'block' : 'none';
+                http.style.display = isKafka ? 'none' : 'block';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', toggleTypeFields);
+    </script>
+</th:block>
+</body>
+</html>

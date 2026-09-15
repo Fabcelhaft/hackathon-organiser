@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head(title=${currentPage} != null ? ${currentPage.title} : 'Info')}">
+    <title>Info</title>
+</head>
+<body>
+<!--/* Feature 008 (contracts/wiki-info-and-content-pages.md): the single wiki view that GET /info and
+     GET /info/{id} both render — a left-hand menu of every undesignated Content Page plus one page's
+     content on the right (FR-001), replacing the former info/list + info/detail pair.
+
+     FR-007: the displayed page's title is the layout's <h1>, the view's only top-level heading;
+     MarkdownRenderer already shifts every markdown-authored heading to <h2> or below. th:utext is
+     deliberate — bodyHtml is pre-sanitized by MarkdownRenderer, the single point in this codebase
+     allowed to emit unescaped HTML (003 research.md §1).
+
+     FR-003: the current menu entry carries aria-current="page" (research.md §5), which app.css also
+     uses as the visual indicator, so assistive technology and sighted users get the same signal.
+
+     FR-011: the Organiser-only authoring actions open in a new tab; rel="noopener" stops the opened
+     organiser tab from navigating this one (research.md §6). */-->
+<th:block th:replace="~{fragments/layout :: layout(title=${currentPage} != null ? ${currentPage.title} : 'Info', content=~{::#content})}">
+    <div id="content">
+        <!--/* FR-020, FR-021: nothing to list yet — no menu, no content pane, just the explanation
+             (plus the create action for an Organiser). */-->
+        <th:block th:if="${pages.isEmpty()}">
+            <p id="info-empty-state" role="status">No info pages have been added yet.</p>
+            <div class="actions" th:if="${isOrganiser}">
+                <a th:href="@{/organiser/content-pages/new}" target="_blank" rel="noopener" role="button">New page</a>
+            </div>
+        </th:block>
+
+        <div class="wiki-grid" th:unless="${pages.isEmpty()}">
+            <!--/* A plain div, not <aside>: a complementary landmark nested inside <main> is flagged
+                 by axe; app.css stacks Pico's horizontal nav vertically for .wiki-menu instead. */-->
+            <div class="wiki-menu">
+                <nav aria-label="Info pages">
+                    <ul>
+                        <li th:each="page : ${pages}">
+                            <a th:href="@{/info/{id}(id=${page.id})}"
+                               th:aria-current="${page.id == currentPageId} ? 'page' : null"
+                               th:text="${page.title}">Title</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+
+            <section class="wiki-content" aria-label="Page content">
+                <!--/* FR-009, FR-010, FR-011a: rendered only for Organisers (isOrganiser is injected by
+                     CurrentUserModelAdvice); Edit only while a page is actually displayed. */-->
+                <div class="actions" th:if="${isOrganiser}">
+                    <a th:if="${currentPage} != null"
+                       th:href="@{/organiser/content-pages/{id}/edit(id=${currentPage.id})}"
+                       target="_blank" rel="noopener" role="button" class="outline secondary">Edit</a>
+                    <a th:href="@{/organiser/content-pages/new}" target="_blank" rel="noopener" role="button"
+                       class="outline secondary">New page</a>
+                </div>
+
+                <!--/* FR-008: an unknown, removed or now-designated id keeps the whole layout so the
+                     menu stays usable; the controller pairs this branch with a 404 status. */-->
+                <p th:if="${notFound}" id="info-not-found" role="status">
+                    The requested page was not found. Choose a page from the menu.
+                </p>
+
+                <div th:if="${currentPage} != null" class="wiki-body" th:utext="${bodyHtml}">Body</div>
+            </section>
+        </div>
+    </div>
+</th:block>
+</body>
+</html>

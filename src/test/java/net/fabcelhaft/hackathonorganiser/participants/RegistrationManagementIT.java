@@ -7,6 +7,9 @@ import static org.springframework.security.test.web.reactive.server.SecurityMock
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.content.ContentPage;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinitionRepository;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldOption;
@@ -69,6 +72,9 @@ class RegistrationManagementIT {
 
     @Autowired
     OrganiserSettingsRepository organiserSettingsRepository;
+
+    @Autowired
+    ContentPageRepository contentPageRepository;
 
     @Autowired
     org.springframework.r2dbc.core.DatabaseClient databaseClient;
@@ -435,7 +441,107 @@ class RegistrationManagementIT {
         assertThat(participantRepository.findByUserId(user.getId()).block()).isNotNull();
     }
 
+    // --- Feature 008: USER_REGISTRATION-designated content (FR-016, FR-016b, FR-016c, FR-017, FR-018b) ---
+
+    @Test
+    void registerFormRendersTheDesignatedPagesBodyAboveTheFieldsWithoutItsTitleAndKeepsOneTopLevelHeading() {
+        User user = persistUser();
+        undesignate(ContentPageContext.USER_REGISTRATION);
+        String marker = "Registration guidance " + UUID.randomUUID();
+        ContentPage designated = persistPage("Hidden Title " + UUID.randomUUID(),
+                "# Before you register\n\n" + marker + " with *emphasis*.", 0, ContentPageContext.USER_REGISTRATION);
+
+        String body = webTestClient
+                .mutateWith(loginAs(user))
+                .get()
+                .uri("/register")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains(marker);
+        assertThat(body).contains("<em>emphasis</em>");
+        assertThat(body).contains("<h2>Before you register</h2>");
+        assertThat(body).doesNotContain(designated.getTitle());
+        assertThat(body.indexOf(marker)).isLessThan(body.indexOf("id=\"register-form\""));
+        assertThat(body.split("<h1[ >]").length - 1).isEqualTo(1);
+        assertThat(body).contains("<h1>Register</h1>");
+    }
+
+    @Test
+    void registerFormRendersUnchangedWhenNoPageIsDesignatedForRegistration() {
+        User user = persistUser();
+        undesignate(ContentPageContext.USER_REGISTRATION);
+        undesignate(ContentPageContext.HOMEPAGE);
+        String marker = "Should not render " + UUID.randomUUID();
+        persistPage("Homepage Not Registration " + UUID.randomUUID(), marker, 0, ContentPageContext.HOMEPAGE);
+
+        String body = webTestClient
+                .mutateWith(loginAs(user))
+                .get()
+                .uri("/register")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).doesNotContain(marker);
+        assertThat(body).doesNotContain("designated-content");
+        assertThat(body).contains("id=\"register-form\"");
+    }
+
+    @Test
+    void registerFormFallsBackToNoDesignatedContentAfterTheDesignatedPageIsDeleted() {
+        User user = persistUser();
+        undesignate(ContentPageContext.USER_REGISTRATION);
+        String marker = "Soon deleted " + UUID.randomUUID();
+        ContentPage designated =
+                persistPage("Doomed " + UUID.randomUUID(), marker, 0, ContentPageContext.USER_REGISTRATION);
+        contentPageRepository.delete(designated).block();
+
+        String body = webTestClient
+                .mutateWith(loginAs(user))
+                .get()
+                .uri("/register")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).doesNotContain(marker);
+        assertThat(body).contains("id=\"register-form\"");
+    }
+
     // --- Test helpers ------------------------------------------------------------------------------
+
+    private void undesignate(ContentPageContext context) {
+        contentPageRepository
+                .findByContext(context)
+                .flatMap(page -> {
+                    page.setContext(ContentPageContext.NONE);
+                    return contentPageRepository.save(page);
+                })
+                .block();
+    }
+
+    private ContentPage persistPage(String title, String bodyMarkdown, int sortIndex, ContentPageContext context) {
+        ContentPage page = new ContentPage();
+        page.setTitle(title);
+        page.setBodyMarkdown(bodyMarkdown);
+        page.setSortIndex(sortIndex);
+        page.setContext(context);
+        Instant now = Instant.now();
+        page.setCreatedAt(now);
+        page.setUpdatedAt(now);
+        return contentPageRepository.save(page).block();
+    }
 
     private Participant register(User user) {
         webTestClient

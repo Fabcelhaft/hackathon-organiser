@@ -8,6 +8,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
+import net.fabcelhaft.hackathonorganiser.content.ContentPage;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
+import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
@@ -81,6 +84,9 @@ class TopicSelfServiceManagementIT {
 
     @Autowired
     TopicService topicService;
+
+    @Autowired
+    ContentPageRepository contentPageRepository;
 
     @Autowired
     DatabaseClient databaseClient;
@@ -424,7 +430,121 @@ class TopicSelfServiceManagementIT {
         assertThat(skillIds).containsExactly(rust.getId());
     }
 
+    // --- Feature 008: TOPIC_CREATION-designated content (FR-015, FR-016b, FR-016c, FR-017, FR-018b) ---
+
+    @Test
+    void proposeFormRendersTheDesignatedPagesBodyAboveTheFieldsButTheEditFormNeverDoes() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic own = persistTopic(author.getId(), "Own Topic", "Desc", TopicApprovalStatus.APPROVED);
+        undesignate(ContentPageContext.TOPIC_CREATION);
+        String marker = "Topic guidance " + UUID.randomUUID();
+        ContentPage designated = persistPage("Hidden Title " + UUID.randomUUID(),
+                "# How to propose\n\n" + marker + " with *emphasis*.", 0, ContentPageContext.TOPIC_CREATION);
+
+        String newBody = webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/new")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(newBody).contains(marker);
+        assertThat(newBody).contains("<em>emphasis</em>");
+        assertThat(newBody).contains("<h2>How to propose</h2>");
+        assertThat(newBody).doesNotContain(designated.getTitle());
+        assertThat(newBody.indexOf(marker)).isLessThan(newBody.indexOf("<form"));
+        assertThat(newBody.split("<h1[ >]").length - 1).isEqualTo(1);
+        assertThat(newBody).contains("<h1>Propose Topic</h1>");
+
+        String editBody = webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/{id}/edit", own.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(editBody).doesNotContain(marker);
+    }
+
+    @Test
+    void proposeFormRendersUnchangedWhenNoPageIsDesignatedForTopicCreation() {
+        User author = persistUser(false);
+        undesignate(ContentPageContext.TOPIC_CREATION);
+        String marker = "Should not render " + UUID.randomUUID();
+        persistPage("Registration Not Topic " + UUID.randomUUID(), marker, 0, ContentPageContext.USER_REGISTRATION);
+        undesignate(ContentPageContext.USER_REGISTRATION);
+
+        String body = webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/new")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).doesNotContain(marker);
+        assertThat(body).doesNotContain("designated-content");
+        assertThat(body).contains("<form");
+    }
+
+    @Test
+    void proposeFormFallsBackToNoDesignatedContentAfterTheDesignatedPageIsDeleted() {
+        User author = persistUser(false);
+        undesignate(ContentPageContext.TOPIC_CREATION);
+        String marker = "Soon deleted " + UUID.randomUUID();
+        ContentPage designated = persistPage("Doomed " + UUID.randomUUID(), marker, 0, ContentPageContext.TOPIC_CREATION);
+        contentPageRepository.delete(designated).block();
+
+        String body = webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/new")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).doesNotContain(marker);
+        assertThat(body).contains("<form");
+    }
+
     // --- Test helpers ------------------------------------------------------------------------------
+
+    private void undesignate(ContentPageContext context) {
+        contentPageRepository
+                .findByContext(context)
+                .flatMap(page -> {
+                    page.setContext(ContentPageContext.NONE);
+                    return contentPageRepository.save(page);
+                })
+                .block();
+    }
+
+    private ContentPage persistPage(String title, String bodyMarkdown, int sortIndex, ContentPageContext context) {
+        ContentPage page = new ContentPage();
+        page.setTitle(title);
+        page.setBodyMarkdown(bodyMarkdown);
+        page.setSortIndex(sortIndex);
+        page.setContext(context);
+        Instant now = Instant.now();
+        page.setCreatedAt(now);
+        page.setUpdatedAt(now);
+        return contentPageRepository.save(page).block();
+    }
 
     private String homeBody(User user) {
         return webTestClient

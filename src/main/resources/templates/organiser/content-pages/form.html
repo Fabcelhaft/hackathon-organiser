@@ -9,21 +9,33 @@
         <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
         <form th:action="${pageId} != null ? @{/organiser/content-pages/{id}(id=${pageId})} : @{/organiser/content-pages}"
               method="post">
+            <!--/* Model attribute is `pageTitle`, not `title`: inside the layout fragment `title` is
+                 the fragment's own parameter ('Content Page') and would shadow the page's title. */-->
             <label for="title">Title</label>
-            <input type="text" id="title" name="title" th:value="${title}" required="required"/>
+            <input type="text" id="title" name="title" th:value="${pageTitle}" required="required"/>
 
             <label for="body_markdown">Body (Markdown)</label>
             <textarea id="body_markdown" name="body_markdown" rows="12" required="required"
                       th:text="${bodyMarkdown}"></textarea>
 
+            <!--/* Feature 008 FR-019/FR-019a: mandatory, and pre-filled by the controller on the New
+                 page path to the next free index — visible and editable before submission. */-->
             <label for="sort_index">Sort Index</label>
-            <input type="number" id="sort_index" name="sort_index" th:value="${sortIndex}"/>
+            <input type="number" id="sort_index" name="sort_index" th:value="${sortIndex}" required="required"
+                   step="1"/>
 
-            <label for="is_homepage">
-                <input type="hidden" name="is_homepage" value="false"/>
-                <input type="checkbox" id="is_homepage" name="is_homepage" value="true" th:checked="${homepage}"/>
-                Designate as the homepage page
-            </label>
+            <!--/* Feature 008 FR-012a: one closed single-select instead of the former homepage
+                 checkbox, so a page can never claim two contexts. The controller always supplies
+                 `context` (NONE by default). */-->
+            <label for="context">Designation</label>
+            <select id="context" name="context">
+                <option value="NONE" th:selected="${context.name() == 'NONE'}">None (listed in the Info menu)</option>
+                <option value="HOMEPAGE" th:selected="${context.name() == 'HOMEPAGE'}">Homepage</option>
+                <option value="TOPIC_CREATION" th:selected="${context.name() == 'TOPIC_CREATION'}">Topic creation</option>
+                <option value="USER_REGISTRATION" th:selected="${context.name() == 'USER_REGISTRATION'}">User registration</option>
+            </select>
+            <small>A designated page renders at the top of that screen and is left out of the Info menu.
+                Designating a page replaces whichever page previously held that designation.</small>
 
             <button type="submit">Save</button>
         </form>

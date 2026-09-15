@@ -4,8 +4,10 @@
       "Bash(python3 .specify/scripts/python/setup_plan.py --json)",
       "Bash(echo \"EXIT:$?\")",
       "Bash(git add *)",
-      "Bash(mvn -q test -Dtest=MarkdownRendererTest)",
-      "Bash(mvn -q test -Dtest=ContentImageServiceTest)"
+      "Bash(mvn -q test -Dtest=*)",
+      "Bash(mvn -o test)",
+      "Bash(mvn test *)",
+      "Bash(mvn -o verify)"
     ]
   }
 }

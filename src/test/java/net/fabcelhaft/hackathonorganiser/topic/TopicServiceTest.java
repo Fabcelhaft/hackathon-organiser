@@ -19,6 +19,8 @@ import net.fabcelhaft.hackathonorganiser.audit.AuditEntry;
 import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
 import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
@@ -64,6 +66,12 @@ class TopicServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private EventPublisher eventPublisher;
+
+    @Mock
+    private EventPayloadFactory eventPayloadFactory;
+
     private static final AuditActor ACTOR = new AuditActor(UUID.randomUUID(), true);
 
     private TopicService topicService;
@@ -79,7 +87,9 @@ class TopicServiceTest {
                 skillRepository,
                 databaseClient,
                 organiserSettingsService,
-                auditService);
+                auditService,
+                eventPublisher,
+                eventPayloadFactory);
     }
 
     // --- create: name/description/creator required (FR-015) ------------------------------------

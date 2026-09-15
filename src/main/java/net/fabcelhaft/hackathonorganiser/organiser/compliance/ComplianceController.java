@@ -12,6 +12,7 @@ import net.fabcelhaft.hackathonorganiser.compliance.ComplianceDiversityRequireme
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldDefinition;
 import net.fabcelhaft.hackathonorganiser.customfield.CustomFieldService;
+import net.fabcelhaft.hackathonorganiser.event.ComplianceChangeEventHook;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsConflictException;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
@@ -39,14 +40,17 @@ public class ComplianceController {
     private final OrganiserSettingsService organiserSettingsService;
     private final ComplianceService complianceService;
     private final CustomFieldService customFieldService;
+    private final ComplianceChangeEventHook complianceChangeEventHook;
 
     public ComplianceController(
             OrganiserSettingsService organiserSettingsService,
             ComplianceService complianceService,
-            CustomFieldService customFieldService) {
+            CustomFieldService customFieldService,
+            ComplianceChangeEventHook complianceChangeEventHook) {
         this.organiserSettingsService = organiserSettingsService;
         this.complianceService = complianceService;
         this.customFieldService = customFieldService;
+        this.complianceChangeEventHook = complianceChangeEventHook;
     }
 
     @GetMapping
@@ -68,10 +72,10 @@ public class ComplianceController {
             if (maxGroupMembers == null) {
                 return renderForm(null, "Maximum Group Members is required");
             }
-            return organiserSettingsService
-                    .update(
+            return complianceChangeEventHook
+                    .wrapRulesetChange(organiserSettingsService.update(
                             null, null, null, null, null, null, null, maxGroupMembers, minGroupMembers, null, null,
-                            null, null)
+                            null, null))
                     .<Rendering>map(settings ->
                             redirectWithFlash("Compliance settings updated."))
                     .onErrorResume(
@@ -84,8 +88,8 @@ public class ComplianceController {
         return exchange.getFormData().flatMap(form -> {
             UUID customFieldDefinitionId = parseUuidOrNull(form.getFirst("custom_field_definition_id"));
             int minimumDistinctValues = parseIntOrDefault(form.getFirst("minimum_distinct_values"), 2);
-            return complianceService
-                    .addRequirement(customFieldDefinitionId, minimumDistinctValues)
+            return complianceChangeEventHook
+                    .wrapRulesetChange(complianceService.addRequirement(customFieldDefinitionId, minimumDistinctValues))
                     .<Rendering>map(requirement -> redirectWithFlash("Requirement added."))
                     .onErrorResume(ComplianceConflictException.class, ex -> renderForm(null, ex.getMessage()));
         });
@@ -93,8 +97,8 @@ public class ComplianceController {
 
     @PostMapping("/diversity-requirements/{id}/delete")
     public Mono<Rendering> removeRequirement(@PathVariable UUID id) {
-        return complianceService
-                .removeRequirement(id)
+        return complianceChangeEventHook
+                .wrapRulesetChange(complianceService.removeRequirement(id))
                 .then(Mono.just(redirectWithFlash("Requirement removed.")));
     }
 

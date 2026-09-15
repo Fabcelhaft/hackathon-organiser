@@ -66,5 +66,30 @@ services:
     volumes:
       - ./dex/config.yaml:/etc/dex/config.yaml:ro
 
+  # Dev-only single-broker Kafka (KRaft mode, no ZooKeeper) for manually exercising a KAFKA-type
+  # Event Destination (feature 007; specs/007-event-system-events/quickstart.md step 1). Not part
+  # of the production deployment path and not an `app` startup dependency — a Destination's
+  # bootstrap servers are configured at runtime through the Organiser UI, not via environment
+  # variables here. From another container on this compose network (e.g. `app`), point a
+  # Destination's bootstrap servers at `kafka:19092`; from the host (e.g. `kafka-console-consumer`
+  # per quickstart.md), use `localhost:9092`.
+  kafka:
+    image: apache/kafka:3.9.0
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://kafka:19092,CONTROLLER://kafka:19093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:19093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+
 volumes:
   postgres-data:

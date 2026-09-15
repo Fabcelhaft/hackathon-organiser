@@ -1,6 +1,8 @@
 package net.fabcelhaft.hackathonorganiser.security;
 
 import java.time.Instant;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.user.User;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,19 +29,28 @@ public class HackathonOidcUserService implements ReactiveOAuth2UserService<OidcU
 
     private final UserRepository userRepository;
     private final ReactiveOAuth2UserService<OidcUserRequest, OidcUser> delegate;
+    private final EventPublisher eventPublisher;
+    private final EventPayloadFactory eventPayloadFactory;
 
     @Autowired
-    public HackathonOidcUserService(UserRepository userRepository) {
-        this(userRepository, createDefaultDelegate());
+    public HackathonOidcUserService(
+            UserRepository userRepository, EventPublisher eventPublisher, EventPayloadFactory eventPayloadFactory) {
+        this(userRepository, createDefaultDelegate(), eventPublisher, eventPayloadFactory);
     }
 
     /**
      * Package-private constructor used by {@code HackathonOidcUserServiceTest} to inject a mocked
      * delegate, so the upsert logic can be unit-tested without a network round-trip to an IdP.
      */
-    HackathonOidcUserService(UserRepository userRepository, ReactiveOAuth2UserService<OidcUserRequest, OidcUser> delegate) {
+    HackathonOidcUserService(
+            UserRepository userRepository,
+            ReactiveOAuth2UserService<OidcUserRequest, OidcUser> delegate,
+            EventPublisher eventPublisher,
+            EventPayloadFactory eventPayloadFactory) {
         this.userRepository = userRepository;
         this.delegate = delegate;
+        this.eventPublisher = eventPublisher;
+        this.eventPayloadFactory = eventPayloadFactory;
     }
 
     private static OidcReactiveOAuth2UserService createDefaultDelegate() {
@@ -79,7 +90,9 @@ public class HackathonOidcUserService implements ReactiveOAuth2UserService<OidcU
                     user.setOrganiser(false);
                     user.setCreatedAt(now);
                     user.setUpdatedAt(now);
-                    return userRepository.save(user);
+                    return userRepository
+                            .save(user)
+                            .doOnNext(saved -> eventPublisher.publish(eventPayloadFactory.userCreated(saved)));
                 }));
     }
 

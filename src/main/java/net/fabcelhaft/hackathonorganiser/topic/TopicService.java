@@ -12,6 +12,8 @@ import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.audit.AuditEventType;
 import net.fabcelhaft.hackathonorganiser.audit.AuditService;
 import net.fabcelhaft.hackathonorganiser.audit.AuditSubjectType;
+import net.fabcelhaft.hackathonorganiser.event.EventPayloadFactory;
+import net.fabcelhaft.hackathonorganiser.event.EventPublisher;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.skill.Skill;
 import net.fabcelhaft.hackathonorganiser.skill.SkillRepository;
@@ -50,6 +52,8 @@ public class TopicService {
     private final DatabaseClient databaseClient;
     private final OrganiserSettingsService organiserSettingsService;
     private final AuditService auditService;
+    private final EventPublisher eventPublisher;
+    private final EventPayloadFactory eventPayloadFactory;
 
     public TopicService(
             TopicRepository topicRepository,
@@ -57,13 +61,17 @@ public class TopicService {
             SkillRepository skillRepository,
             DatabaseClient databaseClient,
             OrganiserSettingsService organiserSettingsService,
-            AuditService auditService) {
+            AuditService auditService,
+            EventPublisher eventPublisher,
+            EventPayloadFactory eventPayloadFactory) {
         this.topicRepository = topicRepository;
         this.userRepository = userRepository;
         this.skillRepository = skillRepository;
         this.databaseClient = databaseClient;
         this.organiserSettingsService = organiserSettingsService;
         this.auditService = auditService;
+        this.eventPublisher = eventPublisher;
+        this.eventPayloadFactory = eventPayloadFactory;
     }
 
     public Flux<Topic> findAll() {
@@ -203,7 +211,8 @@ public class TopicService {
                 return topicRepository
                         .save(topic)
                         .flatMap(saved -> replaceTopicSkills(saved.getId(), ids).thenReturn(saved))
-                        .flatMap(saved -> recordCreated(saved, actor));
+                        .flatMap(saved -> recordCreated(saved, actor))
+                        .doOnNext(saved -> eventPublisher.publish(eventPayloadFactory.topicProposed(saved)));
             });
         });
     }
@@ -323,7 +332,8 @@ public class TopicService {
                                     "PENDING",
                                     "APPROVED",
                                     null)
-                            .thenReturn(saved));
+                            .thenReturn(saved))
+                    .doOnNext(saved -> eventPublisher.publish(eventPayloadFactory.topicApproved(saved)));
         });
     }
 
