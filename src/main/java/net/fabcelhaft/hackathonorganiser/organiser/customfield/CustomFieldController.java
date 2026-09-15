@@ -45,6 +45,7 @@ public class CustomFieldController {
     public Mono<Rendering> newForm() {
         return Mono.just(Rendering.view("organiser/custom-fields/form")
                 .modelAttribute("fieldTypes", createableFieldTypes())
+                .modelAttribute("sortIndex", 0)
                 .build());
     }
 
@@ -59,9 +60,15 @@ public class CustomFieldController {
             List<String> options = blankFilteredOptions(form.get("options"));
             boolean public_ = isChecked(form.getFirst("public_"));
             boolean overview = isChecked(form.getFirst("overview"));
+            String rawSortIndex = form.getFirst("sort_index");
 
-            return customFieldService
-                    .create(label, fieldType, required, options, public_, overview)
+            // The sort_index parse is the head of the very chain the onErrorResume below is attached
+            // to (feature 009, research.md §4): a malformed value becomes an error signal that takes
+            // the same 200 re-render path as every other form conflict — never a synchronous throw
+            // out of this lambda, which would bypass the resume and surface as a 500.
+            return Mono.fromCallable(() -> parseSortIndex(rawSortIndex))
+                    .flatMap(sortIndex -> customFieldService
+                            .create(label, fieldType, required, options, public_, overview, sortIndex))
                     .<Rendering>map(definition -> Rendering.redirectTo("/organiser/custom-fields")
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -74,6 +81,7 @@ public class CustomFieldController {
                                     .modelAttribute("fieldType", fieldType)
                                     .modelAttribute("required", required)
                                     .modelAttribute("optionInputs", options)
+                                    .modelAttribute("sortIndex", parseSortIndexOr(rawSortIndex, 0))
                                     .build()));
         });
     }
@@ -102,15 +110,18 @@ public class CustomFieldController {
                             (requestedTypeRaw == null || requestedTypeRaw.isBlank())
                                     ? null
                                     : CustomFieldType.valueOf(requestedTypeRaw);
+                    String rawSortIndex = form.getFirst("sort_index");
 
-                    return customFieldService
-                            .update(
+                    // Same chain shape as create(): the parse leads, so its failure reaches the resume.
+                    return Mono.fromCallable(() -> parseSortIndex(rawSortIndex))
+                            .flatMap(sortIndex -> customFieldService.update(
                                     id,
                                     label,
                                     required,
                                     requestedType,
                                     isChecked(form.getFirst("public_")),
-                                    isChecked(form.getFirst("overview")))
+                                    isChecked(form.getFirst("overview")),
+                                    sortIndex))
                             .<Rendering>map(definition -> Rendering.redirectTo("/organiser/custom-fields")
                                     .status(HttpStatus.SEE_OTHER)
                                     .build())
@@ -120,6 +131,9 @@ public class CustomFieldController {
                                     .map(tuple -> {
                                         existing.setLabel(label);
                                         existing.setRequired(required);
+                                        // A malformed index re-shows the stored value; a valid one
+                                        // that lost to another conflict is echoed back as typed.
+                                        existing.setSortIndex(parseSortIndexOr(rawSortIndex, existing.getSortIndex()));
                                         return editFormView(existing, tuple.getT1(), tuple.getT2(), ex.getMessage());
                                     }));
                 }));
@@ -171,8 +185,31 @@ public class CustomFieldController {
     public Mono<Rendering> addOption(@PathVariable UUID id, ServerWebExchange exchange) {
         return exchange.getFormData().flatMap(form -> {
             String label = form.getFirst("label");
-            return customFieldService
-                    .addOption(id, label)
+            String rawSortIndex = form.getFirst("sort_index");
+            // Parse first, inside the chain, so a malformed sort_index re-renders the edit page
+            // (feature 009, FR-017) exactly like a duplicate label does.
+            return Mono.fromCallable(() -> parseSortIndex(rawSortIndex))
+                    .flatMap(sortIndex -> customFieldService.addOption(id, label, sortIndex))
+                    .<Rendering>map(option -> Rendering.redirectTo("/organiser/custom-fields/" + id + "/edit")
+                            .status(HttpStatus.SEE_OTHER)
+                            .build())
+                    .onErrorResume(CustomFieldConflictException.class, ex -> renderEditFormAfterOptionError(id, ex))
+                    .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
+        });
+    }
+
+    /**
+     * Changes one option's sort index (feature 009, FR-016; contracts/custom-field-ordering.md).
+     * 404 unless the option exists and belongs to {@code id}; a malformed {@code sort_index}
+     * re-renders the edit page with the error and stores nothing.
+     */
+    @PostMapping("/{id}/options/{optionId}")
+    public Mono<Rendering> updateOptionSortIndex(
+            @PathVariable UUID id, @PathVariable UUID optionId, ServerWebExchange exchange) {
+        return exchange.getFormData().flatMap(form -> {
+            String rawSortIndex = form.getFirst("sort_index");
+            return Mono.fromCallable(() -> parseSortIndex(rawSortIndex))
+                    .flatMap(sortIndex -> customFieldService.updateOptionSortIndex(id, optionId, sortIndex))
                     .<Rendering>map(option -> Rendering.redirectTo("/organiser/custom-fields/" + id + "/edit")
                             .status(HttpStatus.SEE_OTHER)
                             .build())
@@ -214,6 +251,7 @@ public class CustomFieldController {
                 .modelAttribute("required", definition.isRequired())
                 .modelAttribute("public_", definition.isPublic_())
                 .modelAttribute("overview", definition.isOverview())
+                .modelAttribute("sortIndex", definition.getSortIndex())
                 .modelAttribute("isCountry", isCountry)
                 .modelAttribute("countryEnabled", definition.isEnabled())
                 .modelAttribute("existingOptions", existingOptions)
@@ -239,6 +277,34 @@ public class CustomFieldController {
 
     private static boolean isChecked(String value) {
         return "true".equalsIgnoreCase(value) || "on".equalsIgnoreCase(value);
+    }
+
+    /**
+     * The {@code sort_index} form field (feature 009, FR-004, FR-005; contracts/custom-field-ordering.md):
+     * absent or blank means the default 0; otherwise it must be a whole number within {@code int}
+     * range — {@link Integer#parseInt} rejects letters, decimals, and out-of-range values alike —
+     * and anything else is a {@link CustomFieldConflictException} so the form re-renders with a
+     * message and nothing is written. Deliberately NOT the silent {@code parseIntOrZero} coercion
+     * {@code ContentPageController} uses: the spec requires rejection.
+     */
+    private static int parseSortIndex(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException ex) {
+            throw new CustomFieldConflictException("Sort index must be a whole number");
+        }
+    }
+
+    /** {@link #parseSortIndex} for error re-renders: the parsed value, or {@code fallback} if malformed. */
+    private static int parseSortIndexOr(String raw, int fallback) {
+        try {
+            return parseSortIndex(raw);
+        } catch (CustomFieldConflictException ex) {
+            return fallback;
+        }
     }
 
     private static List<String> blankFilteredOptions(List<String> options) {

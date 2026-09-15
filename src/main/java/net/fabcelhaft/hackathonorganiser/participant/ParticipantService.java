@@ -862,10 +862,8 @@ public class ParticipantService {
     }
 
     private Mono<List<CustomFieldAnswer>> loadCustomFieldValueViews(UUID participantId) {
-        return customFieldDefinitionRepository
-                .findAll()
-                .collectList()
-                .flatMap(fields -> customFieldService.answersFor(participantId, fields));
+        // Feature 009: read through the service so the fields arrive in CustomFieldDefinition.DISPLAY_ORDER.
+        return customFieldService.findAll().collectList().flatMap(fields -> customFieldService.answersFor(participantId, fields));
     }
 
     // --- Participants directory & detail-for-viewer (FR-017, FR-018, FR-019, FR-025-FR-031) -----
@@ -873,10 +871,13 @@ public class ParticipantService {
     /**
      * The Participants directory table's read model (FR-027): only {@code ACTIVE} Participants,
      * ordered alphabetically ascending by display name (FR-027a), one value per
-     * {@code overview = true} Custom Field Definition (FR-027) — never Skills (FR-027).
+     * {@code overview = true} Custom Field Definition (FR-027) — never Skills (FR-027). The
+     * columns follow {@link CustomFieldDefinition#DISPLAY_ORDER} (feature 009, FR-008), inherited
+     * from {@link CustomFieldService#findAll()}; every row's cells are built from that same list, so
+     * header and cells stay aligned by construction.
      */
     public Flux<DirectoryRow> findDirectoryListing() {
-        return customFieldDefinitionRepository
+        return customFieldService
                 .findAll()
                 .filter(CustomFieldDefinition::isOverview)
                 .collectList()

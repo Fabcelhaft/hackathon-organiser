@@ -108,6 +108,37 @@ class ComplianceManagementIT {
         assertThat(body).contains("No diversity requirements configured.");
     }
 
+    // Feature 009 (FR-009): the field dropdown offers Custom Fields in sort-index-then-label order.
+    @Test
+    void fieldDropdownListsCustomFieldsInSortIndexThenLabelOrder() {
+        User organiser = persistUser(true);
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition omega = persistDefinition("Omega " + suffix, 3);
+        CustomFieldDefinition mid = persistDefinition("Mid " + suffix, 0);
+        CustomFieldDefinition zeta = persistDefinition("Zeta " + suffix, -1);
+        CustomFieldDefinition alpha = persistDefinition("Alpha " + suffix, 0);
+
+        String body = webTestClient
+                .mutateWith(loginAs(organiser))
+                .get()
+                .uri("/organiser/compliance")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        int zetaAt = body.indexOf(zeta.getLabel());
+        int alphaAt = body.indexOf(alpha.getLabel());
+        int midAt = body.indexOf(mid.getLabel());
+        int omegaAt = body.indexOf(omega.getLabel());
+        assertThat(zetaAt).isGreaterThanOrEqualTo(0);
+        assertThat(zetaAt).isLessThan(alphaAt);
+        assertThat(alphaAt).isLessThan(midAt);
+        assertThat(midAt).isLessThan(omegaAt);
+    }
+
     @Test
     void savingAValidMaxAndMinSucceeds() {
         User organiser = persistUser(true);
@@ -252,11 +283,16 @@ class ComplianceManagementIT {
     // --- Test helpers ------------------------------------------------------------------------------
 
     private CustomFieldDefinition persistDefinition(String label) {
+        return persistDefinition(label, 0);
+    }
+
+    private CustomFieldDefinition persistDefinition(String label, int sortIndex) {
         CustomFieldDefinition definition = new CustomFieldDefinition();
         definition.setLabel(label);
         definition.setFieldType(CustomFieldType.FREE_TEXT);
         definition.setRequired(false);
         definition.setEnabled(true);
+        definition.setSortIndex(sortIndex);
         Instant now = Instant.now();
         definition.setCreatedAt(now);
         definition.setUpdatedAt(now);

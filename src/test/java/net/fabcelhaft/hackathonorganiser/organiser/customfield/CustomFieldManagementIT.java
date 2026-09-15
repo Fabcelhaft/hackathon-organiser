@@ -460,6 +460,317 @@ class CustomFieldManagementIT {
         assertThat(definitionRepository.findById(country.getId()).block()).isNotNull();
     }
 
+    // --- Feature 009: sort index on create/edit, validation, list order (FR-003–FR-006, FR-010, FR-011)
+
+    @Test
+    void newFormPreFillsSortIndexZero() {
+        String body = organiserGet("/organiser/custom-fields/new");
+
+        assertThat(body).containsPattern("name=\"sort_index\"[^>]*value=\"0\"");
+    }
+
+    @Test
+    void createWithoutSortIndexStoresZero() {
+        String label = "Default Index " + UUID.randomUUID();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields")
+                .body(BodyInserters.fromFormData("label", label).with("fieldType", "FREE_TEXT"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(findByLabel(label).getSortIndex()).isZero();
+    }
+
+    @Test
+    void createWithNegativeSortIndexStoresIt() {
+        String label = "Negative Index " + UUID.randomUUID();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields")
+                .body(BodyInserters.fromFormData("label", label)
+                        .with("fieldType", "FREE_TEXT")
+                        .with("sort_index", "-5"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(findByLabel(label).getSortIndex()).isEqualTo(-5);
+    }
+
+    @Test
+    void createWithNonNumericSortIndexIsRejectedWithoutSaving() {
+        String label = "Bad Index " + UUID.randomUUID();
+
+        String body = webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields")
+                .body(BodyInserters.fromFormData("label", label)
+                        .with("fieldType", "FREE_TEXT")
+                        .with("sort_index", "abc"))
+                .exchange()
+                .expectStatus().isOk() // form re-rendered with error, not redirected
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("Sort index must be a whole number");
+        assertThat(definitionRepository.findAll().filter(d -> d.getLabel().equals(label)).collectList().block())
+                .isEmpty();
+    }
+
+    @Test
+    void createWithOutOfRangeSortIndexIsRejectedWithoutSaving() {
+        String label = "Huge Index " + UUID.randomUUID();
+
+        String body = webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields")
+                .body(BodyInserters.fromFormData("label", label)
+                        .with("fieldType", "FREE_TEXT")
+                        .with("sort_index", "99999999999"))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("Sort index must be a whole number");
+        assertThat(definitionRepository.findAll().filter(d -> d.getLabel().equals(label)).collectList().block())
+                .isEmpty();
+    }
+
+    @Test
+    void editFormPreFillsTheStoredSortIndex() {
+        CustomFieldDefinition definition =
+                persistDefinition("Prefilled " + UUID.randomUUID(), CustomFieldType.FREE_TEXT, false, 12);
+
+        String body = organiserGet("/organiser/custom-fields/" + definition.getId() + "/edit");
+
+        assertThat(body).containsPattern("name=\"sort_index\"[^>]*value=\"12\"");
+    }
+
+    @Test
+    void updatingSortIndexPersistsItAndMovesTheRowOnTheNextListLoad() {
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition before = persistDefinition("Anchor Before " + suffix, CustomFieldType.FREE_TEXT, false, 0);
+        CustomFieldDefinition moving = persistDefinition("Anchor Moving " + suffix, CustomFieldType.FREE_TEXT, true, 9);
+        CustomFieldDefinition after = persistDefinition("Anchor After " + suffix, CustomFieldType.FREE_TEXT, false, 5);
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}", moving.getId())
+                .body(BodyInserters.fromFormData("label", moving.getLabel())
+                        .with("required", "true")
+                        .with("fieldType", "FREE_TEXT")
+                        .with("sort_index", "3"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        CustomFieldDefinition updated = definitionRepository.findById(moving.getId()).block();
+        assertThat(updated.getSortIndex()).isEqualTo(3);
+        assertThat(updated.getLabel()).isEqualTo(moving.getLabel());
+        assertThat(updated.isRequired()).isTrue();
+
+        String list = organiserGet("/organiser/custom-fields");
+        assertThat(list.indexOf(before.getLabel()))
+                .isLessThan(list.indexOf(moving.getLabel()));
+        assertThat(list.indexOf(moving.getLabel()))
+                .isLessThan(list.indexOf(after.getLabel()));
+    }
+
+    @Test
+    void invalidSortIndexOnUpdateIsRejectedWithoutChangingAnything() {
+        CustomFieldDefinition definition =
+                persistDefinition("Unchanged " + UUID.randomUUID(), CustomFieldType.FREE_TEXT, false, 2);
+
+        String body = webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}", definition.getId())
+                .body(BodyInserters.fromFormData("label", "Renamed " + UUID.randomUUID())
+                        .with("required", "true")
+                        .with("fieldType", "FREE_TEXT")
+                        .with("sort_index", "1.5"))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("Sort index must be a whole number");
+        CustomFieldDefinition unchanged = definitionRepository.findById(definition.getId()).block();
+        assertThat(unchanged.getLabel()).isEqualTo(definition.getLabel());
+        assertThat(unchanged.isRequired()).isFalse();
+        assertThat(unchanged.getSortIndex()).isEqualTo(2);
+    }
+
+    @Test
+    void countryRowAcceptsASortIndexChange() {
+        CustomFieldDefinition country = definitionRepository
+                .findAll()
+                .filter(d -> d.getFieldType() == CustomFieldType.COUNTRY)
+                .blockFirst();
+        int originalIndex = country.getSortIndex();
+
+        // The edit form's Type control is disabled for COUNTRY, so no fieldType is submitted.
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}", country.getId())
+                .body(BodyInserters.fromFormData("label", "Country")
+                        .with("required", "false")
+                        .with("sort_index", "5"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(definitionRepository.findById(country.getId()).block().getSortIndex()).isEqualTo(5);
+
+        // Restore the seeded value so the singleton row does not leak into other tests' fixtures.
+        country.setSortIndex(originalIndex);
+        definitionRepository.save(country).block();
+    }
+
+    @Test
+    void listShowsTheSortIndexColumnAndRowsInDisplayOrder() {
+        String suffix = UUID.randomUUID().toString();
+        // Deliberately created in neither index nor alphabetical order.
+        CustomFieldDefinition omega = persistDefinition("Omega " + suffix, CustomFieldType.FREE_TEXT, false, 3);
+        CustomFieldDefinition mid = persistDefinition("Mid " + suffix, CustomFieldType.FREE_TEXT, false, 0);
+        CustomFieldDefinition zeta = persistDefinition("Zeta " + suffix, CustomFieldType.FREE_TEXT, false, -1);
+        CustomFieldDefinition alpha = persistDefinition("Alpha " + suffix, CustomFieldType.FREE_TEXT, false, 0);
+
+        String list = organiserGet("/organiser/custom-fields");
+
+        assertThat(list).contains("Sort index");
+        int zetaAt = list.indexOf(zeta.getLabel());
+        int alphaAt = list.indexOf(alpha.getLabel());
+        int midAt = list.indexOf(mid.getLabel());
+        int omegaAt = list.indexOf(omega.getLabel());
+        assertThat(zetaAt).isGreaterThanOrEqualTo(0);
+        assertThat(zetaAt).isLessThan(alphaAt);
+        assertThat(alphaAt).isLessThan(midAt);
+        assertThat(midAt).isLessThan(omegaAt);
+    }
+
+    // --- Feature 009, User Story 4: option sort index (FR-015–FR-019) ------------------------------
+
+    @Test
+    void addingAnOptionWithASortIndexStoresIt() {
+        CustomFieldDefinition definition =
+                persistDefinition("Sizes " + UUID.randomUUID(), CustomFieldType.SINGLE_SELECT, false);
+        String label = "M " + UUID.randomUUID();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/options", definition.getId())
+                .body(BodyInserters.fromFormData("label", label).with("sort_index", "2"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(findOptionByLabel(definition.getId(), label).getSortIndex()).isEqualTo(2);
+    }
+
+    @Test
+    void addingAnOptionWithoutASortIndexStoresZero() {
+        CustomFieldDefinition definition =
+                persistDefinition("Sizes " + UUID.randomUUID(), CustomFieldType.SINGLE_SELECT, false);
+        String label = "Default " + UUID.randomUUID();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/options", definition.getId())
+                .body(BodyInserters.fromFormData("label", label))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(findOptionByLabel(definition.getId(), label).getSortIndex()).isZero();
+    }
+
+    @Test
+    void addingAnOptionWithANonNumericSortIndexIsRejectedWithoutSaving() {
+        CustomFieldDefinition definition =
+                persistDefinition("Sizes " + UUID.randomUUID(), CustomFieldType.SINGLE_SELECT, false);
+
+        String body = webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/options", definition.getId())
+                .body(BodyInserters.fromFormData("label", "Bad " + UUID.randomUUID()).with("sort_index", "abc"))
+                .exchange()
+                .expectStatus().isOk() // edit page re-rendered with error, not redirected
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("Sort index must be a whole number");
+        assertThat(optionRepository.findByCustomFieldDefinitionId(definition.getId()).collectList().block()).isEmpty();
+    }
+
+    @Test
+    void updatingAnOptionSortIndexPersistsItAndLeavesTheLabelAlone() {
+        CustomFieldDefinition definition =
+                persistDefinition("Sizes " + UUID.randomUUID(), CustomFieldType.MULTI_SELECT, false);
+        CustomFieldOption option = persistOption(definition.getId(), "L " + UUID.randomUUID(), 0);
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/options/{optionId}", definition.getId(), option.getId())
+                .body(BodyInserters.fromFormData("sort_index", "7"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader().valueEquals("Location", "/organiser/custom-fields/" + definition.getId() + "/edit");
+
+        CustomFieldOption updated = optionRepository.findById(option.getId()).block();
+        assertThat(updated.getSortIndex()).isEqualTo(7);
+        assertThat(updated.getLabel()).isEqualTo(option.getLabel());
+    }
+
+    @Test
+    void updatingAnOptionWithAnInvalidSortIndexIsRejectedWithoutChangingIt() {
+        CustomFieldDefinition definition =
+                persistDefinition("Sizes " + UUID.randomUUID(), CustomFieldType.MULTI_SELECT, false);
+        CustomFieldOption option = persistOption(definition.getId(), "L " + UUID.randomUUID(), 4);
+
+        String body = webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/options/{optionId}", definition.getId(), option.getId())
+                .body(BodyInserters.fromFormData("sort_index", "x"))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("Sort index must be a whole number");
+        assertThat(optionRepository.findById(option.getId()).block().getSortIndex()).isEqualTo(4);
+    }
+
+    @Test
+    void updatingAnOptionOfAnotherDefinitionReturnsNotFound() {
+        CustomFieldDefinition owner =
+                persistDefinition("Owner " + UUID.randomUUID(), CustomFieldType.MULTI_SELECT, false);
+        CustomFieldDefinition other =
+                persistDefinition("Other " + UUID.randomUUID(), CustomFieldType.MULTI_SELECT, false);
+        CustomFieldOption option = persistOption(owner.getId(), "Belongs To Owner " + UUID.randomUUID(), 1);
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/custom-fields/{id}/options/{optionId}", other.getId(), option.getId())
+                .body(BodyInserters.fromFormData("sort_index", "9"))
+                .exchange()
+                .expectStatus().isNotFound();
+
+        assertThat(optionRepository.findById(option.getId()).block().getSortIndex()).isEqualTo(1);
+    }
+
+    @Test
+    void editPageListsOptionsInSortIndexOrderShowingEachIndex() {
+        CustomFieldDefinition definition =
+                persistDefinition("Sizes " + UUID.randomUUID(), CustomFieldType.SINGLE_SELECT, false);
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldOption large = persistOption(definition.getId(), "Large" + suffix, 3);
+        CustomFieldOption small = persistOption(definition.getId(), "Small" + suffix, 1);
+        CustomFieldOption medium = persistOption(definition.getId(), "Medium" + suffix, 2);
+
+        String body = organiserGet("/organiser/custom-fields/" + definition.getId() + "/edit");
+
+        int smallAt = body.indexOf(small.getLabel());
+        int mediumAt = body.indexOf(medium.getLabel());
+        int largeAt = body.indexOf(large.getLabel());
+        assertThat(smallAt).isGreaterThanOrEqualTo(0);
+        assertThat(smallAt).isLessThan(mediumAt);
+        assertThat(mediumAt).isLessThan(largeAt);
+        assertThat(body).containsPattern("name=\"sort_index\"[^>]*value=\"1\"");
+        assertThat(body).containsPattern("name=\"sort_index\"[^>]*value=\"2\"");
+        assertThat(body).containsPattern("name=\"sort_index\"[^>]*value=\"3\"");
+    }
+
     // --- Non-Organiser denied on every route (FR-022, SC-004) -----------------------------------
 
     @Test
@@ -511,6 +822,12 @@ class CustomFieldManagementIT {
                 .exchange()
                 .expectStatus().isForbidden();
 
+        webTestClient.mutateWith(standardUser())
+                .post().uri("/organiser/custom-fields/{id}/options/{optionId}", definition.getId(), option.getId())
+                .body(BodyInserters.fromFormData("sort_index", "1"))
+                .exchange()
+                .expectStatus().isForbidden();
+
         CustomFieldDefinition country = definitionRepository
                 .findAll()
                 .filter(d -> d.getFieldType() == CustomFieldType.COUNTRY)
@@ -528,22 +845,57 @@ class CustomFieldManagementIT {
     // --- Test helpers ----------------------------------------------------------------------------
 
     private CustomFieldDefinition persistDefinition(String label, CustomFieldType type, boolean required) {
+        return persistDefinition(label, type, required, 0);
+    }
+
+    private CustomFieldDefinition persistDefinition(
+            String label, CustomFieldType type, boolean required, int sortIndex) {
         CustomFieldDefinition definition = new CustomFieldDefinition();
         definition.setLabel(label);
         definition.setFieldType(type);
         definition.setRequired(required);
+        definition.setSortIndex(sortIndex);
         definition.setCreatedAt(Instant.now());
         definition.setUpdatedAt(Instant.now());
         return definitionRepository.save(definition).block();
     }
 
+    private CustomFieldDefinition findByLabel(String label) {
+        return definitionRepository.findAll().collectList().block().stream()
+                .filter(d -> d.getLabel().equals(label))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private String organiserGet(String uri) {
+        return webTestClient.mutateWith(organiser())
+                .get().uri(uri)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+    }
+
     private CustomFieldOption persistOption(UUID definitionId, String label) {
+        return persistOption(definitionId, label, 0);
+    }
+
+    private CustomFieldOption persistOption(UUID definitionId, String label, int sortIndex) {
         CustomFieldOption option = new CustomFieldOption();
         option.setCustomFieldDefinitionId(definitionId);
         option.setLabel(label);
+        option.setSortIndex(sortIndex);
         option.setCreatedAt(Instant.now());
         option.setUpdatedAt(Instant.now());
         return optionRepository.save(option).block();
+    }
+
+    private CustomFieldOption findOptionByLabel(UUID definitionId, String label) {
+        return optionRepository.findByCustomFieldDefinitionId(definitionId).collectList().block().stream()
+                .filter(o -> o.getLabel().equals(label))
+                .findFirst()
+                .orElseThrow();
     }
 
     private Participant persistParticipant() {

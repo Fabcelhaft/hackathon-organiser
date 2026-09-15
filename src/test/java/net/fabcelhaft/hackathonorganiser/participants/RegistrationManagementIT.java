@@ -145,6 +145,62 @@ class RegistrationManagementIT {
         assertThat(body).doesNotContain("Custom Field");
     }
 
+    // --- Feature 009: fields and select options are asked in sort-index-then-label order (FR-008, FR-018)
+
+    @Test
+    void registerFormListsFieldsInSortIndexThenLabelOrder() {
+        User user = persistUser();
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition omega = persistDefinition("Omega " + suffix, CustomFieldType.FREE_TEXT, false, false, false, 3);
+        CustomFieldDefinition mid = persistDefinition("Mid " + suffix, CustomFieldType.FREE_TEXT, false, false, false, 0);
+        CustomFieldDefinition zeta = persistDefinition("Zeta " + suffix, CustomFieldType.FREE_TEXT, false, false, false, -1);
+        CustomFieldDefinition alpha = persistDefinition("Alpha " + suffix, CustomFieldType.FREE_TEXT, false, false, false, 0);
+
+        String body = registerBody(user);
+
+        int zetaAt = body.indexOf(zeta.getLabel());
+        int alphaAt = body.indexOf(alpha.getLabel());
+        int midAt = body.indexOf(mid.getLabel());
+        int omegaAt = body.indexOf(omega.getLabel());
+        assertThat(zetaAt).isGreaterThanOrEqualTo(0);
+        assertThat(zetaAt).isLessThan(alphaAt);
+        assertThat(alphaAt).isLessThan(midAt);
+        assertThat(midAt).isLessThan(omegaAt);
+    }
+
+    @Test
+    void selectOptionsAreOfferedInSortIndexOrder() {
+        User user = persistUser();
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition size =
+                persistDefinition("Size " + suffix, CustomFieldType.SINGLE_SELECT, false, false, false, 0);
+        CustomFieldOption large = persistOption(size.getId(), "Large" + suffix, 3);
+        CustomFieldOption medium = persistOption(size.getId(), "Medium" + suffix, 2);
+        CustomFieldOption small = persistOption(size.getId(), "Small" + suffix, 1);
+
+        String body = registerBody(user);
+
+        int smallAt = body.indexOf(small.getLabel());
+        int mediumAt = body.indexOf(medium.getLabel());
+        int largeAt = body.indexOf(large.getLabel());
+        assertThat(smallAt).isGreaterThanOrEqualTo(0);
+        assertThat(smallAt).isLessThan(mediumAt);
+        assertThat(mediumAt).isLessThan(largeAt);
+    }
+
+    private String registerBody(User user) {
+        return webTestClient
+                .mutateWith(loginAs(user))
+                .get()
+                .uri("/register")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+    }
+
     // --- POST /register: missing required field (FR-003) --------------------------------------------
 
     @Test
@@ -520,6 +576,11 @@ class RegistrationManagementIT {
 
     private CustomFieldDefinition persistDefinition(
             String label, CustomFieldType type, boolean required, boolean public_, boolean overview) {
+        return persistDefinition(label, type, required, public_, overview, 0);
+    }
+
+    private CustomFieldDefinition persistDefinition(
+            String label, CustomFieldType type, boolean required, boolean public_, boolean overview, int sortIndex) {
         CustomFieldDefinition definition = new CustomFieldDefinition();
         definition.setLabel(label);
         definition.setFieldType(type);
@@ -527,6 +588,7 @@ class RegistrationManagementIT {
         definition.setPublic_(public_);
         definition.setOverview(overview);
         definition.setEnabled(true);
+        definition.setSortIndex(sortIndex);
         Instant now = Instant.now();
         definition.setCreatedAt(now);
         definition.setUpdatedAt(now);
@@ -534,9 +596,14 @@ class RegistrationManagementIT {
     }
 
     private CustomFieldOption persistOption(UUID definitionId, String label) {
+        return persistOption(definitionId, label, 0);
+    }
+
+    private CustomFieldOption persistOption(UUID definitionId, String label, int sortIndex) {
         CustomFieldOption option = new CustomFieldOption();
         option.setCustomFieldDefinitionId(definitionId);
         option.setLabel(label);
+        option.setSortIndex(sortIndex);
         Instant now = Instant.now();
         option.setCreatedAt(now);
         option.setUpdatedAt(now);

@@ -249,7 +249,58 @@ class ProfileManagementIT {
                 .isEqualTo(HttpStatus.SEE_OTHER);
     }
 
+    // --- Feature 009: the self-edit form asks fields in sort-index-then-label order (FR-007, FR-008)
+
+    @Test
+    void editFormListsFieldsInSortIndexThenLabelOrder() {
+        User user = persistUser();
+        persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition omega = persistDefinition("Omega " + suffix, CustomFieldType.FREE_TEXT, false, false, 3);
+        CustomFieldDefinition mid = persistDefinition("Mid " + suffix, CustomFieldType.FREE_TEXT, false, false, 0);
+        CustomFieldDefinition zeta = persistDefinition("Zeta " + suffix, CustomFieldType.FREE_TEXT, false, false, -1);
+        CustomFieldDefinition alpha = persistDefinition("Alpha " + suffix, CustomFieldType.FREE_TEXT, false, false, 0);
+
+        String body = editBody(user);
+
+        int zetaAt = body.indexOf(zeta.getLabel());
+        int alphaAt = body.indexOf(alpha.getLabel());
+        int midAt = body.indexOf(mid.getLabel());
+        int omegaAt = body.indexOf(omega.getLabel());
+        assertThat(zetaAt).isGreaterThanOrEqualTo(0);
+        assertThat(zetaAt).isLessThan(alphaAt);
+        assertThat(alphaAt).isLessThan(midAt);
+        assertThat(midAt).isLessThan(omegaAt);
+    }
+
+    @Test
+    void mixedCaseLabelsAtTheSameIndexSortCaseInsensitively() {
+        User user = persistUser();
+        persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        String suffix = UUID.randomUUID().toString();
+        CustomFieldDefinition banana = persistDefinition("Banana " + suffix, CustomFieldType.FREE_TEXT, false, false, 0);
+        CustomFieldDefinition apple = persistDefinition("apple " + suffix, CustomFieldType.FREE_TEXT, false, false, 0);
+
+        String body = editBody(user);
+
+        assertThat(body.indexOf(apple.getLabel())).isGreaterThanOrEqualTo(0);
+        assertThat(body.indexOf(apple.getLabel())).isLessThan(body.indexOf(banana.getLabel()));
+    }
+
     // --- Test helpers ------------------------------------------------------------------------------
+
+    private String editBody(User user) {
+        return webTestClient
+                .mutateWith(loginAs(user))
+                .get()
+                .uri("/profile/edit")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+    }
 
     private String profileBody(User user) {
         return webTestClient
@@ -304,12 +355,18 @@ class ProfileManagementIT {
     }
 
     private CustomFieldDefinition persistDefinition(String label, CustomFieldType type, boolean required, boolean public_) {
+        return persistDefinition(label, type, required, public_, 0);
+    }
+
+    private CustomFieldDefinition persistDefinition(
+            String label, CustomFieldType type, boolean required, boolean public_, int sortIndex) {
         CustomFieldDefinition definition = new CustomFieldDefinition();
         definition.setLabel(label);
         definition.setFieldType(type);
         definition.setRequired(required);
         definition.setPublic_(public_);
         definition.setEnabled(true);
+        definition.setSortIndex(sortIndex);
         Instant now = Instant.now();
         definition.setCreatedAt(now);
         definition.setUpdatedAt(now);

@@ -12,6 +12,7 @@
             <thead>
             <tr>
                 <th>Label</th>
+                <th>Sort index</th>
                 <th>Type</th>
                 <th>Required</th>
                 <th>Public</th>
@@ -22,6 +23,7 @@
             <tbody>
             <tr th:each="field : ${customFields}">
                 <td th:text="${field.label}">Label</td>
+                <td th:text="${field.sortIndex}">0</td>
                 <td th:text="${field.fieldType}">Type</td>
                 <td th:text="${field.required} ? 'Yes' : 'No'">Required</td>
                 <td th:text="${field.public_} ? 'Yes' : 'No'">Public</td>

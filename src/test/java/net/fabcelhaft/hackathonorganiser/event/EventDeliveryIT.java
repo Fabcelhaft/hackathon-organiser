@@ -130,7 +130,7 @@ class EventDeliveryIT {
         User joiner = persistUser();
         Participant participant = persistParticipant(joiner.getId());
         CustomFieldDefinition tshirtSize = customFieldService
-                .create("T-shirt size", CustomFieldType.FREE_TEXT, false, null, false, false)
+                .create("T-shirt size", CustomFieldType.FREE_TEXT, false, null, false, false, 0)
                 .block();
         participantService
                 .setCustomFieldValue(
