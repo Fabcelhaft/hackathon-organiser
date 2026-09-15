@@ -124,6 +124,20 @@ div.actions {
     margin-bottom: 0;
 }
 
+/* A form that is itself an action row (input + button side by side inside a table cell). Pico's
+   `input{width:100%; margin-bottom}` would otherwise stack the input above its button. Keep it
+   on the <form>, never on the <td>: a flex table cell stops being a table cell. */
+form.actions {
+    display: flex;
+    margin: 0;
+}
+
+.actions input {
+    width: auto;
+    max-width: 7rem;
+    margin-bottom: 0;
+}
+
 .actions-end {
     justify-content: flex-end;
 }

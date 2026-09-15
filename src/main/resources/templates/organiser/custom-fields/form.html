@@ -68,26 +68,50 @@
             <h2>Options</h2>
             <p><small>Options are offered in sort index order (lower first, ties alphabetical). Options are listed
                 below in that order.</small></p>
-            <ul>
+            <table th:if="${!existingOptions.isEmpty()}">
+                <thead>
+                <tr>
+                    <th>Label</th>
+                    <th>Sort index</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
                 <!--/* Feature 009, User Story 4 (FR-016): each row shows the option's current index in an
                      inline form of its own — the same per-row <form> idiom Remove already uses. */-->
-                <li th:each="option : ${existingOptions}" class="actions">
-                    <span th:text="${option.label}">Option</span>
-                    <form th:action="@{/organiser/custom-fields/{id}/options/{optionId}(id=${customFieldId}, optionId=${option.id})}"
-                          method="post">
-                        <input type="number" name="sort_index" step="1" th:value="${option.sortIndex}"
-                               th:attr="aria-label='Sort index of ' + ${option.label}"/>
-                        <button type="submit" class="outline secondary">Save index</button>
-                    </form>
-                    <form th:action="@{/organiser/custom-fields/{id}/options/{optionId}/delete(id=${customFieldId}, optionId=${option.id})}"
-                          method="post">
-                        <button type="submit" class="outline danger">Remove</button>
-                    </form>
-                </li>
-            </ul>
+                <tr th:each="option : ${existingOptions}">
+                    <td th:text="${option.label}">Option</td>
+                    <!--/* The flex row lives on the <form>s, not the <td>s: a table cell given
+                         display:flex stops being a table cell and the row's cells collapse into one. */-->
+                    <td>
+                        <form th:action="@{/organiser/custom-fields/{id}/options/{optionId}(id=${customFieldId}, optionId=${option.id})}"
+                              method="post" class="actions">
+                            <input type="number" name="sort_index" step="1" th:value="${option.sortIndex}"
+                                   th:attr="aria-label='Sort index of ' + ${option.label}"/>
+                            <button type="submit" class="outline secondary">Save index</button>
+                        </form>
+                    </td>
+                    <td>
+                        <form th:action="@{/organiser/custom-fields/{id}/options/{optionId}/delete(id=${customFieldId}, optionId=${option.id})}"
+                              method="post" class="actions actions-end">
+                            <button type="submit" class="outline danger">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <p th:if="${existingOptions.isEmpty()}"><small>No options yet.</small></p>
+            <h3>Add option</h3>
             <form th:action="@{/organiser/custom-fields/{id}/options(id=${customFieldId})}" method="post">
-                <input type="text" name="label" placeholder="New option label" required="required"/>
-                <input type="number" name="sort_index" step="1" value="0" aria-label="Sort index of the new option"/>
+                <div class="grid">
+                    <label>Label
+                        <input type="text" name="label" placeholder="New option label" required="required"/>
+                    </label>
+                    <label>Sort index
+                        <input type="number" name="sort_index" step="1" value="0"
+                               aria-label="Sort index of the new option"/>
+                    </label>
+                </div>
                 <button type="submit">Add Option</button>
             </form>
         </div>
