@@ -2,27 +2,19 @@ package net.fabcelhaft.hackathonorganiser.a11y;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.deque.html.axecore.playwright.AxeBuilder;
-import com.deque.html.axecore.results.AxeResults;
-import com.deque.html.axecore.results.Rule;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.options.FilePayload;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
-import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
-import net.fabcelhaft.hackathonorganiser.group.GroupService;
-import net.fabcelhaft.hackathonorganiser.participant.Participant;
-import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
-import net.fabcelhaft.hackathonorganiser.participant.ParticipantStatus;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus;
@@ -37,8 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
@@ -60,14 +52,18 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import reactor.core.publisher.Mono;
 
 /**
- * Automated WCAG 2.1 AA scan for the Topic Details view (T076; SC-008; research.md §9), reusing
- * 003's Playwright + axe-core suite exactly the way {@code HomepageAccessibilityIT} and {@code
- * TopicOverviewAccessibilityIT} already established.
+ * Feature 010 (T043) visual smoke walkthrough: drives the real pages in a real browser and writes
+ * screenshots to {@code target/smoke/}, so the rendered result is inspected rather than inferred —
+ * Constitution Development Workflow #3. Uses the same Playwright + {@code __test-login} harness the
+ * {@code a11y.*IT} suite already established; the Dex login flow is skipped because this feature
+ * touches no part of it.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
-@Import(TopicDetailAccessibilityIT.TestLoginSupport.class)
-class TopicDetailAccessibilityIT {
+@Import(SmokeWalkthroughIT.TestLoginSupport.class)
+class SmokeWalkthroughIT {
+
+    private static final Path SHOTS = Paths.get("target/smoke");
 
     @Container
     @ServiceConnection
@@ -80,20 +76,15 @@ class TopicDetailAccessibilityIT {
     UserRepository userRepository;
 
     @Autowired
-    ParticipantRepository participantRepository;
-
-    @Autowired
     TopicRepository topicRepository;
-
-    @Autowired
-    GroupService groupService;
 
     static Playwright playwright;
     static Browser browser;
     BrowserContext context;
 
     @BeforeAll
-    static void launchBrowser() {
+    static void launchBrowser() throws Exception {
+        Files.createDirectories(SHOTS);
         playwright = Playwright.create();
         BrowserType.LaunchOptions options = new BrowserType.LaunchOptions()
                 .setHeadless(true)
@@ -117,7 +108,7 @@ class TopicDetailAccessibilityIT {
 
     @BeforeEach
     void newContext() {
-        context = browser.newContext();
+        context = browser.newContext(new Browser.NewContextOptions().setViewportSize(1100, 1400));
     }
 
     @AfterEach
@@ -128,94 +119,114 @@ class TopicDetailAccessibilityIT {
     }
 
     @Test
-    void topicDetailsWithNoGroupYetHasNoCriticalOrSeriousViolations() {
+    void walkThroughDescriptionRenderingAndAttachmentManagement() {
         User author = persistUser(false);
-        persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
-        Topic topic = persistTopic(author.getId(), "No Group Detail Topic");
+        Topic topic = persistTopic(
+                author.getId(),
+                "Autonomous Delivery Robot",
+                """
+                # What we're building
+
+                A small delivery robot for the campus, built over the weekend.
+
+                ## What we need
+
+                - someone who enjoys **embedded C**
+                - a designer for the shell
+                - anyone curious about `ROS2`
+
+                > No prior robotics experience required.
+
+                Background reading lives at https://example.org/robotics-primer. See also
+                [the parts list](https://example.org/parts).
+                """);
         loginAs(author);
 
+        // 1. Detail view: rendered markdown under the heading, empty attachments state.
         Page page = context.newPage();
         page.navigate(baseUrl() + "/topics/" + topic.getId());
-        assertNoSeriousViolations(page, "/topics/{id} (no Group yet)");
-    }
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("01-detail-rendered-description.png"))
+                .setFullPage(true));
+        assertThat(page.locator("section.topic-description h2").first().textContent())
+                .contains("What we're building");
 
-    @Test
-    void topicDetailsWithAJoinedMemberAndAComplianceBadgeHasNoCriticalOrSeriousViolations() {
-        User author = persistUser(false);
-        Participant participant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
-        Topic topic = persistTopic(author.getId(), "Joined Detail Topic");
-        groupService
-                .create(topic.getId(), List.of(participant.getId()), new AuditActor(author.getId(), false))
-                .block();
-        loginAs(author);
-
-        Page page = context.newPage();
-        page.navigate(baseUrl() + "/topics/" + topic.getId());
-        assertNoSeriousViolations(page, "/topics/{id} (with joined member + Compliance badge)");
-    }
-
-    /**
-     * Feature 010 (T040): the rendered-markdown description section and the Attachments section are
-     * new markup on this page, and the markdown body can introduce headings of its own. Asserts
-     * both that axe stays clean and that the Topic name remains the single {@code <h1>} — author
-     * headings are shifted to {@code <h2>}+ by {@code MarkdownRenderer} (FR-005), so a description
-     * can never open a second top-level heading.
-     */
-    @Test
-    void topicDetailsWithARenderedMarkdownDescriptionAndAttachmentsHasNoCriticalOrSeriousViolations() {
-        User author = persistUser(false);
-        persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
-        Topic topic = persistTopic(author.getId(), "Markdown Detail Topic");
-        topic.setDescription("# Author Heading\n\n- one\n- two\n\nSee https://example.org/docs.");
-        topicRepository.save(topic).block();
-        loginAs(author);
-
-        Page page = context.newPage();
-        page.navigate(baseUrl() + "/topics/" + topic.getId());
-
-        assertNoSeriousViolations(page, "/topics/{id} (rendered markdown + attachments section)");
-        assertThat(page.locator("h1").count()).isEqualTo(1);
-        assertThat(page.locator("section.topic-description h2").count()).isEqualTo(1);
-        assertThat(page.locator("#attachments, h2:text('Attachments')").count())
-                .isGreaterThan(0);
-    }
-
-    /**
-     * Feature 010 (T041): the Topic form gained a markdown hint associated via
-     * {@code aria-describedby} and, on the edit path, a labelled file input — both new controls
-     * that axe checks for label and description association.
-     */
-    @Test
-    void theTopicEditFormWithItsMarkdownHintAndUploadControlHasNoCriticalOrSeriousViolations() {
-        User author = persistUser(false);
-        persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
-        Topic topic = persistTopic(author.getId(), "Form A11y Topic");
-        loginAs(author);
-
-        Page page = context.newPage();
+        // 2. Edit screen: markdown hint + attachments section with its upload form.
         page.navigate(baseUrl() + "/topics/" + topic.getId() + "/edit");
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("02-edit-hint-and-attachments.png"))
+                .setFullPage(true));
 
-        assertNoSeriousViolations(page, "/topics/{id}/edit (markdown hint + upload control)");
-        assertThat(page.locator("#description[aria-describedby='description-hint']").count())
-                .isEqualTo(1);
-        assertThat(page.locator("#description-hint").count()).isEqualTo(1);
-        assertThat(page.locator("input[type='file']#file").count()).isEqualTo(1);
-        assertThat(page.locator("label[for='file']").count()).isEqualTo(1);
+        // 3. Upload a real file through the form.
+        page.setInputFiles(
+                "#file",
+                new FilePayload(
+                        "parts-list.pdf", "application/pdf", "%PDF-1.4 fake pdf bytes".getBytes()));
+        page.click("#attachments form[enctype='multipart/form-data'] button[type='submit']");
+        page.waitForLoadState();
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("03-edit-after-upload.png"))
+                .setFullPage(true));
+        assertThat(page.content()).contains("parts-list.pdf");
+
+        // 4. Rejected upload: message plus a still-populated form.
+        page.setInputFiles(
+                "#file", new FilePayload("payload.exe", "application/pdf", "MZ".getBytes()));
+        page.click("#attachments form[enctype='multipart/form-data'] button[type='submit']");
+        page.waitForLoadState();
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("04-edit-rejected-upload.png"))
+                .setFullPage(true));
+
+        // 5. Detail view again, now listing the attachment. Chromium would otherwise serve this
+        // URL from its own cache (it was visited in step 1, and the page sets no cache headers),
+        // producing a screenshot identical to step 1 that hides what changed.
+        page.navigate(baseUrl() + "/topics/" + topic.getId() + "?cacheBust=" + UUID.randomUUID());
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("05-detail-with-attachment.png"))
+                .setFullPage(true));
+        assertThat(page.content()).contains("parts-list.pdf");
+
+        // 6. Propose form: hint present, no upload control.
+        page.navigate(baseUrl() + "/topics/new");
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("06-propose-form.png"))
+                .setFullPage(true));
+    }
+
+    @Test
+    void walkThroughOrganiserDetailAndAuditTrail() {
+        User organiser = persistUser(true);
+        Topic topic = persistTopic(
+                organiser.getId(),
+                "Organiser View Topic",
+                "# Heading\n\n- a point\n\nLinks like https://example.org/handbook are clickable.");
+        loginAs(organiser);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/organiser/topics/" + topic.getId() + "/edit");
+        page.setInputFiles(
+                "#file",
+                new FilePayload("agenda.txt", "text/plain", "09:00 kickoff".getBytes()));
+        page.click("#attachments form[enctype='multipart/form-data'] button[type='submit']");
+        page.waitForLoadState();
+
+        page.navigate(baseUrl() + "/organiser/topics/" + topic.getId());
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("07-organiser-detail.png"))
+                .setFullPage(true));
+
+        page.navigate(baseUrl() + "/organiser/topics/" + topic.getId() + "/audit");
+        page.screenshot(new Page.ScreenshotOptions()
+                .setPath(SHOTS.resolve("08-organiser-audit.png"))
+                .setFullPage(true));
+        assertThat(page.content()).contains("agenda.txt").doesNotContain("null -&gt;");
     }
 
     // --- Test support --------------------------------------------------------------------------
 
-    private void assertNoSeriousViolations(Page page, String label) {
-        AxeResults results = new AxeBuilder(page).analyze();
-        List<Rule> seriousOrCritical = results.getViolations().stream()
-                .filter(rule -> "serious".equals(rule.getImpact()) || "critical".equals(rule.getImpact()))
-                .toList();
-        assertThat(seriousOrCritical)
-                .withFailMessage(() -> label + " has critical/serious WCAG 2.1 AA violations: "
-                        + seriousOrCritical.stream()
-                                .map(rule -> rule.getId() + " (" + rule.getImpact() + "): " + rule.getHelp())
-                                .collect(Collectors.joining("; ")))
-                .isEmpty();
+    private String baseUrl() {
+        return "http://localhost:" + port;
     }
 
     private void loginAs(User user) {
@@ -224,26 +235,10 @@ class TopicDetailAccessibilityIT {
         loginPage.close();
     }
 
-    private String baseUrl() {
-        return "http://localhost:" + port;
-    }
-
-    private static Path resolveSystemChromium() {
-        List<String> candidates = new ArrayList<>();
-        String override = System.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE");
-        if (override != null && !override.isBlank()) {
-            candidates.add(override);
-        }
-        candidates.add("/usr/bin/chromium");
-        candidates.add("/usr/bin/chromium-browser");
-        candidates.add("/usr/bin/google-chrome");
-        return candidates.stream().map(Path::of).filter(Files::isExecutable).findFirst().orElse(null);
-    }
-
     private User persistUser(boolean organiser) {
         User user = new User();
         user.setOidcSubject("sub-" + UUID.randomUUID());
-        user.setDisplayName("User " + UUID.randomUUID());
+        user.setDisplayName("Robin Fields");
         user.setEmail("user-" + UUID.randomUUID() + "@example.com");
         user.setOrganiser(organiser);
         user.setCreatedAt(Instant.now());
@@ -251,20 +246,10 @@ class TopicDetailAccessibilityIT {
         return userRepository.save(user).block();
     }
 
-    private Participant persistParticipant(UUID userId, ParticipantStatus status) {
-        Participant participant = new Participant();
-        participant.setUserId(userId);
-        participant.setStatus(status);
-        Instant now = Instant.now();
-        participant.setCreatedAt(now);
-        participant.setUpdatedAt(now);
-        return participantRepository.save(participant).block();
-    }
-
-    private Topic persistTopic(UUID creatorUserId, String name) {
+    private Topic persistTopic(UUID creatorUserId, String name, String description) {
         Topic topic = new Topic();
-        topic.setName(name + " " + UUID.randomUUID());
-        topic.setDescription("Description");
+        topic.setName(name);
+        topic.setDescription(description);
         topic.setCreatedByUserId(creatorUserId);
         topic.setApprovalStatus(TopicApprovalStatus.APPROVED);
         Instant now = Instant.now();
@@ -273,17 +258,23 @@ class TopicDetailAccessibilityIT {
         return topicRepository.save(topic).block();
     }
 
-    /**
-     * Test-only pre-authentication backdoor (research.md §9) — see {@code
-     * HomepageAccessibilityIT.TestLoginSupport} for the full rationale; duplicated here rather than
-     * shared since each {@code a11y.*IT} class is an independent {@code @SpringBootTest} context.
-     */
+    private static Path resolveSystemChromium() {
+        for (String candidate : List.of(
+                "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome")) {
+            Path path = Paths.get(candidate);
+            if (Files.exists(path)) {
+                return path;
+            }
+        }
+        return null;
+    }
+
     @TestConfiguration
     static class TestLoginSupport {
 
         @Bean
         @Order(Ordered.HIGHEST_PRECEDENCE)
-        org.springframework.web.server.WebFilter testLoginFilter(UserRepository userRepository) {
+        org.springframework.web.server.WebFilter smokeTestLoginFilter(UserRepository userRepository) {
             ServerSecurityContextRepository securityContextRepository =
                     new WebSessionServerSecurityContextRepository();
             return (exchange, chain) -> {

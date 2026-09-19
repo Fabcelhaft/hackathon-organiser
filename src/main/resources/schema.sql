@@ -419,3 +419,23 @@ CREATE TABLE IF NOT EXISTS event_destination_event_types (
     event_type text NOT NULL,
     PRIMARY KEY (event_destination_id, event_type)
 );
+
+-- Feature 010: Topic Attachments (data-model.md "Topic Attachment"; FR-012-FR-021). Bytes live in
+-- the row exactly as content_images already does — the app is containerised with no filesystem
+-- volume convention, so the database is the only store that survives a redeploy without new
+-- infrastructure. ON DELETE CASCADE is what satisfies FR-021 for any future Topic delete route
+-- (none exists today), rather than leaving orphaned rows behind. Listings never select the data
+-- column; only the download route does (TopicAttachmentService).
+CREATE TABLE IF NOT EXISTS topic_attachments (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    topic_id uuid NOT NULL REFERENCES topics (id) ON DELETE CASCADE,
+    file_name text NOT NULL,
+    content_type text NOT NULL,
+    byte_size integer NOT NULL,
+    data bytea NOT NULL,
+    uploaded_by_user_id uuid NOT NULL REFERENCES users (id),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS topic_attachments_topic_idx
+    ON topic_attachments (topic_id, created_at);

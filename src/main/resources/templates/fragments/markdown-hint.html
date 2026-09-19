@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<!--/* Feature 010 (FR-010, FR-011): the helper text shown under a markdown-accepting description
+     field. Rendered as Pico CSS's <small>, which styles text following a form control as helper
+     text with no custom CSS (Constitution Principle IV). The id is referenced by the field's
+     aria-describedby, so assistive technology announces this as the field's description rather
+     than as loose text after it — the same id is used on both Topic forms, and each page renders
+     this fragment exactly once. */-->
+<body>
+<th:block th:fragment="hint">
+    <small id="description-hint">
+        Markdown is supported: <code>#&nbsp;Heading</code>, <code>**bold**</code>,
+        <code>-&nbsp;list item</code>, <code>[text](https://example.com)</code>.
+        A web address typed on its own becomes a link automatically.
+    </small>
+</th:block>
+</body>
+</html>

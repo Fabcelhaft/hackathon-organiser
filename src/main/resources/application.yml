@@ -27,11 +27,17 @@ spring:
   sql:
     init:
       mode: always
-  # FR-029's 5 MB Content Image cap must be the *only* size limit in effect: WebFlux's default
-  # in-memory buffer (256 KB) would otherwise truncate/reject a multipart upload well before
-  # ContentImageService ever gets to validate it (T056).
+  # Service-level size caps must be the *only* size limits in effect: WebFlux's default in-memory
+  # buffer (256 KB) would otherwise truncate/reject a multipart upload well before the service ever
+  # gets to validate it and return a friendly message naming the limit (T056).
+  #
+  # Sized one megabyte above the largest service-validated upload, which is feature 010's 10 MB
+  # Topic Attachment cap (FR-016) — the 5 MB Content Image cap (FR-029) sits well inside it and is
+  # still enforced by ContentImageService. An upload above this buffer fails in the codec with the
+  # framework's own error rather than the friendly message; that only affects files more than 1 MB
+  # past the stated cap.
   codec:
-    max-in-memory-size: 6MB
+    max-in-memory-size: 11MB
 
 management:
   endpoints:

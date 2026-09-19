@@ -9,9 +9,12 @@
     <div id="content">
         <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
 
+        <!--/* Feature 010 FR-001a: markdown description rendered full-width under the heading,
+             replacing the plain-text Description row that used to open this <dl>. th:utext is
+             deliberate — descriptionHtml is pre-sanitized by MarkdownRenderer. */-->
+        <section class="topic-description" th:utext="${descriptionHtml}">Description</section>
+
         <dl>
-            <dt>Description</dt>
-            <dd th:text="${detail.topic.description}">Description</dd>
             <dt>Creator</dt>
             <dd><span th:replace="~{fragments/teams-link :: displayName(${detail.creatorDisplayName}, ${teamsLinksEnabled ? detail.creatorEmail : null})}"></span></dd>
             <dt>Approval Status</dt>
@@ -37,6 +40,31 @@
                 <span th:if="${activeGroupId} == null">No active group</span>
             </dd>
         </dl>
+
+        <!--/* Feature 010 FR-018: same Attachments listing as the participant-facing detail view,
+             using the same download route — attachment visibility follows Topic visibility, and an
+             Organiser can see every Topic. */-->
+        <h2>Attachments</h2>
+        <p th:if="${attachments == null or attachments.isEmpty()}">No attachments yet.</p>
+        <!--/* No <caption> here: the <h2> immediately above already names this
+             table, and repeating the word twice reads as a duplicated heading. */-->
+        <table th:unless="${attachments == null or attachments.isEmpty()}">
+            <thead>
+            <tr>
+                <th scope="col">File</th>
+                <th scope="col">Size</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="attachment : ${attachments}">
+                <td>
+                    <a th:href="@{/topics/{tid}/attachments/{aid}(tid=${attachment.topicId()},aid=${attachment.id()})}"
+                       th:text="${attachment.fileName()}">file.pdf</a>
+                </td>
+                <td th:text="${attachment.humanSize()}">1.2 MB</td>
+            </tr>
+            </tbody>
+        </table>
 
         <div class="actions">
             <a th:href="@{/organiser/topics/{id}/edit(id=${detail.topic.id})}" role="button">Edit</a>

@@ -411,3 +411,17 @@ nav ul {
     color: var(--pico-color);
     border-left-color: var(--pico-primary);
 }
+
+/* Feature 010 (T013): the rendered markdown description is participant-authored prose sitting
+   between the page heading and the page's own controls. With only Pico's default paragraph margin
+   the description's last line runs straight into the Edit button, so the two read as one block —
+   visible in the smoke-test screenshot. Doubling the separation below (and zeroing the last
+   child's own margin so the gap is exactly this value, not this value plus a stray paragraph
+   margin) marks where authored content ends and the page's controls begin. */
+.topic-description {
+    margin-bottom: calc(var(--pico-block-spacing-vertical) * 2);
+}
+
+.topic-description > *:last-child {
+    margin-bottom: 0;
+}

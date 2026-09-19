@@ -12,8 +12,12 @@
             <label for="name">Name</label>
             <input type="text" id="name" name="name" th:value="${name}" required="required"/>
 
-            <label for="description">Description</label>
-            <textarea id="description" name="description" required="required" th:text="${description}"></textarea>
+            <label for="description">Description (Markdown)</label>
+            <!--/* rows matches the Content Page body field: a two-line box makes the markdown this
+                 field now accepts impractical to write or review. */-->
+            <textarea id="description" name="description" rows="12" required="required"
+                      aria-describedby="description-hint" th:text="${description}"></textarea>
+            <th:block th:replace="~{fragments/markdown-hint :: hint}"></th:block>
 
             <!-- 002: the creator field on the new-Topic form, required. -->
             <div th:if="${topicId} == null">
@@ -50,6 +54,61 @@
 
             <button type="submit">Save</button>
         </form>
+
+        <!--/* Feature 010 (FR-013, FR-012a, FR-023): the organiser equivalent of the participant
+             attachments section — same independent-action model, posting to the /organiser routes.
+             An Organiser may manage attachments on any Topic, not only their own. */-->
+        <section id="attachments">
+            <h2>Attachments</h2>
+
+            <div th:if="${topicId} == null">
+                <p>Attachments can be added after the Topic is saved.</p>
+            </div>
+
+            <div th:if="${topicId} != null">
+                <p th:if="${notice}" th:text="${notice}" role="status">Notice</p>
+
+                <p th:if="${attachments == null or attachments.isEmpty()}">No attachments yet.</p>
+
+                <table th:unless="${attachments == null or attachments.isEmpty()}">
+                    <thead>
+                    <tr>
+                        <th scope="col">File</th>
+                        <th scope="col">Size</th>
+                        <th scope="col">Action</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="attachment : ${attachments}">
+                        <td>
+                            <a th:href="@{/topics/{tid}/attachments/{aid}(tid=${attachment.topicId()},aid=${attachment.id()})}"
+                               th:text="${attachment.fileName()}">file.pdf</a>
+                        </td>
+                        <td th:text="${attachment.humanSize()}">1.2 MB</td>
+                        <td>
+                            <form th:action="@{/organiser/topics/{tid}/attachments/{aid}/delete(tid=${topicId},aid=${attachment.id()})}"
+                                  method="post">
+                                <button type="submit" class="outline danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+
+                <form th:action="@{/organiser/topics/{id}/attachments(id=${topicId})}" method="post"
+                      enctype="multipart/form-data">
+                    <label for="file">Add a file</label>
+                    <input type="file" id="file" name="file" required="required"
+                           aria-describedby="attachment-hint"/>
+                    <small id="attachment-hint">
+                        Up to 10 MB each, 10 files per Topic. PDF, Word, Excel, PowerPoint,
+                        OpenDocument, text, markdown, images and ZIP archives.
+                        Save any text changes above before uploading &mdash; uploading reloads this page.
+                    </small>
+                    <button type="submit">Upload</button>
+                </form>
+            </div>
+        </section>
     </div>
 </th:block>
 </body>
