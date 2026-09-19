@@ -30,7 +30,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -107,6 +110,9 @@ class TopicSelfServiceManagementIT {
      */
     @BeforeEach
     void resetTopicsAndGroupsBetweenTests() {
+        // topic_attachments cascades from topics, but is deleted explicitly so the per-Topic count
+        // assertions in this class never see rows left by an earlier test.
+        databaseClient.sql("DELETE FROM topic_attachments").then().block();
         databaseClient.sql("DELETE FROM group_members").then().block();
         databaseClient.sql("DELETE FROM groups").then().block();
         databaseClient.sql("DELETE FROM topic_skills").then().block();
@@ -572,6 +578,411 @@ class TopicSelfServiceManagementIT {
                     return organiserSettingsRepository.save(settings);
                 })
                 .block();
+    }
+
+    // --- Feature 010 User Story 1: markdown descriptions (T003) --------------------------------
+
+    @Test
+    void topicDetailRendersTheDescriptionAsMarkdownInItsOwnSectionAndNotInTheInfoTable() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        String markdown = "# Overview\n\n- first\n- second\n\n**bold** and `code`\n\n> quoted\n\n"
+                + "[explicit](https://example.com) and bare https://example.org/docs.";
+        Topic topic = persistTopic(author.getId(), "Markdown Topic", markdown, TopicApprovalStatus.APPROVED);
+
+        String body = detailBody(author, topic.getId());
+
+        assertThat(body).contains("class=\"topic-description\"");
+        assertThat(body).contains("<h2>Overview</h2>");
+        assertThat(body).contains("<li>first</li>").contains("<li>second</li>");
+        assertThat(body).contains("<strong>bold</strong>").contains("<code>code</code>");
+        assertThat(body).contains("<blockquote>");
+        assertThat(body).contains("href=\"https://example.com\"");
+        assertThat(body).contains("href=\"https://example.org/docs\"");
+        // FR-001a: the description appears exactly once — the Topic Info row is gone.
+        assertThat(body).doesNotContain("<th scope=\"row\">Description</th>");
+        // FR-007/SC-008: rendering is display-only; storage is untouched.
+        assertThat(topicRepository.findById(topic.getId()).block().getDescription())
+                .isEqualTo(markdown);
+    }
+
+    @Test
+    void topicDetailKeepsTheTopicNameAsTheOnlyTopLevelHeading() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic =
+                persistTopic(author.getId(), "Heading Topic", "# Author Heading", TopicApprovalStatus.APPROVED);
+
+        String body = detailBody(author, topic.getId());
+
+        assertThat(body).contains("<h2>Author Heading</h2>");
+        assertThat(countOccurrences(body, "<h1")).isEqualTo(1);
+    }
+
+    @Test
+    void topicDetailStripsUnsafeMarkupFromTheDescription() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        String hostile = "Hello<script>alert('xss')</script>"
+                + "<img src=\"x\" onerror=\"alert(1)\">[click](javascript:alert(1))";
+        Topic topic = persistTopic(author.getId(), "Hostile Topic", hostile, TopicApprovalStatus.APPROVED);
+
+        String body = detailBody(author, topic.getId());
+
+        assertThat(body).doesNotContain("<script").doesNotContain("onerror").doesNotContain("javascript:");
+        assertThat(body).contains("Hello");
+    }
+
+    @Test
+    void aPlainProseDescriptionWrittenBeforeThisFeatureStillReadsTheSame() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(
+                author.getId(),
+                "Legacy Topic",
+                "We want to build something useful for the community.",
+                TopicApprovalStatus.APPROVED);
+
+        String body = detailBody(author, topic.getId());
+
+        assertThat(body).contains("<p>We want to build something useful for the community.</p>");
+    }
+
+    @Test
+    void everyLinkInADescriptionOpensInANewTabWithoutWindowOpenerAccess() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(
+                author.getId(), "Link Topic", "[docs](https://example.com)", TopicApprovalStatus.APPROVED);
+
+        String body = detailBody(author, topic.getId());
+
+        assertThat(body).contains("target=\"_blank\"");
+        assertThat(body).contains("noopener");
+    }
+
+    // --- Feature 010 User Story 2: markdown authoring hint (T014) ------------------------------
+
+    @Test
+    void theProposeFormLabelsTheDescriptionAsMarkdownAndDescribesTheBasics() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+
+        String body = bodyOf(author, "/topics/new");
+
+        assertThat(body).contains("Description (Markdown)");
+        assertThat(body).contains("id=\"description-hint\"");
+        assertThat(body).contains("aria-describedby=\"description-hint\"");
+        assertThat(body).contains("becomes a link");
+    }
+
+    @Test
+    void theEditFormCarriesTheSameHintAndEchoesTheAuthorsRawMarkdown() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        String markdown = "# Heading\n\n- a list item";
+        Topic topic = persistTopic(author.getId(), "Hint Topic", markdown, TopicApprovalStatus.APPROVED);
+
+        String body = bodyOf(author, "/topics/" + topic.getId() + "/edit");
+
+        assertThat(body).contains("Description (Markdown)");
+        assertThat(body).contains("aria-describedby=\"description-hint\"");
+        // Story 2 Scenario 4: the textarea holds the markdown as written, never rendered HTML.
+        assertThat(body).contains("# Heading").contains("- a list item");
+    }
+
+    // --- Feature 010 User Story 3: attachments (T020, T021) ------------------------------------
+
+    @Test
+    void theAuthorCanUploadAnAttachmentAndSeeItListedOnBothScreens() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(author.getId(), "Attach Topic", "Description", TopicApprovalStatus.APPROVED);
+
+        uploadAttachment(author, topic.getId(), "brief.pdf", "application/pdf", "PDF-BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> assertThat(location).endsWith("/edit?attachment=added"));
+
+        String editBody = bodyOf(author, "/topics/" + topic.getId() + "/edit?attachment=added");
+        assertThat(editBody).contains("brief.pdf");
+        assertThat(editBody).contains("role=\"status\"");
+        assertThat(editBody).contains("Save any text changes above before uploading");
+
+        String detailBody = detailBody(author, topic.getId());
+        assertThat(detailBody).contains("brief.pdf");
+        assertThat(detailBody).contains("/attachments/");
+    }
+
+    @Test
+    void theAuthorCanRemoveAnAttachmentWithoutAConfirmationStep() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(author.getId(), "Remove Topic", "Description", TopicApprovalStatus.APPROVED);
+        uploadAttachment(author, topic.getId(), "obsolete.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        UUID attachmentId = onlyAttachmentId(topic.getId());
+
+        webTestClient
+                .mutateWith(loginAs(author))
+                .post()
+                .uri("/topics/{tid}/attachments/{aid}/delete", topic.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> assertThat(location).endsWith("/edit?attachment=removed"));
+
+        assertThat(detailBody(author, topic.getId())).doesNotContain("obsolete.pdf");
+        webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/{tid}/attachments/{aid}", topic.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isNotFound();
+    }
+
+    @Test
+    void anUploadOfADisallowedTypeOrAnOversizeFileIsRejectedWithoutStoringAnything() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(
+                author.getId(), "Reject Topic", "The original description", TopicApprovalStatus.APPROVED);
+
+        String body = uploadAttachment(author, topic.getId(), "payload.exe", "application/pdf", "X".getBytes())
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        // F2: the rejected form must come back fully populated, not blank.
+        assertThat(body).contains("Only PDF, Word, Excel");
+        assertThat(body).contains("The original description");
+        assertThat(body).contains("Reject Topic");
+        assertThat(attachmentCount(topic.getId())).isZero();
+
+        byte[] tooLarge = new byte[10 * 1024 * 1024 + 1];
+        String sizeBody = uploadAttachment(author, topic.getId(), "big.pdf", "application/pdf", tooLarge)
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(sizeBody).contains("10 MB or smaller");
+        assertThat(attachmentCount(topic.getId())).isZero();
+    }
+
+    @Test
+    void attachmentChangesNeverAlterTheTopicsApprovalStatus() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(author.getId(), "Pending Topic", "Description", TopicApprovalStatus.PENDING);
+
+        uploadAttachment(author, topic.getId(), "brief.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(topicRepository.findById(topic.getId()).block().getApprovalStatus())
+                .isEqualTo(TopicApprovalStatus.PENDING);
+    }
+
+    @Test
+    void twoAttachmentsMayShareTheSameFileNameWithoutEitherBeingLost() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(author.getId(), "Duplicate Topic", "Description", TopicApprovalStatus.APPROVED);
+
+        uploadAttachment(author, topic.getId(), "notes.txt", "text/plain", "first".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        uploadAttachment(author, topic.getId(), "notes.txt", "text/plain", "second".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(attachmentCount(topic.getId())).isEqualTo(2);
+    }
+
+    @Test
+    void aNonAuthorSeesNoAttachmentControlsAndIsRefusedOnADirectRequest() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        User stranger = persistUser(false);
+        persistParticipant(stranger.getId());
+        Topic topic = persistTopic(author.getId(), "Guarded Topic", "Description", TopicApprovalStatus.APPROVED);
+        uploadAttachment(author, topic.getId(), "brief.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        UUID attachmentId = onlyAttachmentId(topic.getId());
+
+        String detailBody = detailBody(stranger, topic.getId());
+        assertThat(detailBody).contains("brief.pdf");
+        assertThat(detailBody).doesNotContain("enctype=\"multipart/form-data\"");
+        assertThat(detailBody).doesNotContain(">Remove<");
+
+        uploadAttachment(stranger, topic.getId(), "hijack.pdf", "application/pdf", "X".getBytes())
+                .expectStatus()
+                .isForbidden();
+
+        webTestClient
+                .mutateWith(loginAs(stranger))
+                .post()
+                .uri("/topics/{tid}/attachments/{aid}/delete", topic.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isForbidden();
+
+        assertThat(attachmentCount(topic.getId())).isEqualTo(1);
+    }
+
+    @Test
+    void theProposeFormOffersNoUploadAndSaysAttachmentsComeLater() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+
+        String body = bodyOf(author, "/topics/new");
+
+        assertThat(body).contains("Attachments can be added after the Topic is saved.");
+        assertThat(body).doesNotContain("type=\"file\"");
+    }
+
+    @Test
+    void downloadingAnAttachmentDeliversTheBytesAsAFileUnderItsOriginalName() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic topic = persistTopic(author.getId(), "Download Topic", "Description", TopicApprovalStatus.APPROVED);
+        byte[] contents = "the original bytes".getBytes();
+        uploadAttachment(author, topic.getId(), "Rapport été.txt", "text/plain", contents)
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        UUID attachmentId = onlyAttachmentId(topic.getId());
+
+        byte[] downloaded = webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/{tid}/attachments/{aid}", topic.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectHeader()
+                .value("Content-Disposition", disposition -> {
+                    assertThat(disposition).startsWith("attachment");
+                    // A non-ASCII name survives via the RFC 5987 filename* form.
+                    assertThat(disposition).contains("filename*=UTF-8''");
+                })
+                .expectHeader()
+                .value("Cache-Control", cacheControl -> assertThat(cacheControl).contains("no-store"))
+                .expectBody()
+                .returnResult()
+                .getResponseBodyContent();
+
+        assertThat(downloaded).isEqualTo(contents);
+    }
+
+    @Test
+    void anAttachmentIsNotDownloadableByAUserWhoCannotSeeItsTopic() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        User stranger = persistUser(false);
+        persistParticipant(stranger.getId());
+        Topic pending = persistTopic(author.getId(), "Hidden Topic", "Description", TopicApprovalStatus.PENDING);
+        uploadAttachment(author, pending.getId(), "secret.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        UUID attachmentId = onlyAttachmentId(pending.getId());
+
+        webTestClient
+                .mutateWith(loginAs(stranger))
+                .get()
+                .uri("/topics/{tid}/attachments/{aid}", pending.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isNotFound();
+    }
+
+    @Test
+    void anAttachmentCannotBeFetchedThroughADifferentTopicsUrl() {
+        User author = persistUser(false);
+        persistParticipant(author.getId());
+        Topic owning = persistTopic(author.getId(), "Owning Topic", "Description", TopicApprovalStatus.APPROVED);
+        Topic other = persistTopic(author.getId(), "Other Topic", "Description", TopicApprovalStatus.APPROVED);
+        uploadAttachment(author, owning.getId(), "brief.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        UUID attachmentId = onlyAttachmentId(owning.getId());
+
+        webTestClient
+                .mutateWith(loginAs(author))
+                .get()
+                .uri("/topics/{tid}/attachments/{aid}", other.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isNotFound();
+    }
+
+    private WebTestClient.ResponseSpec uploadAttachment(
+            User user, UUID topicId, String fileName, String contentType, byte[] bytes) {
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("file", new ByteArrayResource(bytes) {
+                    @Override
+                    public String getFilename() {
+                        return fileName;
+                    }
+                })
+                .contentType(MediaType.parseMediaType(contentType));
+        return webTestClient
+                .mutateWith(loginAs(user))
+                .post()
+                .uri("/topics/{id}/attachments", topicId)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange();
+    }
+
+    private UUID onlyAttachmentId(UUID topicId) {
+        return databaseClient
+                .sql("SELECT id FROM topic_attachments WHERE topic_id = :tid ORDER BY created_at, id")
+                .bind("tid", topicId)
+                .mapValue(UUID.class)
+                .first()
+                .block();
+    }
+
+    private long attachmentCount(UUID topicId) {
+        return databaseClient
+                .sql("SELECT count(*) FROM topic_attachments WHERE topic_id = :tid")
+                .bind("tid", topicId)
+                .mapValue(Long.class)
+                .one()
+                .block();
+    }
+
+    private String detailBody(User viewer, UUID topicId) {
+        return bodyOf(viewer, "/topics/" + topicId);
+    }
+
+    private String bodyOf(User viewer, String uri) {
+        return new String(webTestClient
+                .mutateWith(loginAs(viewer))
+                .get()
+                .uri(uri)
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody()
+                .returnResult()
+                .getResponseBodyContent());
+    }
+
+    private static int countOccurrences(String haystack, String needle) {
+        int count = 0;
+        for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + needle.length())) {
+            count++;
+        }
+        return count;
     }
 
     private User persistUser(boolean organiser) {

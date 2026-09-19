@@ -385,6 +385,59 @@ class InfoManagementIT {
                 .block();
     }
 
+    // --- Feature 010 regression (T005): the shared MarkdownRenderer change reaches Content Pages
+    // too (010 FR-004b). This is a deliberate, clarified behaviour change, asserted here so it is
+    // pinned rather than discovered.
+
+    @Test
+    void aBareWebAddressOnAContentPageIsRenderedAsALink() {
+        User viewer = persistUser(false);
+        ContentPage page = persistPage(
+                "Autolink Page " + UUID.randomUUID(),
+                "Docs live at https://example.org/handbook for everyone.",
+                0,
+                ContentPageContext.NONE);
+
+        String body = webTestClient
+                .mutateWith(loginAs(viewer))
+                .get()
+                .uri("/info/{id}", page.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("href=\"https://example.org/handbook\"");
+        assertThat(body).contains(">https://example.org/handbook</a>");
+    }
+
+    @Test
+    void contentPageLinksOpenInANewTabWithoutWindowOpenerAccess() {
+        User viewer = persistUser(false);
+        ContentPage page = persistPage(
+                "Link Page " + UUID.randomUUID(),
+                "[the handbook](https://example.org/handbook)",
+                0,
+                ContentPageContext.NONE);
+
+        String body = webTestClient
+                .mutateWith(loginAs(viewer))
+                .get()
+                .uri("/info/{id}", page.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("href=\"https://example.org/handbook\"");
+        assertThat(body).contains("target=\"_blank\"");
+        assertThat(body).contains("noopener");
+    }
+
     private ContentPage persistPage(String title, String bodyMarkdown, int sortIndex, ContentPageContext context) {
         ContentPage page = new ContentPage();
         page.setTitle(title);

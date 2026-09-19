@@ -22,9 +22,16 @@
             <td th:text="${entry.eventType}">Event</td>
             <td th:text="${entry.actorDisplayName}">Actor</td>
             <td th:text="${entry.organiser} ? 'Organiser' : 'Standard User'">Capacity</td>
-            <td th:if="${entry.oldValue} != null or ${entry.newValue} != null"
+            <!--/* Feature 010: three branches, not two. Every event type before this one set
+                 BOTH old and new (STATUS_CHANGED) or NEITHER (CREATED, EDITED), so an
+                 unconditional "old -> new" concatenation was safe. ATTACHMENT_ADDED and
+                 ATTACHMENT_REMOVED set exactly one, which that concatenation would render as
+                 "null -> report.pdf". A one-sided entry now shows its single value alone. */-->
+            <td th:if="${entry.oldValue != null and entry.newValue != null}"
                 th:text="${entry.oldValue} + ' -> ' + ${entry.newValue}">Old -> New</td>
-            <td th:unless="${entry.oldValue} != null or ${entry.newValue} != null"></td>
+            <td th:if="${(entry.oldValue != null and entry.newValue == null) or (entry.oldValue == null and entry.newValue != null)}"
+                th:text="${entry.oldValue != null ? entry.oldValue : entry.newValue}">Value</td>
+            <td th:if="${entry.oldValue == null and entry.newValue == null}"></td>
         </tr>
         </tbody>
     </table>

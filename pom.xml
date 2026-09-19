@@ -57,6 +57,16 @@
             <artifactId>commonmark</artifactId>
             <version>0.24.0</version>
         </dependency>
+        <!-- Feature 010 (research.md §1): bare-URL autolinking, so a web address typed plainly
+             into a Topic description (or a Content Page) becomes a link. Wraps autolink-java,
+             which already handles the trailing-punctuation and balanced-parenthesis edge cases
+             FR-002 requires — a hand-rolled regex over user-supplied text is exactly what this
+             codebase's security-sensitive-parsing guidance forbids. -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-autolink</artifactId>
+            <version>0.24.0</version>
+        </dependency>
         <dependency>
             <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
             <artifactId>owasp-java-html-sanitizer</artifactId>

@@ -36,6 +36,9 @@ import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.OidcLoginMutator;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -89,6 +92,9 @@ class TopicManagementIT {
 
     @Autowired
     ContentPageRepository contentPageRepository;
+
+    @Autowired
+    org.springframework.r2dbc.core.DatabaseClient databaseClient;
 
     @BeforeEach
     void resetOrganiserSettingsToDefaults() {
@@ -621,6 +627,159 @@ class TopicManagementIT {
                 .expectBody(String.class)
                 .returnResult()
                 .getResponseBody();
+    }
+
+    // --- Feature 010 User Story 3: organiser attachment management (T022) ----------------------
+
+    @Test
+    void anOrganiserCanUploadAndRemoveAttachmentsOnATopicTheyDidNotAuthor() {
+        User author = persistUser("Attachment Author " + UUID.randomUUID());
+        Topic topic = persistTopic(author.getId(), "Organiser Attach " + UUID.randomUUID(), "Description");
+
+        uploadAttachment(topic.getId(), "plan.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> assertThat(location).endsWith("/edit?attachment=added"));
+
+        String detailBody = webTestClient
+                .mutateWith(organiser())
+                .get()
+                .uri("/organiser/topics/{id}", topic.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(detailBody).contains("plan.pdf").contains("/attachments/");
+
+        UUID attachmentId = onlyAttachmentId(topic.getId());
+        webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/topics/{tid}/attachments/{aid}/delete", topic.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> assertThat(location).endsWith("/edit?attachment=removed"));
+    }
+
+    @Test
+    void theAuditTrailNamesTheFileForBothAttachmentEventsWithoutRenderingNull() {
+        User author = persistUser("Audited Author " + UUID.randomUUID());
+        Topic topic = persistTopic(author.getId(), "Audited Topic " + UUID.randomUUID(), "Description");
+
+        uploadAttachment(topic.getId(), "evidence.pdf", "application/pdf", "BYTES".getBytes())
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+        UUID attachmentId = onlyAttachmentId(topic.getId());
+        webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/topics/{tid}/attachments/{aid}/delete", topic.getId(), attachmentId)
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        String auditBody = webTestClient
+                .mutateWith(organiser())
+                .get()
+                .uri("/organiser/topics/{id}/audit", topic.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(auditBody).contains("ATTACHMENT_ADDED").contains("ATTACHMENT_REMOVED");
+        assertThat(auditBody).contains("evidence.pdf");
+        // The shared audit fragment used to concatenate old and new unconditionally, which for a
+        // one-sided entry rendered "null -> evidence.pdf". Assert the absence of the literal, not
+        // merely the presence of the file name, or that defect passes unnoticed.
+        assertThat(auditBody).doesNotContain("null -&gt;").doesNotContain("null ->");
+        assertThat(auditBody).doesNotContain("-&gt; null").doesNotContain("-> null");
+    }
+
+    private WebTestClient.ResponseSpec uploadAttachment(
+            UUID topicId, String fileName, String contentType, byte[] bytes) {
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("file", new ByteArrayResource(bytes) {
+                    @Override
+                    public String getFilename() {
+                        return fileName;
+                    }
+                })
+                .contentType(MediaType.parseMediaType(contentType));
+        return webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/topics/{id}/attachments", topicId)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange();
+    }
+
+    private UUID onlyAttachmentId(UUID topicId) {
+        return databaseClient
+                .sql("SELECT id FROM topic_attachments WHERE topic_id = :tid ORDER BY created_at, id")
+                .bind("tid", topicId)
+                .mapValue(UUID.class)
+                .first()
+                .block();
+    }
+
+    // --- Feature 010 User Story 1 & 2: markdown description + authoring hint (T004, T015) ------
+
+    @Test
+    void organiserTopicDetailRendersTheDescriptionAsMarkdownOutsideTheDefinitionList() {
+        User author = persistUser("Markdown Author " + UUID.randomUUID());
+        Topic topic = persistTopic(
+                author.getId(),
+                "Organiser Markdown Topic " + UUID.randomUUID(),
+                "# Overview\n\n- point one\n\nSee https://example.org/docs.");
+
+        String body = webTestClient
+                .mutateWith(organiser())
+                .get()
+                .uri("/organiser/topics/{id}", topic.getId())
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("class=\"topic-description\"");
+        assertThat(body).contains("<h2>Overview</h2>").contains("<li>point one</li>");
+        assertThat(body).contains("href=\"https://example.org/docs\"").contains("target=\"_blank\"");
+        // FR-001a: the Description row left the <dl>, so the description shows exactly once.
+        assertThat(body).doesNotContain("<dt>Description</dt>");
+    }
+
+    @Test
+    void organiserTopicFormsCarryTheMarkdownHintOnTheDescriptionField() {
+        User author = persistUser("Hint Author " + UUID.randomUUID());
+        Topic topic = persistTopic(author.getId(), "Hint Topic " + UUID.randomUUID(), "# Heading");
+
+        for (String uri : List.of("/organiser/topics/new", "/organiser/topics/" + topic.getId() + "/edit")) {
+            String body = webTestClient
+                    .mutateWith(organiser())
+                    .get()
+                    .uri(uri)
+                    .exchange()
+                    .expectStatus()
+                    .isOk()
+                    .expectBody(String.class)
+                    .returnResult()
+                    .getResponseBody();
+
+            assertThat(body).as(uri).contains("Description (Markdown)");
+            assertThat(body).as(uri).contains("id=\"description-hint\"");
+            assertThat(body).as(uri).contains("aria-describedby=\"description-hint\"");
+        }
     }
 
     private User persistUser(String displayName) {
