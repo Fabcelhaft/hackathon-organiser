@@ -34,6 +34,7 @@ public class EventPublisher {
     private final EventDestinationService eventDestinationService;
     private final HttpDestinationSender httpDestinationSender;
     private final KafkaDestinationSender kafkaDestinationSender;
+    private final TaskDestinationSender taskDestinationSender;
     private final ObjectMapper objectMapper;
 
     /**
@@ -46,10 +47,12 @@ public class EventPublisher {
     public EventPublisher(
             EventDestinationService eventDestinationService,
             HttpDestinationSender httpDestinationSender,
-            KafkaDestinationSender kafkaDestinationSender) {
+            KafkaDestinationSender kafkaDestinationSender,
+            TaskDestinationSender taskDestinationSender) {
         this.eventDestinationService = eventDestinationService;
         this.httpDestinationSender = httpDestinationSender;
         this.kafkaDestinationSender = kafkaDestinationSender;
+        this.taskDestinationSender = taskDestinationSender;
         this.objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -73,9 +76,14 @@ public class EventPublisher {
     }
 
     private void dispatch(EventDestination destination, String jsonBody) {
-        var delivery = destination.getType() == EventDestinationType.KAFKA
-                ? kafkaDestinationSender.send(destination, jsonBody)
-                : httpDestinationSender.send(destination, jsonBody);
+        // Feature 011 FR-001: a TASK Destination creates a Task in this application rather than
+        // sending the Event outward. It is dispatched through this same detached pipeline, so Task
+        // creation inherits FR-018/SC-003's guarantee unchanged (feature 011 research.md §6).
+        var delivery = switch (destination.getType()) {
+            case KAFKA -> kafkaDestinationSender.send(destination, jsonBody);
+            case HTTP_POST -> httpDestinationSender.send(destination, jsonBody);
+            case TASK -> taskDestinationSender.send(destination, jsonBody);
+        };
         delivery.subscribe(
                 v -> {},
                 ex -> log.warn("Unexpected error delivering to Destination '{}': {}", destination.getName(), ex.toString()));

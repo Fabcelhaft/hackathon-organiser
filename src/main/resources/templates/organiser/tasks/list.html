@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{organiser/fragments/layout :: head(title='Tasks')}">
+    <title>Tasks</title>
+</head>
+<body>
+<th:block th:replace="~{organiser/fragments/layout :: layout(title='Tasks', content=~{::#content})}">
+    <div id="content">
+        <p th:if="${error}" th:text="${error}" role="alert" class="error-message">Error</p>
+
+        <!--/* FR-022/FR-023: the default view is undone-only, with no filter interaction needed.
+             This control is the only way to widen it, and every row action below carries the
+             current value back so an action taken here returns here. */-->
+        <div class="actions">
+            <a th:unless="${includeDone}" th:href="@{/organiser/tasks(show='done')}" role="button"
+               class="outline secondary">Show done Tasks too</a>
+            <a th:if="${includeDone}" th:href="@{/organiser/tasks}" role="button"
+               class="outline secondary">Show only outstanding Tasks</a>
+        </div>
+
+        <!--/* FR-021: exactly four columns — title, assignee, Save, Done. The created and completed
+             times live inside the title cell as secondary text (FR-021a), which is what keeps the
+             table at four columns while still distinguishing two Tasks carrying identical titles.
+             No fifth column may be added for them. */-->
+        <table class="task-table" th:unless="${#lists.isEmpty(tasks)}">
+            <thead>
+            <tr>
+                <th scope="col">Title</th>
+                <th scope="col">Assignee</th>
+                <th scope="col"><span class="visually-hidden">Save assignee</span></th>
+                <th scope="col"><span class="visually-hidden">Mark done or reopen</span></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${tasks}">
+                <td>
+                    <span th:text="${row.task().getTitle()}">Task title</span>
+                    <!--/* Instant rendered with plain th:text, matching organiser/audit/list.html —
+                         this project has no #temporals or DateTimeFormatter anywhere (research.md
+                         §11). This line is what tells two identically-titled Tasks apart. */-->
+                    <span class="task-meta">
+                        <span th:text="'created ' + ${row.task().getCreatedAt()}">created</span>
+                        <span th:if="${row.task().isDone()}"
+                              th:text="' · completed ' + ${row.task().getDoneAt()}">completed</span>
+                    </span>
+                </td>
+
+                <!--/* FR-031: every row repeats the same three controls, so each needs an
+                     accessible name identifying WHICH Task it acts on — otherwise a screen reader
+                     hears "Save, Save, Save". */-->
+                <td class="task-assignee">
+                    <form th:id="'assign-' + ${row.task().getId()}"
+                          th:action="@{/organiser/tasks/{id}/assign(id=${row.task().getId()})}" method="post">
+                        <input type="hidden" name="show" th:value="${includeDone} ? 'done' : ''"/>
+                        <select name="assignee_user_id"
+                                th:aria-label="'Assignee for ' + ${row.task().getTitle()}">
+                            <option value="">Unassigned</option>
+                            <option th:each="organiser : ${organisers}"
+                                    th:value="${organiser.getId()}"
+                                    th:text="${organiser.getDisplayName()}"
+                                    th:selected="${row.task().getAssigneeUserId() != null
+                                                  and row.task().getAssigneeUserId().toString() == organiser.getId().toString()}">
+                                Organiser
+                            </option>
+                        </select>
+                    </form>
+                </td>
+                <td>
+                    <button type="submit" th:form="'assign-' + ${row.task().getId()}" class="outline secondary"
+                            th:aria-label="'Save assignee for ' + ${row.task().getTitle()}">Save</button>
+                </td>
+                <td>
+                    <!--/* FR-025/FR-026: Done on an outstanding row, Reopen on a done one. */-->
+                    <form th:unless="${row.task().isDone()}"
+                          th:action="@{/organiser/tasks/{id}/done(id=${row.task().getId()})}" method="post">
+                        <input type="hidden" name="show" th:value="${includeDone} ? 'done' : ''"/>
+                        <button type="submit"
+                                th:aria-label="'Mark done: ' + ${row.task().getTitle()}">Done</button>
+                    </form>
+                    <form th:if="${row.task().isDone()}"
+                          th:action="@{/organiser/tasks/{id}/reopen(id=${row.task().getId()})}" method="post">
+                        <input type="hidden" name="show" th:value="${includeDone} ? 'done' : ''"/>
+                        <button type="submit" class="outline secondary"
+                                th:aria-label="'Reopen: ' + ${row.task().getTitle()}">Reopen</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <!--/* FR-028a: say where the list was cut off, so an Organiser is never misled into
+             thinking older done Tasks no longer exist. Undone Tasks are never withheld. */-->
+        <p th:if="${truncated}" role="status">
+            Showing the
+            <span th:text="${doneViewLimit}">200</span>
+            most recently created Tasks. Older done Tasks exist but are not listed here — every
+            outstanding Task is always shown.
+        </p>
+
+        <!--/* FR-029: an explanatory empty state rather than a bare empty table. */-->
+        <p th:if="${#lists.isEmpty(tasks)} and ${includeDone}">
+            No Tasks yet. Tasks appear here automatically when an Event matches an enabled Task Rule —
+            configure one under <a th:href="@{/organiser/event-destinations}">Event Destinations</a>.
+        </p>
+        <p th:if="${#lists.isEmpty(tasks)} and ${!includeDone}">
+            No outstanding Tasks — everything is done. Tasks appear here automatically when an Event
+            matches an enabled Task Rule.
+        </p>
+    </div>
+</th:block>
+</body>
+</html>

@@ -3,6 +3,8 @@ package net.fabcelhaft.hackathonorganiser.event;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import net.fabcelhaft.hackathonorganiser.task.TaskService;
+import net.fabcelhaft.hackathonorganiser.task.TitlePatternScanner;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -20,14 +22,17 @@ public class EventDestinationService {
     private final EventDestinationRepository eventDestinationRepository;
     private final DatabaseClient databaseClient;
     private final KafkaDestinationSender kafkaDestinationSender;
+    private final TaskService taskService;
 
     public EventDestinationService(
             EventDestinationRepository eventDestinationRepository,
             DatabaseClient databaseClient,
-            KafkaDestinationSender kafkaDestinationSender) {
+            KafkaDestinationSender kafkaDestinationSender,
+            TaskService taskService) {
         this.eventDestinationRepository = eventDestinationRepository;
         this.databaseClient = databaseClient;
         this.kafkaDestinationSender = kafkaDestinationSender;
+        this.taskService = taskService;
     }
 
     public Flux<EventDestination> findAll() {
@@ -46,16 +51,25 @@ public class EventDestinationService {
             String kafkaTopic,
             String httpUrl,
             String credential,
+            String taskTitlePattern,
+            UUID taskDefaultAssigneeUserId,
             List<EventType> eventTypes) {
         return validateName(name)
-                .then(validateTypeFields(type, kafkaBootstrapServers, kafkaTopic, httpUrl))
+                .then(validateTypeFields(type, kafkaBootstrapServers, kafkaTopic, httpUrl, taskTitlePattern))
                 .then(Mono.defer(() -> rejectIfNameTaken(name, null)))
                 .then(Mono.defer(() -> {
                     EventDestination destination = new EventDestination();
                     destination.setName(name);
                     destination.setType(type);
                     destination.setEnabled(false);
-                    applyTypeFields(destination, type, kafkaBootstrapServers, kafkaTopic, httpUrl);
+                    applyTypeFields(
+                            destination,
+                            type,
+                            kafkaBootstrapServers,
+                            kafkaTopic,
+                            httpUrl,
+                            taskTitlePattern,
+                            taskDefaultAssigneeUserId);
                     destination.setCredential(StringUtils.hasText(credential) ? credential : null);
                     Instant now = Instant.now();
                     destination.setCreatedAt(now);
@@ -81,9 +95,11 @@ public class EventDestinationService {
             String kafkaTopic,
             String httpUrl,
             String credential,
+            String taskTitlePattern,
+            UUID taskDefaultAssigneeUserId,
             List<EventType> eventTypes) {
         return validateName(name)
-                .then(validateTypeFields(type, kafkaBootstrapServers, kafkaTopic, httpUrl))
+                .then(validateTypeFields(type, kafkaBootstrapServers, kafkaTopic, httpUrl, taskTitlePattern))
                 .then(eventDestinationRepository
                         .findById(id)
                         .switchIfEmpty(Mono.error(new EventDestinationConflictException("Event Destination not found")))
@@ -108,7 +124,14 @@ public class EventDestinationService {
                     existing.setName(name);
                     existing.setType(type);
                     clearTypeFields(existing);
-                    applyTypeFields(existing, type, kafkaBootstrapServers, kafkaTopic, httpUrl);
+                    applyTypeFields(
+                            existing,
+                            type,
+                            kafkaBootstrapServers,
+                            kafkaTopic,
+                            httpUrl,
+                            taskTitlePattern,
+                            taskDefaultAssigneeUserId);
                     if (StringUtils.hasText(credential)) {
                         existing.setCredential(credential);
                     }
@@ -144,6 +167,16 @@ public class EventDestinationService {
                 });
     }
 
+    /**
+     * Deletes a Destination.
+     *
+     * <p>For a {@code TASK} Destination this also removes the <em>undone</em> Tasks it created, while
+     * its done Tasks stay as a record of work actually carried out (feature 011 FR-002a). Those
+     * survivors have their {@code event_destination_id} nulled by the column's {@code ON DELETE SET
+     * NULL}; their {@code rule_name} snapshot is what keeps them attributable afterwards. This is
+     * deliberately the one thing delete does that disable does not — it is how an Organiser recovers
+     * from a badly-written Rule that generated a large number of unwanted Tasks.
+     */
     public Mono<Void> delete(UUID id) {
         return eventDestinationRepository
                 .findById(id)
@@ -151,7 +184,11 @@ public class EventDestinationService {
                     if (existing.getType() == EventDestinationType.KAFKA) {
                         kafkaDestinationSender.disposeCacheFor(id);
                     }
-                    return deleteEventTypeSelections(id)
+                    Mono<Void> removeUndoneTasks = existing.getType() == EventDestinationType.TASK
+                            ? taskService.deleteUndoneForRule(id)
+                            : Mono.empty();
+                    return removeUndoneTasks
+                            .then(deleteEventTypeSelections(id))
                             .then(eventDestinationRepository.deleteById(id));
                 });
     }
@@ -175,7 +212,9 @@ public class EventDestinationService {
         return databaseClient
                 .sql(
                         "SELECT ed.id, ed.name, ed.type, ed.enabled, ed.kafka_bootstrap_servers, ed.kafka_topic, "
-                                + "ed.http_url, ed.credential, ed.created_at, ed.updated_at FROM event_destinations ed "
+                                + "ed.http_url, ed.credential, ed.task_title_pattern, "
+                                + "ed.task_default_assignee_user_id, ed.created_at, ed.updated_at "
+                                + "FROM event_destinations ed "
                                 + "JOIN event_destination_event_types edet ON edet.event_destination_id = ed.id "
                                 + "WHERE ed.enabled = true AND edet.event_type = :eventType")
                 .bind("eventType", eventType.name())
@@ -189,6 +228,11 @@ public class EventDestinationService {
                     destination.setKafkaTopic(row.get("kafka_topic", String.class));
                     destination.setHttpUrl(row.get("http_url", String.class));
                     destination.setCredential(row.get("credential", String.class));
+                    // Feature 011: this mapper is hand-written, so a TASK Destination returned here
+                    // without these two columns would fire with a null pattern and silently produce a
+                    // fallback title for every Event (feature 011 data-model.md "Query shapes").
+                    destination.setTaskTitlePattern(row.get("task_title_pattern", String.class));
+                    destination.setTaskDefaultAssigneeUserId(row.get("task_default_assignee_user_id", UUID.class));
                     destination.setCreatedAt(row.get("created_at", java.time.Instant.class));
                     destination.setUpdatedAt(row.get("updated_at", java.time.Instant.class));
                     return destination;
@@ -233,7 +277,11 @@ public class EventDestinationService {
     }
 
     private Mono<Void> validateTypeFields(
-            EventDestinationType type, String kafkaBootstrapServers, String kafkaTopic, String httpUrl) {
+            EventDestinationType type,
+            String kafkaBootstrapServers,
+            String kafkaTopic,
+            String httpUrl,
+            String taskTitlePattern) {
         if (type == null) {
             return Mono.error(new EventDestinationConflictException("A Destination type is required"));
         }
@@ -249,6 +297,15 @@ public class EventDestinationService {
             if (!StringUtils.hasText(httpUrl)) {
                 return Mono.error(new EventDestinationConflictException("A URL is required for an HTTP POST Destination"));
             }
+        } else if (type == EventDestinationType.TASK) {
+            // Feature 011 FR-007: the CHECK constraint is the structural guarantee that a TASK row
+            // carries a pattern; this is the friendly-error guarantee, and the only place the
+            // wildcard syntax itself is validated. Zero Event Types is deliberately NOT rejected —
+            // FR-003/FR-034 require that to behave identically across all three types.
+            String patternError = TitlePatternScanner.validationError(taskTitlePattern);
+            if (patternError != null) {
+                return Mono.error(new EventDestinationConflictException(patternError));
+            }
         }
         return Mono.empty();
     }
@@ -258,12 +315,19 @@ public class EventDestinationService {
             EventDestinationType type,
             String kafkaBootstrapServers,
             String kafkaTopic,
-            String httpUrl) {
-        if (type == EventDestinationType.KAFKA) {
-            destination.setKafkaBootstrapServers(kafkaBootstrapServers);
-            destination.setKafkaTopic(kafkaTopic);
-        } else {
-            destination.setHttpUrl(httpUrl);
+            String httpUrl,
+            String taskTitlePattern,
+            UUID taskDefaultAssigneeUserId) {
+        switch (type) {
+            case KAFKA -> {
+                destination.setKafkaBootstrapServers(kafkaBootstrapServers);
+                destination.setKafkaTopic(kafkaTopic);
+            }
+            case HTTP_POST -> destination.setHttpUrl(httpUrl);
+            case TASK -> {
+                destination.setTaskTitlePattern(taskTitlePattern);
+                destination.setTaskDefaultAssigneeUserId(taskDefaultAssigneeUserId);
+            }
         }
     }
 
@@ -271,5 +335,7 @@ public class EventDestinationService {
         destination.setKafkaBootstrapServers(null);
         destination.setKafkaTopic(null);
         destination.setHttpUrl(null);
+        destination.setTaskTitlePattern(null);
+        destination.setTaskDefaultAssigneeUserId(null);
     }
 }

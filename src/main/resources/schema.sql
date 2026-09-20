@@ -402,12 +402,26 @@ CREATE TABLE IF NOT EXISTS event_destinations (
 
 CREATE UNIQUE INDEX IF NOT EXISTS event_destinations_name_key ON event_destinations (name);
 
+-- Feature 011: Event-Driven Task Rules (data-model.md "Task Rule"; FR-003, FR-005). A Task Rule is
+-- a third `type` of this same table, not a new entity — that is what lets FR-032/FR-033/FR-034
+-- reuse the existing list, form, and service, and what makes FR-003's cross-type unique name the
+-- existing event_destinations_name_key index rather than a two-table check. Both columns are
+-- nullable because a KAFKA or HTTP_POST row leaves them unset, exactly as those rows already leave
+-- each other's connection columns unset.
+ALTER TABLE event_destinations ADD COLUMN IF NOT EXISTS task_title_pattern text;
+ALTER TABLE event_destinations ADD COLUMN IF NOT EXISTS task_default_assignee_user_id uuid
+    REFERENCES users (id);
+
+-- Feature 011: the TASK branch is what makes a Task Rule row insertable at all; without it every
+-- Task Rule save fails on this constraint. task_default_assignee_user_id is deliberately absent —
+-- FR-005 makes the default assignee optional.
 ALTER TABLE event_destinations DROP CONSTRAINT IF EXISTS event_destinations_type_fields_check;
 ALTER TABLE event_destinations
     ADD CONSTRAINT event_destinations_type_fields_check
     CHECK (
         (type = 'KAFKA' AND kafka_bootstrap_servers IS NOT NULL AND kafka_topic IS NOT NULL)
         OR (type = 'HTTP_POST' AND http_url IS NOT NULL)
+        OR (type = 'TASK' AND task_title_pattern IS NOT NULL)
     );
 
 -- Feature 007: Event Destination <-> Event Type association (data-model.md "Event Destination x
@@ -439,3 +453,35 @@ CREATE TABLE IF NOT EXISTS topic_attachments (
 
 CREATE INDEX IF NOT EXISTS topic_attachments_topic_idx
     ON topic_attachments (topic_id, created_at);
+
+-- Feature 011: Event-Driven Task Rules (data-model.md "Task"; FR-016, FR-017). One row per Task a
+-- Task Rule created when an Event fired.
+--
+-- event_destination_id is nullable with ON DELETE SET NULL, not CASCADE, because FR-002a splits
+-- deletion: a deleted Rule takes its *undone* Tasks with it (EventDestinationService deletes those
+-- explicitly first) while its done Tasks survive as a record of work carried out. CASCADE cannot
+-- express that split, and a NOT NULL column would make the Rule undeletable while done Tasks
+-- referenced it.
+--
+-- rule_name duplicates the Rule's name on purpose. ON DELETE SET NULL would otherwise erase exactly
+-- the association FR-017 requires a Task to record, for precisely the done Tasks the requirement is
+-- trying to preserve. This mirrors ParticipantService's existing audit subject_label snapshot,
+-- written before a delete so the record outlives the row.
+--
+-- event_type has no FK: EventType is a fixed Java enum, not a table (same precedent as
+-- audit_entries.event_type and event_destination_event_types.event_type).
+CREATE TABLE IF NOT EXISTS tasks (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    event_destination_id uuid REFERENCES event_destinations (id) ON DELETE SET NULL,
+    rule_name text NOT NULL,
+    event_type text NOT NULL,
+    title text NOT NULL,
+    assignee_user_id uuid REFERENCES users (id),
+    done boolean NOT NULL DEFAULT false,
+    done_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Covers both list views in one index: every query filters on done and orders by created_at
+-- descending (FR-022, FR-028).
+CREATE INDEX IF NOT EXISTS tasks_done_created_idx ON tasks (done, created_at DESC);

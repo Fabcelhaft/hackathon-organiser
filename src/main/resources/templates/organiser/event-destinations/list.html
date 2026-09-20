@@ -23,15 +23,30 @@
             <tr th:each="row : ${destinations}">
                 <td th:text="${row.destination().getName()}">Name</td>
                 <td th:text="${row.destination().getType()}">Type</td>
-                <td th:text="${row.destination().getType() == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).KAFKA
-                             ? (row.destination().getKafkaBootstrapServers() + ' / ' + row.destination().getKafkaTopic())
-                             : row.destination().getHttpUrl()}">Connection</td>
+                <!--/* Feature 011 FR-032: a Task Rule shows its title pattern where the other two
+                     types show a broker or a URL. */-->
+                <td th:switch="${row.destination().getType().name()}">
+                    <span th:case="'KAFKA'"
+                          th:text="${row.destination().getKafkaBootstrapServers() + ' / ' + row.destination().getKafkaTopic()}">Kafka</span>
+                    <span th:case="'TASK'" th:text="${row.destination().getTaskTitlePattern()}">Pattern</span>
+                    <span th:case="*" th:text="${row.destination().getHttpUrl()}">URL</span>
+                </td>
                 <td th:text="${row.destination().isEnabled()} ? 'Enabled' : 'Disabled'">Status</td>
                 <td>
                     <span th:each="eventType, iter : ${row.eventTypes()}">
                         <span th:text="${eventType.displayName()}">Event Type</span><span th:unless="${iter.last}">, </span>
                     </span>
-                    <span th:if="${#lists.isEmpty(row.eventTypes())}">None selected</span>
+                    <!--/* Feature 011 FR-032a: an enabled handler with no Event Types selected will
+                         never do anything, so say so rather than leaving the Organiser to wonder why
+                         nothing happens. Applies to all three handler types — a Kafka or HTTP POST
+                         destination in this state is equally inert. A disabled handler is not
+                         flagged: being idle is already its stated condition. */-->
+                    <span th:if="${#lists.isEmpty(row.eventTypes())}">
+                        <span th:if="${row.destination().isEnabled()}" class="inert-marker">
+                            None selected — enabled but inert, this will never run
+                        </span>
+                        <span th:unless="${row.destination().isEnabled()}">None selected</span>
+                    </span>
                 </td>
                 <td class="actions">
                     <a th:href="@{/organiser/event-destinations/{id}/edit(id=${row.destination().getId()})}" role="button"
@@ -44,8 +59,15 @@
                           th:action="@{/organiser/event-destinations/{id}/enable(id=${row.destination().getId()})}" method="post">
                         <button type="submit" class="outline secondary">Enable</button>
                     </form>
+                    <!--/* Feature 011 FR-002a: deleting a Task Rule also removes its undone Tasks,
+                         so the confirmation states how many before the Organiser commits. Reuses the
+                         native confirm() wiring already proven in content-pages/list.html (feature
+                         008 FR-018a) — no modal component. Disabling removes nothing, so only Delete
+                         carries this. */-->
                     <form th:action="@{/organiser/event-destinations/{id}/delete(id=${row.destination().getId()})}" method="post">
-                        <button type="submit" class="outline danger">Delete</button>
+                        <button type="submit" class="outline danger"
+                                th:data-confirm="${row.undoneTasks() == 0} ? null
+                                    : |Deleting '${row.destination().getName()}' also removes ${row.undoneTasks()} undone Task(s) it created. Its done Tasks are kept. Delete anyway?|">Delete</button>
                     </form>
                 </td>
             </tr>
@@ -53,5 +75,20 @@
         </table>
     </div>
 </th:block>
+<!--/* Feature 011 FR-002a (research.md §7): the native confirm() dialog, attached only to buttons
+     that carry a data-confirm message — the same pattern as organiser/content-pages/list.html, no
+     client-side framework, no modal component. */-->
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var buttons = document.querySelectorAll('button[data-confirm]');
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].addEventListener('click', function (event) {
+                if (!window.confirm(event.currentTarget.getAttribute('data-confirm'))) {
+                    event.preventDefault();
+                }
+            });
+        }
+    });
+</script>
 </body>
 </html>
