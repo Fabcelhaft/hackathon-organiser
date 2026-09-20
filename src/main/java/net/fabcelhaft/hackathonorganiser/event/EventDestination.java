@@ -38,6 +38,18 @@ public class EventDestination {
 
     private String credential;
 
+    /**
+     * The unresolved task title pattern for a {@link EventDestinationType#TASK} Destination, wildcards
+     * included (feature 011 FR-003, FR-009). Null for the other two types.
+     */
+    private String taskTitlePattern;
+
+    /**
+     * Optional default assignee applied to every Task this Rule creates (feature 011 FR-005). Null
+     * means Tasks are created unassigned; null for the other two types.
+     */
+    private UUID taskDefaultAssigneeUserId;
+
     private Instant createdAt;
 
     private Instant updatedAt;
@@ -104,6 +116,22 @@ public class EventDestination {
 
     public void setCredential(String credential) {
         this.credential = credential;
+    }
+
+    public String getTaskTitlePattern() {
+        return taskTitlePattern;
+    }
+
+    public void setTaskTitlePattern(String taskTitlePattern) {
+        this.taskTitlePattern = taskTitlePattern;
+    }
+
+    public UUID getTaskDefaultAssigneeUserId() {
+        return taskDefaultAssigneeUserId;
+    }
+
+    public void setTaskDefaultAssigneeUserId(UUID taskDefaultAssigneeUserId) {
+        this.taskDefaultAssigneeUserId = taskDefaultAssigneeUserId;
     }
 
     public Instant getCreatedAt() {

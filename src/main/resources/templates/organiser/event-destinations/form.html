@@ -23,6 +23,11 @@
                 <option value="HTTP_POST" th:selected="${type == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).HTTP_POST}">
                     HTTP POST
                 </option>
+                <!--/* Feature 011 FR-001/FR-033: a Task Rule is a third type of this same form, not
+                     a separate screen. */-->
+                <option value="TASK" th:selected="${type == T(net.fabcelhaft.hackathonorganiser.event.EventDestinationType).TASK}">
+                    Task
+                </option>
             </select>
 
             <div id="kafkaFields">
@@ -40,9 +45,43 @@
                        placeholder="https://example.com/webhook"/>
             </div>
 
-            <label for="credential">Credential (API key / token / broker password)</label>
-            <input type="password" id="credential" name="credential"
-                   th:placeholder="${isEdit} ? 'Leave blank to keep the current value' : 'Optional'"/>
+            <!--/* Feature 011 FR-008: the wildcard syntax and a worked example live directly beneath
+                 the field, so an Organiser can write a pattern without reading the Event format. */-->
+            <div id="taskFields">
+                <label for="taskTitlePattern">Task title pattern</label>
+                <input type="text" id="taskTitlePattern" name="task_title_pattern"
+                       th:value="${taskTitlePattern}" aria-describedby="taskTitlePatternHelp"
+                       placeholder="Review new topic: {{topic.name}}"/>
+                <small id="taskTitlePatternHelp">
+                    Wrap a value's path in double braces to fill it in from the Event:
+                    <code>{{topic.name}}</code>. Separate steps with a dot, and use a number to pick
+                    an entry from a list: <code>{{customFields.0.definition.label}}</code>.
+                    <code>{{eventType}}</code> gives the Event's own name. A path that the Event does
+                    not have simply contributes nothing, so one Rule can serve several Event Types.
+                    Text outside the braces — single braces included — is left exactly as you type it.
+                </small>
+
+                <label for="taskDefaultAssignee">Default assignee</label>
+                <select id="taskDefaultAssignee" name="task_default_assignee_user_id">
+                    <option value="">Unassigned</option>
+                    <option th:each="organiser : ${organisers}"
+                            th:value="${organiser.getId()}"
+                            th:text="${organiser.getDisplayName()}"
+                            th:selected="${taskDefaultAssigneeUserId != null
+                                          and taskDefaultAssigneeUserId.toString() == organiser.getId().toString()}">
+                        Organiser
+                    </option>
+                </select>
+                <small>Optional. Every Task this Rule creates starts assigned to this person.</small>
+            </div>
+
+            <!--/* Feature 011 FR-033: Credential has no meaning for a Task Rule, so it is hidden
+                 rather than shown-and-ignored. */-->
+            <div id="credentialField">
+                <label for="credential">Credential (API key / token / broker password)</label>
+                <input type="password" id="credential" name="credential"
+                       th:placeholder="${isEdit} ? 'Leave blank to keep the current value' : 'Optional'"/>
+            </div>
 
             <fieldset>
                 <legend>Event Types this Destination receives</legend>
@@ -57,20 +96,26 @@
         </form>
     </div>
 
-    <script>
-        function toggleTypeFields() {
-            var select = document.getElementById('type');
-            var kafka = document.getElementById('kafkaFields');
-            var http = document.getElementById('httpFields');
-            if (select && kafka && http) {
-                var isKafka = select.value === 'KAFKA';
-                kafka.style.display = isKafka ? 'block' : 'none';
-                http.style.display = isKafka ? 'none' : 'block';
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', toggleTypeFields);
-    </script>
 </th:block>
+<script>
+    /* Feature 011 FR-033: the same show/hide this form already used for two types, widened to
+       three. Credential is hidden for TASK because it has no meaning there. */
+    function toggleTypeFields() {
+        var select = document.getElementById('type');
+        var kafka = document.getElementById('kafkaFields');
+        var http = document.getElementById('httpFields');
+        var task = document.getElementById('taskFields');
+        var credential = document.getElementById('credentialField');
+        if (select && kafka && http && task && credential) {
+            var type = select.value;
+            kafka.style.display = type === 'KAFKA' ? 'block' : 'none';
+            http.style.display = type === 'HTTP_POST' ? 'block' : 'none';
+            task.style.display = type === 'TASK' ? 'block' : 'none';
+            credential.style.display = type === 'TASK' ? 'none' : 'block';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', toggleTypeFields);
+</script>
 </body>
 </html>

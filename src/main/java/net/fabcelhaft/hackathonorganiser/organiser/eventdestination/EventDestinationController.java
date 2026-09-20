@@ -8,6 +8,9 @@ import net.fabcelhaft.hackathonorganiser.event.EventDestinationConflictException
 import net.fabcelhaft.hackathonorganiser.event.EventDestinationService;
 import net.fabcelhaft.hackathonorganiser.event.EventDestinationType;
 import net.fabcelhaft.hackathonorganiser.event.EventType;
+import net.fabcelhaft.hackathonorganiser.task.TaskService;
+import net.fabcelhaft.hackathonorganiser.user.User;
+import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.MultiValueMap;
@@ -32,9 +35,14 @@ import reactor.core.publisher.Mono;
 public class EventDestinationController {
 
     private final EventDestinationService eventDestinationService;
+    private final UserRepository userRepository;
+    private final TaskService taskService;
 
-    public EventDestinationController(EventDestinationService eventDestinationService) {
+    public EventDestinationController(
+            EventDestinationService eventDestinationService, UserRepository userRepository, TaskService taskService) {
         this.eventDestinationService = eventDestinationService;
+        this.userRepository = userRepository;
+        this.taskService = taskService;
     }
 
     @GetMapping
@@ -43,7 +51,8 @@ public class EventDestinationController {
                 .findAll()
                 .concatMap(destination -> eventDestinationService
                         .findEventTypes(destination.getId())
-                        .map(eventTypes -> new DestinationRow(destination, eventTypes)))
+                        .flatMap(eventTypes -> undoneTaskCount(destination)
+                                .map(undoneTasks -> new DestinationRow(destination, eventTypes, undoneTasks))))
                 .collectList()
                 .map(rows -> {
                     Rendering.Builder<?> builder = Rendering.view("organiser/event-destinations/list")
@@ -57,7 +66,7 @@ public class EventDestinationController {
 
     @GetMapping("/new")
     public Mono<Rendering> newForm() {
-        return Mono.just(createFormView(null, null, null, null, null, List.of(), null));
+        return createFormView(null, null, null, null, null, null, null, List.of(), null);
     }
 
     @PostMapping
@@ -69,15 +78,20 @@ public class EventDestinationController {
             String kafkaTopic = form.getFirst("kafka_topic");
             String httpUrl = form.getFirst("http_url");
             String credential = form.getFirst("credential");
+            String taskTitlePattern = form.getFirst("task_title_pattern");
+            UUID taskDefaultAssigneeUserId = uuidValue(form.getFirst("task_default_assignee_user_id"));
             List<EventType> eventTypes = eventTypeValues(form);
 
             return eventDestinationService
-                    .create(name, type, kafkaBootstrapServers, kafkaTopic, httpUrl, credential, eventTypes)
+                    .create(
+                            name, type, kafkaBootstrapServers, kafkaTopic, httpUrl, credential, taskTitlePattern,
+                            taskDefaultAssigneeUserId, eventTypes)
                     .<Rendering>map(destination -> redirectToList("Event Destination created."))
                     .onErrorResume(
                             EventDestinationConflictException.class,
-                            ex -> Mono.just(createFormView(
-                                    name, type, kafkaBootstrapServers, kafkaTopic, httpUrl, eventTypes, ex.getMessage())));
+                            ex -> createFormView(
+                                    name, type, kafkaBootstrapServers, kafkaTopic, httpUrl, taskTitlePattern,
+                                    taskDefaultAssigneeUserId, eventTypes, ex.getMessage()));
         });
     }
 
@@ -88,7 +102,7 @@ public class EventDestinationController {
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
                 .flatMap(destination -> eventDestinationService
                         .findEventTypes(id)
-                        .map(eventTypes -> editFormView(destination, eventTypes, null)));
+                        .flatMap(eventTypes -> editFormView(destination, eventTypes, null)));
     }
 
     @PostMapping("/{id}")
@@ -100,13 +114,15 @@ public class EventDestinationController {
             String kafkaTopic = form.getFirst("kafka_topic");
             String httpUrl = form.getFirst("http_url");
             String credential = form.getFirst("credential");
+            String taskTitlePattern = form.getFirst("task_title_pattern");
+            UUID taskDefaultAssigneeUserId = uuidValue(form.getFirst("task_default_assignee_user_id"));
             List<EventType> eventTypes = eventTypeValues(form);
             Instant expectedUpdatedAt = Instant.parse(form.getFirst("updated_at"));
 
             return eventDestinationService
                     .update(
                             id, expectedUpdatedAt, name, type, kafkaBootstrapServers, kafkaTopic, httpUrl, credential,
-                            eventTypes)
+                            taskTitlePattern, taskDefaultAssigneeUserId, eventTypes)
                     .<Rendering>map(destination -> redirectToList("Event Destination updated."))
                     .onErrorResume(EventDestinationConflictException.class, ex -> {
                         EventDestination resubmitted = new EventDestination();
@@ -116,8 +132,10 @@ public class EventDestinationController {
                         resubmitted.setKafkaBootstrapServers(kafkaBootstrapServers);
                         resubmitted.setKafkaTopic(kafkaTopic);
                         resubmitted.setHttpUrl(httpUrl);
+                        resubmitted.setTaskTitlePattern(taskTitlePattern);
+                        resubmitted.setTaskDefaultAssigneeUserId(taskDefaultAssigneeUserId);
                         resubmitted.setUpdatedAt(expectedUpdatedAt);
-                        return Mono.just(editFormView(resubmitted, eventTypes, ex.getMessage()));
+                        return editFormView(resubmitted, eventTypes, ex.getMessage());
                     });
         });
     }
@@ -143,45 +161,78 @@ public class EventDestinationController {
         return eventDestinationService.delete(id).then(Mono.just(redirectToList("Event Destination deleted.")));
     }
 
-    private Rendering createFormView(
+    /**
+     * Feature 011 FR-005: the form's default-assignee picker lists the Users holding the Organiser
+     * role, so both form views are now reactive — the list is one query, loaded once per render.
+     */
+    private Mono<Rendering> createFormView(
             String name,
             EventDestinationType type,
             String kafkaBootstrapServers,
             String kafkaTopic,
             String httpUrl,
+            String taskTitlePattern,
+            UUID taskDefaultAssigneeUserId,
             List<EventType> selectedEventTypes,
             String error) {
-        Rendering.Builder<?> builder = Rendering.view("organiser/event-destinations/form")
-                .modelAttribute("eventTypes", EventType.values())
-                .modelAttribute("selectedEventTypes", selectedEventTypes)
-                .modelAttribute("name", name)
-                .modelAttribute("type", type)
-                .modelAttribute("kafkaBootstrapServers", kafkaBootstrapServers)
-                .modelAttribute("kafkaTopic", kafkaTopic)
-                .modelAttribute("httpUrl", httpUrl)
-                .modelAttribute("isEdit", false);
-        if (error != null) {
-            builder = builder.modelAttribute("error", error);
-        }
-        return builder.build();
+        return organiserOptions().map(organisers -> {
+            Rendering.Builder<?> builder = Rendering.view("organiser/event-destinations/form")
+                    .modelAttribute("eventTypes", EventType.values())
+                    .modelAttribute("selectedEventTypes", selectedEventTypes)
+                    .modelAttribute("organisers", organisers)
+                    .modelAttribute("name", name)
+                    .modelAttribute("type", type)
+                    .modelAttribute("kafkaBootstrapServers", kafkaBootstrapServers)
+                    .modelAttribute("kafkaTopic", kafkaTopic)
+                    .modelAttribute("httpUrl", httpUrl)
+                    .modelAttribute("taskTitlePattern", taskTitlePattern)
+                    .modelAttribute("taskDefaultAssigneeUserId", taskDefaultAssigneeUserId)
+                    .modelAttribute("isEdit", false);
+            if (error != null) {
+                builder = builder.modelAttribute("error", error);
+            }
+            return builder.build();
+        });
     }
 
-    private Rendering editFormView(EventDestination destination, List<EventType> selectedEventTypes, String error) {
-        Rendering.Builder<?> builder = Rendering.view("organiser/event-destinations/form")
-                .modelAttribute("eventTypes", EventType.values())
-                .modelAttribute("selectedEventTypes", selectedEventTypes)
-                .modelAttribute("destinationId", destination.getId())
-                .modelAttribute("name", destination.getName())
-                .modelAttribute("type", destination.getType())
-                .modelAttribute("kafkaBootstrapServers", destination.getKafkaBootstrapServers())
-                .modelAttribute("kafkaTopic", destination.getKafkaTopic())
-                .modelAttribute("httpUrl", destination.getHttpUrl())
-                .modelAttribute("updatedAt", destination.getUpdatedAt())
-                .modelAttribute("isEdit", true);
-        if (error != null) {
-            builder = builder.modelAttribute("error", error);
+    private Mono<Rendering> editFormView(
+            EventDestination destination, List<EventType> selectedEventTypes, String error) {
+        return organiserOptions().map(organisers -> {
+            Rendering.Builder<?> builder = Rendering.view("organiser/event-destinations/form")
+                    .modelAttribute("eventTypes", EventType.values())
+                    .modelAttribute("selectedEventTypes", selectedEventTypes)
+                    .modelAttribute("organisers", organisers)
+                    .modelAttribute("destinationId", destination.getId())
+                    .modelAttribute("name", destination.getName())
+                    .modelAttribute("type", destination.getType())
+                    .modelAttribute("kafkaBootstrapServers", destination.getKafkaBootstrapServers())
+                    .modelAttribute("kafkaTopic", destination.getKafkaTopic())
+                    .modelAttribute("httpUrl", destination.getHttpUrl())
+                    .modelAttribute("taskTitlePattern", destination.getTaskTitlePattern())
+                    .modelAttribute("taskDefaultAssigneeUserId", destination.getTaskDefaultAssigneeUserId())
+                    .modelAttribute("updatedAt", destination.getUpdatedAt())
+                    .modelAttribute("isEdit", true);
+            if (error != null) {
+                builder = builder.modelAttribute("error", error);
+            }
+            return builder.build();
+        });
+    }
+
+    private Mono<List<User>> organiserOptions() {
+        return userRepository.findByOrganiserTrueOrderByDisplayNameAsc().collectList();
+    }
+
+    /** An empty or unparseable id means "no default assignee" (feature 011 FR-005). */
+    private static UUID uuidValue(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
         }
-        return builder.build();
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     private static Rendering redirectToList(String flash) {
@@ -213,6 +264,23 @@ public class EventDestinationController {
                 .toList();
     }
 
-    /** The list view's row shape: a Destination plus its currently subscribed Event Types. */
-    public record DestinationRow(EventDestination destination, List<EventType> eventTypes) {}
+    /**
+     * Only a TASK Rule can have Tasks to lose, so the count query is skipped entirely for the other
+     * two types (feature 011 FR-002a).
+     */
+    private Mono<Long> undoneTaskCount(EventDestination destination) {
+        return destination.getType() == EventDestinationType.TASK
+                ? taskService.countUndoneForRule(destination.getId())
+                : Mono.just(0L);
+    }
+
+    /**
+     * The list view's row shape: a Destination, its currently subscribed Event Types, and — for a
+     * TASK Rule — how many undone Tasks deleting it would remove (feature 011 FR-002a).
+     *
+     * <p>{@code eventTypes.isEmpty() && destination.isEnabled()} is what the view renders as the
+     * inert marker (feature 011 FR-032a); it needs no extra query because both halves are already
+     * here, and it applies to all three handler types.
+     */
+    public record DestinationRow(EventDestination destination, List<EventType> eventTypes, long undoneTasks) {}
 }

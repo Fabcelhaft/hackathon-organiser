@@ -425,3 +425,38 @@ nav ul {
 .topic-description > *:last-child {
     margin-bottom: 0;
 }
+
+/* Feature 011 FR-032a: an enabled handler with no Event Types selected will never run. The words
+   already say so; this only borrows Pico's existing "something is wrong here" colour so the row is
+   findable when scanning a long list. No new palette, no new framework. */
+.inert-marker {
+    color: var(--pico-del-color);
+}
+
+/* Feature 011 FR-021a: the created — and, on a done Task, completed — time sits beneath the title
+   inside the same cell, which is what keeps the table at the four columns the spec asks for while
+   still telling two identically-titled Tasks apart. Muted and smaller so the title stays the row's
+   primary text. */
+.task-meta {
+    display: block;
+    font-size: 0.8em;
+    color: var(--pico-muted-color);
+}
+
+/* The timestamps are full ISO-8601 text (research.md §11 keeps this project's existing convention
+   of rendering an Instant with plain th:text). Left to wrap freely a done row breaks mid-timestamp
+   — "2026-09- / 20T07:55:06Z" — which the smoke-test screenshot made obvious. Each timestamp stays
+   whole; the line still wraps between them. */
+.task-meta > span {
+    white-space: nowrap;
+}
+
+/* Feature 011 FR-021: the assignee control and the two buttons sit in their own narrow columns;
+   without this the select stretches to Pico's full-width default and pushes the title out. */
+.task-assignee select {
+    margin-bottom: 0;
+}
+
+.task-table td {
+    vertical-align: middle;
+}

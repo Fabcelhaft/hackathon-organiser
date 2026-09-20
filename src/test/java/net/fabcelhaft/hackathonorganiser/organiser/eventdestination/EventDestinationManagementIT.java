@@ -65,6 +65,12 @@ class EventDestinationManagementIT {
     @Autowired
     EventDestinationRepository eventDestinationRepository;
 
+    @Autowired
+    net.fabcelhaft.hackathonorganiser.event.EventDestinationService eventDestinationService;
+
+    @Autowired
+    org.springframework.r2dbc.core.DatabaseClient databaseClient;
+
     @Test
     void createWithValidKafkaFieldsRedirectsAndTheRowAppearsInTheList() {
         webTestClient
@@ -317,6 +323,216 @@ class EventDestinationManagementIT {
         user.setCreatedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
         return userRepository.save(user).block();
+    }
+
+    // ==================================================================== Feature 011: Task Rules
+
+    /** FR-003, FR-006: a Task Rule is a third type of this same form, and starts disabled. */
+    @Test
+    void creatingATaskRuleStartsItDisabledAndShowsItsPatternInTheList() {
+        String name = "Task Rule " + UUID.randomUUID();
+
+        webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/event-destinations")
+                .body(BodyInserters.fromFormData("name", name)
+                        .with("type", "TASK")
+                        .with("task_title_pattern", "Review new topic: {{topic.name}}")
+                        .with("event_types", EventType.TOPIC_PROPOSED.name()))
+                .exchange()
+                .expectStatus()
+                .isSeeOther();
+
+        EventDestination saved = eventDestinationRepository.findByName(name).block();
+        assertThat(saved).isNotNull();
+        assertThat(saved.getType()).isEqualTo(EventDestinationType.TASK);
+        assertThat(saved.getTaskTitlePattern()).isEqualTo("Review new topic: {{topic.name}}");
+        assertThat(saved.isEnabled()).isFalse();
+
+        webTestClient
+                .mutateWith(organiser())
+                .get()
+                .uri("/organiser/event-destinations")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("Review new topic: {{topic.name}}"));
+    }
+
+    /** FR-007: a malformed wildcard is rejected, naming the problem, without discarding input. */
+    @Test
+    void creatingATaskRuleWithAMalformedWildcardReRendersTheFormWithAnError() {
+        String name = "Bad Pattern " + UUID.randomUUID();
+
+        webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/event-destinations")
+                .body(BodyInserters.fromFormData("name", name)
+                        .with("type", "TASK")
+                        .with("task_title_pattern", "Review {{topic..name}}"))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .value(body -> {
+                    assertThat(body).contains("topic..name");
+                    assertThat(body).contains("Review {{topic..name}}"); // input preserved
+                });
+
+        assertThat(eventDestinationRepository.findByName(name).block()).isNull();
+    }
+
+    @Test
+    void creatingATaskRuleWithNoPatternReRendersTheFormWithAnError() {
+        String name = "No Pattern " + UUID.randomUUID();
+
+        webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/event-destinations")
+                .body(BodyInserters.fromFormData("name", name).with("type", "TASK"))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("task title pattern is required"));
+
+        assertThat(eventDestinationRepository.findByName(name).block()).isNull();
+    }
+
+    /**
+     * FR-003 / FR-034: zero Event Types saves, matching the existing handler types exactly — this is
+     * the contradiction /speckit-clarify resolved, and FR-032a is why it is not a silent trap.
+     */
+    @Test
+    void aTaskRuleWithNoEventTypesSavesAndIsMarkedInertOnceEnabled() {
+        String name = "Inert Rule " + UUID.randomUUID();
+
+        webTestClient
+                .mutateWith(organiser())
+                .post()
+                .uri("/organiser/event-destinations")
+                .body(BodyInserters.fromFormData("name", name)
+                        .with("type", "TASK")
+                        .with("task_title_pattern", "Anything"))
+                .exchange()
+                .expectStatus()
+                .isSeeOther();
+
+        EventDestination saved = eventDestinationRepository.findByName(name).block();
+        assertThat(saved).isNotNull();
+
+        eventDestinationService.enable(saved.getId()).block();
+
+        webTestClient
+                .mutateWith(organiser())
+                .get()
+                .uri("/organiser/event-destinations")
+                .exchange()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("enabled but inert"));
+    }
+
+    /** FR-032a applies to all three handler types, not only Task Rules. */
+    @Test
+    void anEnabledKafkaDestinationWithNoEventTypesIsAlsoMarkedInert() {
+        EventDestination kafka = eventDestinationService
+                .create(
+                        "Inert Kafka " + UUID.randomUUID(),
+                        EventDestinationType.KAFKA,
+                        "localhost:9092",
+                        "topic",
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of())
+                .block();
+        eventDestinationService.enable(kafka.getId()).block();
+
+        webTestClient
+                .mutateWith(organiser())
+                .get()
+                .uri("/organiser/event-destinations")
+                .exchange()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("enabled but inert"));
+    }
+
+    /** FR-002a: delete removes undone Tasks, keeps done ones; disable removes neither. */
+    @Test
+    void deletingATaskRuleRemovesItsUndoneTasksAndKeepsItsDoneOnes() {
+        EventDestination rule = eventDestinationService
+                .create(
+                        "Cascade " + UUID.randomUUID(),
+                        EventDestinationType.TASK,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "Do the thing",
+                        null,
+                        List.of())
+                .block();
+
+        UUID undoneId = insertTask(rule, "undone one", false);
+        UUID doneId = insertTask(rule, "done one", true);
+
+        eventDestinationService.delete(rule.getId()).block();
+
+        assertThat(taskExists(undoneId)).isFalse();
+        assertThat(taskExists(doneId)).isTrue();
+    }
+
+    @Test
+    void disablingATaskRuleRemovesNoTasks() {
+        EventDestination rule = eventDestinationService
+                .create(
+                        "NoCascade " + UUID.randomUUID(),
+                        EventDestinationType.TASK,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "Do the thing",
+                        null,
+                        List.of())
+                .block();
+
+        UUID undoneId = insertTask(rule, "undone one", false);
+        UUID doneId = insertTask(rule, "done one", true);
+
+        eventDestinationService.disable(rule.getId()).block();
+
+        assertThat(taskExists(undoneId)).isTrue();
+        assertThat(taskExists(doneId)).isTrue();
+    }
+
+    private UUID insertTask(EventDestination rule, String title, boolean done) {
+        var spec = databaseClient
+                .sql("INSERT INTO tasks (event_destination_id, rule_name, event_type, title, done, done_at) "
+                        + "VALUES (:did, :rn, :et, :title, :done, :doneAt) RETURNING id")
+                .bind("did", rule.getId())
+                .bind("rn", rule.getName())
+                .bind("et", EventType.TOPIC_PROPOSED.name())
+                .bind("title", title)
+                .bind("done", done);
+        // R2DBC rejects a null passed to bind(); an undone Task has no done_at.
+        spec = done ? spec.bind("doneAt", Instant.now()) : spec.bindNull("doneAt", Instant.class);
+        return spec.mapValue(UUID.class).one().block();
+    }
+
+    private boolean taskExists(UUID taskId) {
+        Long count = databaseClient
+                .sql("SELECT count(*) FROM tasks WHERE id = :id")
+                .bind("id", taskId)
+                .mapValue(Long.class)
+                .one()
+                .block();
+        return count != null && count > 0;
     }
 
     private OidcLoginMutator organiser() {

@@ -43,11 +43,16 @@ class EventDestinationServiceTest {
     @Mock
     private KafkaDestinationSender kafkaDestinationSender;
 
+    /** Feature 011 FR-002a: delete removes a TASK Rule's undone Tasks before the Rule row goes. */
+    @Mock
+    private net.fabcelhaft.hackathonorganiser.task.TaskService taskService;
+
     private EventDestinationService service;
 
     @BeforeEach
     void setUp() {
-        service = new EventDestinationService(eventDestinationRepository, databaseClient, kafkaDestinationSender);
+        service = new EventDestinationService(
+                eventDestinationRepository, databaseClient, kafkaDestinationSender, taskService);
         lenient().when(eventDestinationRepository.save(any(EventDestination.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
     }
@@ -63,7 +68,7 @@ class EventDestinationServiceTest {
     @Test
     void createRejectsMissingName() {
         StepVerifier.create(service.create(
-                        null, EventDestinationType.HTTP_POST, null, null, "https://example.com", null, List.of()))
+                        null, EventDestinationType.HTTP_POST, null, null, "https://example.com", null, null, null, List.of()))
                 .expectError(EventDestinationConflictException.class)
                 .verify();
 
@@ -73,7 +78,7 @@ class EventDestinationServiceTest {
     @Test
     void createKafkaRejectsMissingBootstrapServers() {
         StepVerifier.create(service.create(
-                        "Kafka Dest", EventDestinationType.KAFKA, null, "topic", null, null, List.of()))
+                        "Kafka Dest", EventDestinationType.KAFKA, null, "topic", null, null, null, null, List.of()))
                 .expectError(EventDestinationConflictException.class)
                 .verify();
 
@@ -83,7 +88,7 @@ class EventDestinationServiceTest {
     @Test
     void createKafkaRejectsMissingTopic() {
         StepVerifier.create(service.create(
-                        "Kafka Dest", EventDestinationType.KAFKA, "localhost:9092", null, null, null, List.of()))
+                        "Kafka Dest", EventDestinationType.KAFKA, "localhost:9092", null, null, null, null, null, List.of()))
                 .expectError(EventDestinationConflictException.class)
                 .verify();
 
@@ -93,7 +98,7 @@ class EventDestinationServiceTest {
     @Test
     void createHttpRejectsMissingUrl() {
         StepVerifier.create(service.create(
-                        "HTTP Dest", EventDestinationType.HTTP_POST, null, null, null, null, List.of()))
+                        "HTTP Dest", EventDestinationType.HTTP_POST, null, null, null, null, null, null, List.of()))
                 .expectError(EventDestinationConflictException.class)
                 .verify();
 
@@ -106,7 +111,7 @@ class EventDestinationServiceTest {
         stubWriteAlwaysSucceeds();
 
         StepVerifier.create(service.create(
-                        "Kafka Dest", EventDestinationType.KAFKA, "localhost:9092", "events", null, null, List.of()))
+                        "Kafka Dest", EventDestinationType.KAFKA, "localhost:9092", "events", null, null, null, null, List.of()))
                 .assertNext(destination -> {
                     assertThat(destination.getKafkaBootstrapServers()).isEqualTo("localhost:9092");
                     assertThat(destination.getKafkaTopic()).isEqualTo("events");
@@ -127,6 +132,8 @@ class EventDestinationServiceTest {
                         null,
                         "https://example.com/webhook",
                         null,
+                        null,
+                        null,
                         List.of()))
                 .assertNext(destination -> {
                     assertThat(destination.getHttpUrl()).isEqualTo("https://example.com/webhook");
@@ -142,7 +149,7 @@ class EventDestinationServiceTest {
         when(eventDestinationRepository.findByName("Dup")).thenReturn(Mono.just(existing));
 
         StepVerifier.create(service.create(
-                        "Dup", EventDestinationType.HTTP_POST, null, null, "https://example.com", null, List.of()))
+                        "Dup", EventDestinationType.HTTP_POST, null, null, "https://example.com", null, null, null, List.of()))
                 .expectError(EventDestinationConflictException.class)
                 .verify();
 
@@ -157,7 +164,7 @@ class EventDestinationServiceTest {
         stubWriteAlwaysSucceeds();
 
         StepVerifier.create(service.create(
-                        "Dest", EventDestinationType.HTTP_POST, null, null, "https://example.com", null, List.of()))
+                        "Dest", EventDestinationType.HTTP_POST, null, null, "https://example.com", null, null, null, List.of()))
                 .expectNextCount(1)
                 .verifyComplete();
 
@@ -177,6 +184,8 @@ class EventDestinationServiceTest {
                         null,
                         null,
                         "https://example.com",
+                        null,
+                        null,
                         null,
                         List.of(EventType.PARTICIPANT_REGISTERED, EventType.TOPIC_APPROVED)))
                 .expectNextCount(1)
@@ -206,6 +215,8 @@ class EventDestinationServiceTest {
                         null,
                         "https://example.com",
                         null,
+                        null,
+                        null,
                         List.of()))
                 .assertNext(destination -> assertThat(destination.getName()).isEqualTo("New Name"))
                 .verifyComplete();
@@ -227,6 +238,8 @@ class EventDestinationServiceTest {
                         null,
                         null,
                         "https://example.com",
+                        null,
+                        null,
                         null,
                         List.of()))
                 .expectError(EventDestinationConflictException.class)
@@ -255,6 +268,8 @@ class EventDestinationServiceTest {
                         null,
                         null,
                         "https://example.com",
+                        null,
+                        null,
                         null,
                         List.of()))
                 .assertNext(destination -> {
@@ -286,6 +301,8 @@ class EventDestinationServiceTest {
                         null,
                         "https://example.com",
                         "",
+                        null,
+                        null,
                         List.of()))
                 .assertNext(destination -> assertThat(destination.getCredential()).isEqualTo("secret-token"))
                 .verifyComplete();
@@ -312,6 +329,8 @@ class EventDestinationServiceTest {
                         null,
                         "https://example.com",
                         "new-secret",
+                        null,
+                        null,
                         List.of()))
                 .assertNext(destination -> assertThat(destination.getCredential()).isEqualTo("new-secret"))
                 .verifyComplete();

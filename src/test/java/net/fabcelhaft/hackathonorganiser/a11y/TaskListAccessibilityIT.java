@@ -18,9 +18,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import net.fabcelhaft.hackathonorganiser.event.EventDestination;
-import net.fabcelhaft.hackathonorganiser.event.EventDestinationService;
-import net.fabcelhaft.hackathonorganiser.event.EventDestinationType;
 import net.fabcelhaft.hackathonorganiser.event.EventType;
 import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.user.User;
@@ -40,6 +37,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -56,13 +54,18 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import reactor.core.publisher.Mono;
 
 /**
- * Automated WCAG 2.1 AA scan for the Event Destination list and create/edit form (spec.md
- * FR-021-FR-025, SC-007), matching {@code ComplianceSettingsAccessibilityIT}'s structure.
+ * Automated WCAG 2.1 AA scan for the Task list (T047; FR-031, SC-008), matching {@code
+ * EventDestinationAccessibilityIT}'s structure.
+ *
+ * <p>The specific risk here is FR-031's: every row repeats the same three controls, so without a
+ * per-row accessible name a screen reader hears "Save, Save, Save" with nothing to say which Task
+ * each belongs to. Both the default and done-inclusive views are scanned, because the done view
+ * swaps Done for Reopen and adds the cut-off notice.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
-@Import(EventDestinationAccessibilityIT.TestLoginSupport.class)
-class EventDestinationAccessibilityIT {
+@Import(TaskListAccessibilityIT.TestLoginSupport.class)
+class TaskListAccessibilityIT {
 
     @Container
     @ServiceConnection
@@ -75,7 +78,7 @@ class EventDestinationAccessibilityIT {
     UserRepository userRepository;
 
     @Autowired
-    EventDestinationService eventDestinationService;
+    DatabaseClient databaseClient;
 
     static Playwright playwright;
     static Browser browser;
@@ -117,35 +120,69 @@ class EventDestinationAccessibilityIT {
     }
 
     @Test
-    void theDestinationListWithARowHasNoCriticalOrSeriousViolations() {
+    void theTaskListWithRowsHasNoCriticalOrSeriousViolations() {
         User organiser = persistUser(true);
-        persistDestination("Listed " + UUID.randomUUID());
+        insertTask("Review new topic: Robot Arm", false, organiser.getId());
+        insertTask("Review new topic: Robot Arm", false, null); // identical title, second row
         loginAs(organiser);
 
         Page page = context.newPage();
-        page.navigate(baseUrl() + "/organiser/event-destinations");
-        assertNoSeriousViolations(page, "/organiser/event-destinations");
+        page.navigate(baseUrl() + "/organiser/tasks");
+        assertNoSeriousViolations(page, "/organiser/tasks");
     }
 
     @Test
-    void theCreateFormHasNoCriticalOrSeriousViolations() {
+    void theDoneInclusiveTaskListHasNoCriticalOrSeriousViolations() {
         User organiser = persistUser(true);
+        insertTask("Outstanding work", false, null);
+        insertTask("Finished work", true, organiser.getId());
         loginAs(organiser);
 
         Page page = context.newPage();
-        page.navigate(baseUrl() + "/organiser/event-destinations/new");
-        assertNoSeriousViolations(page, "/organiser/event-destinations/new");
+        page.navigate(baseUrl() + "/organiser/tasks?show=done");
+        assertNoSeriousViolations(page, "/organiser/tasks?show=done");
     }
 
     @Test
-    void theEditFormHasNoCriticalOrSeriousViolations() {
+    void theEmptyTaskListHasNoCriticalOrSeriousViolations() {
         User organiser = persistUser(true);
-        EventDestination destination = persistDestination("Editable " + UUID.randomUUID());
         loginAs(organiser);
 
         Page page = context.newPage();
-        page.navigate(baseUrl() + "/organiser/event-destinations/" + destination.getId() + "/edit");
-        assertNoSeriousViolations(page, "/organiser/event-destinations/{id}/edit");
+        page.navigate(baseUrl() + "/organiser/tasks");
+        assertNoSeriousViolations(page, "/organiser/tasks (empty)");
+    }
+
+    /**
+     * FR-031 directly: with two identically-titled rows, each control must still name the Task it
+     * acts on, or the page is ambiguous to assistive technology even though axe reports no
+     * violation.
+     */
+    @Test
+    void everyRowControlNamesItsOwnTask() {
+        User organiser = persistUser(true);
+        insertTask("Alpha task", false, null);
+        insertTask("Beta task", false, null);
+        loginAs(organiser);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/organiser/tasks");
+
+        // Exact matching: getByLabel is substring-based by default, so "Assignee for Alpha task"
+        // would otherwise also match the Save button's "Save assignee for Alpha task".
+        var exact = new Page.GetByLabelOptions().setExact(true);
+
+        for (String title : List.of("Alpha task", "Beta task")) {
+            assertThat(page.getByLabel("Save assignee for " + title, exact).count())
+                    .as("Save button naming '%s'", title)
+                    .isEqualTo(1);
+            assertThat(page.getByLabel("Mark done: " + title, exact).count())
+                    .as("Done button naming '%s'", title)
+                    .isEqualTo(1);
+            assertThat(page.getByLabel("Assignee for " + title, exact).count())
+                    .as("Assignee select naming '%s'", title)
+                    .isEqualTo(1);
+        }
     }
 
     // --- Test support --------------------------------------------------------------------------
@@ -161,6 +198,19 @@ class EventDestinationAccessibilityIT {
                                 .map(rule -> rule.getId() + " (" + rule.getImpact() + "): " + rule.getHelp())
                                 .collect(Collectors.joining("; ")))
                 .isEmpty();
+    }
+
+    private void insertTask(String title, boolean done, UUID assignee) {
+        var spec = databaseClient
+                .sql("INSERT INTO tasks (rule_name, event_type, title, assignee_user_id, done, done_at) "
+                        + "VALUES (:rn, :et, :title, :uid, :done, :doneAt)")
+                .bind("rn", "A11y Rule")
+                .bind("et", EventType.TOPIC_PROPOSED.name())
+                .bind("title", title)
+                .bind("done", done);
+        spec = assignee == null ? spec.bindNull("uid", UUID.class) : spec.bind("uid", assignee);
+        spec = done ? spec.bind("doneAt", Instant.now()) : spec.bindNull("doneAt", Instant.class);
+        spec.then().block();
     }
 
     private void loginAs(User user) {
@@ -196,25 +246,10 @@ class EventDestinationAccessibilityIT {
         return userRepository.save(user).block();
     }
 
-    private EventDestination persistDestination(String name) {
-        return eventDestinationService
-                .create(
-                        name,
-                        EventDestinationType.HTTP_POST,
-                        null,
-                        null,
-                        "https://example.com/" + name,
-                        null,
-                        null,
-                        null,
-                        List.of(EventType.PARTICIPANT_REGISTERED))
-                .block();
-    }
-
     /**
-     * Test-only pre-authentication backdoor (research.md §9) — see {@code
-     * HomepageAccessibilityIT.TestLoginSupport} for the full rationale; duplicated here rather than
-     * shared since each {@code a11y.*IT} class is an independent {@code @SpringBootTest} context.
+     * Test-only pre-authentication backdoor — see {@code HomepageAccessibilityIT.TestLoginSupport}
+     * for the full rationale; duplicated here rather than shared since each {@code a11y.*IT} class
+     * is an independent {@code @SpringBootTest} context.
      */
     @TestConfiguration
     static class TestLoginSupport {

@@ -145,6 +145,8 @@ class EventDeliveryIT {
                         null,
                         "http://localhost:" + captureServer.getAddress().getPort(),
                         null,
+                        null,
+                        null,
                         List.of(EventType.PARTICIPANT_JOINED_TOPIC, EventType.GROUP_FORMED))
                 .flatMap(destination -> eventDestinationService.enable(destination.getId()))
                 .block();

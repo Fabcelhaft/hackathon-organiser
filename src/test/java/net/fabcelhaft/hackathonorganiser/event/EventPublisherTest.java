@@ -39,11 +39,16 @@ class EventPublisherTest {
     @Mock
     private KafkaDestinationSender kafkaDestinationSender;
 
+    /** Feature 011: the third sender EventPublisher.dispatch now branches to (FR-001). */
+    @Mock
+    private TaskDestinationSender taskDestinationSender;
+
     private EventPublisher publisher;
 
     @BeforeEach
     void setUp() {
-        publisher = new EventPublisher(eventDestinationService, httpDestinationSender, kafkaDestinationSender);
+        publisher = new EventPublisher(
+                eventDestinationService, httpDestinationSender, kafkaDestinationSender, taskDestinationSender);
     }
 
     @Test
