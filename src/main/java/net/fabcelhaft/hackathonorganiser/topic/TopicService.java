@@ -312,29 +312,51 @@ public class TopicService {
         return userRepository.findAllById(authorIds).collectMap(User::getId, user -> user);
     }
 
-    /** Organiser-only: moves a Pending Topic to Approved (FR-014); a no-op if already Approved. */
+    /**
+     * Organiser-only: moves a Pending Topic to Approved (FR-014); a no-op if already Approved.
+     *
+     * <p>Feature 012 (FR-010, FR-011): also assigns a permanent, unique {@code reference_number}
+     * from {@code topics_reference_number_seq} in this same transition — never re-assigned or
+     * touched again afterward, including by the existing "already Approved" no-op branch below.
+     */
     public Mono<Topic> approve(UUID topicId, AuditActor actor) {
         return topicRepository.findById(topicId).flatMap(topic -> {
             if (topic.getApprovalStatus() == TopicApprovalStatus.APPROVED) {
                 return Mono.just(topic);
             }
-            topic.setApprovalStatus(TopicApprovalStatus.APPROVED);
-            topic.setUpdatedAt(Instant.now());
-            return topicRepository
-                    .save(topic)
-                    .flatMap(saved -> auditService
-                            .record(
-                                    AuditEventType.STATUS_CHANGED,
-                                    actor,
-                                    AuditSubjectType.TOPIC,
-                                    saved.getId(),
-                                    saved.getName(),
-                                    "PENDING",
-                                    "APPROVED",
-                                    null)
-                            .thenReturn(saved))
-                    .doOnNext(saved -> eventPublisher.publish(eventPayloadFactory.topicApproved(saved)));
+            return nextReferenceNumber().flatMap(referenceNumber -> {
+                topic.setApprovalStatus(TopicApprovalStatus.APPROVED);
+                topic.setReferenceNumber(referenceNumber);
+                topic.setUpdatedAt(Instant.now());
+                return topicRepository
+                        .save(topic)
+                        .flatMap(saved -> auditService
+                                .record(
+                                        AuditEventType.STATUS_CHANGED,
+                                        actor,
+                                        AuditSubjectType.TOPIC,
+                                        saved.getId(),
+                                        saved.getName(),
+                                        "PENDING",
+                                        "APPROVED",
+                                        null)
+                                .thenReturn(saved))
+                        .doOnNext(saved -> eventPublisher.publish(eventPayloadFactory.topicApproved(saved)));
+            });
         });
+    }
+
+    /**
+     * Draws the next value from {@code topics_reference_number_seq} (research.md §4) — race-free
+     * by construction, so no advisory lock or pre-check is needed the way {@code GroupService}
+     * needs one for a genuine capacity check.
+     */
+    private Mono<Integer> nextReferenceNumber() {
+        return databaseClient
+                .sql("SELECT nextval('topics_reference_number_seq')")
+                .mapValue(Long.class)
+                .one()
+                .map(Long::intValue);
     }
 
     /**

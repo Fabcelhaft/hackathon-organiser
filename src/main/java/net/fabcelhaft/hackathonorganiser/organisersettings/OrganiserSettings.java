@@ -51,6 +51,8 @@ public class OrganiserSettings {
 
     private boolean teamsLinksEnabled;
 
+    private boolean topicUpvotingEnabled;
+
     private Instant updatedAt;
 
     public UUID getId() {
@@ -171,6 +173,14 @@ public class OrganiserSettings {
 
     public void setTeamsLinksEnabled(boolean teamsLinksEnabled) {
         this.teamsLinksEnabled = teamsLinksEnabled;
+    }
+
+    public boolean isTopicUpvotingEnabled() {
+        return topicUpvotingEnabled;
+    }
+
+    public void setTopicUpvotingEnabled(boolean topicUpvotingEnabled) {
+        this.topicUpvotingEnabled = topicUpvotingEnabled;
     }
 
     public Instant getUpdatedAt() {

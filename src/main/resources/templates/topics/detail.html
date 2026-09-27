@@ -27,6 +27,17 @@
         <table>
             <caption>Topic Info</caption>
             <tbody>
+                <!--/* FR-014: this view showed no author information before feature 012 — placed as
+                     the first row, mirroring where "Creator" already sits on the Organiser-facing
+                     equivalent (organiser/topics/detail.html). */-->
+                <tr>
+                    <th scope="row">Author</th>
+                    <td th:text="${detail.authorDisplayName()}">Author</td>
+                </tr>
+                <tr th:if="${detail.topic().referenceNumber} != null">
+                    <th scope="row">Reference #</th>
+                    <td th:text="'#' + ${detail.topic().referenceNumber}">#1</td>
+                </tr>
                 <!--/* Feature 010 FR-001a: the Description row moved out of this table into the
                      rendered section above, so the description is shown exactly once. */-->
                 <tr>
@@ -57,6 +68,25 @@
                         <span th:if="${detail.complianceStatus().isPresent()} and ${detail.complianceStatus().get().name()} == 'NOT_COMPLIANT'" class="badge-danger">
                             <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
                         </span>
+                    </td>
+                </tr>
+                <!--/* US1, FR-001-FR-005, FR-005a: a single toggling control — "Upvote" when the
+                     viewer has none, "Withdraw upvote" when they do — plus the total count.
+                     redirect returns the controller to this page (contracts/topic-upvote-
+                     action.md), validated server-side against an allow-list so a tampered value
+                     can never turn this into an open redirect. */-->
+                <tr th:if="${upvotingEnabled}">
+                    <th scope="row">Upvotes</th>
+                    <td class="actions">
+                        <span th:text="${detail.upvoteCount()}">0</span>
+                        <form th:if="${!detail.viewerHasUpvoted()}" th:action="@{/topics/{id}/upvote(id=${detail.topic().id})}" method="post">
+                            <input type="hidden" name="redirect" th:value="@{/topics/{id}(id=${detail.topic().id})}"/>
+                            <button type="submit" class="outline secondary">Upvote</button>
+                        </form>
+                        <form th:if="${detail.viewerHasUpvoted()}" th:action="@{/topics/{id}/unupvote(id=${detail.topic().id})}" method="post">
+                            <input type="hidden" name="redirect" th:value="@{/topics/{id}(id=${detail.topic().id})}"/>
+                            <button type="submit" class="outline secondary">Withdraw upvote</button>
+                        </form>
                     </td>
                 </tr>
             </tbody>

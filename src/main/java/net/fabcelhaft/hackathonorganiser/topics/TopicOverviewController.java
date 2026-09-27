@@ -59,6 +59,7 @@ public class TopicOverviewController {
                         .modelAttribute(
                                 "complianceVisible",
                                 isOrganiser || tuple.getT3().isComplianceVisibleToParticipants())
+                        .modelAttribute("upvotingEnabled", tuple.getT3().isTopicUpvotingEnabled())
                         .build());
     }
 

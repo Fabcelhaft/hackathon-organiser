@@ -115,6 +115,23 @@
             </fieldset>
 
             <fieldset>
+                <label for="topic_upvoting_enabled">
+                    <input type="hidden" name="topic_upvoting_enabled" value="false"/>
+                    <input type="checkbox" id="topic_upvoting_enabled" name="topic_upvoting_enabled"
+                           value="true" th:checked="${settings.topicUpvotingEnabled}"/>
+                    Allow users to upvote Topics
+                </label>
+                <p th:if="${settings.topicUpvotingEnabled}">
+                    Any authenticated user can upvote a Topic once and withdraw it later; only the total
+                    count is ever shown, never who cast it.
+                </p>
+                <p th:unless="${settings.topicUpvotingEnabled}">
+                    Topic upvoting is off — no upvote control or count appears anywhere, though previously
+                    cast upvotes are preserved and reappear unchanged if this is turned back on.
+                </p>
+            </fieldset>
+
+            <fieldset>
                 <legend>Skill Display Mode</legend>
                 <label>
                     <input type="radio" name="skill_display_mode" value="STILL_NEEDED_ONLY"

@@ -6,11 +6,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceService;
 import net.fabcelhaft.hackathonorganiser.compliance.ComplianceStatus;
@@ -71,6 +74,9 @@ class TopicDiscoveryServiceTest {
     @Mock
     private DatabaseClient databaseClient;
 
+    @Mock
+    private TopicUpvoteService topicUpvoteService;
+
     private TopicDiscoveryService topicDiscoveryService;
 
     @BeforeEach
@@ -83,7 +89,12 @@ class TopicDiscoveryServiceTest {
                 skillRepository,
                 userRepository,
                 participantService,
-                databaseClient);
+                databaseClient,
+                topicUpvoteService);
+        // findTopicDetail (US3, FR-014) now always looks up the author's display name; tests that
+        // don't care about it (everything except the two explicit author-display-name assertions)
+        // rely on this default rather than stubbing it individually.
+        lenient().when(userRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
     }
 
     // --- findOpenTopicsForHomePage: cap, fullness filter/order, viewer-Skill intersection --------
@@ -273,6 +284,109 @@ class TopicDiscoveryServiceTest {
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(1);
                     assertThat(rows.get(0).joinable()).isTrue();
+                })
+                .verifyComplete();
+    }
+
+    // --- Upvotes: Home Page tiebreak + row fields (US1, FR-005a, research.md §6) --------------------
+
+    @Test
+    void findOpenTopicsForHomePageBreaksAMemberCountTieByUpvoteCountWhenUpvotingIsEnabled() {
+        Topic higherUpvotes = topicOf(TopicApprovalStatus.APPROVED);
+        Topic lowerUpvotes = topicOf(TopicApprovalStatus.APPROVED);
+        when(topicRepository.findAll()).thenReturn(Flux.just(lowerUpvotes, higherUpvotes));
+        OrganiserSettings settings = settingsOf(5, SkillDisplayMode.STILL_NEEDED_ONLY);
+        settings.setTopicUpvotingEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        when(groupService.findActiveGroupForTopic(higherUpvotes.getId())).thenReturn(Mono.empty());
+        when(groupService.findActiveGroupForTopic(lowerUpvotes.getId())).thenReturn(Mono.empty());
+        stubEmptySkillsAndParticipantSkills();
+        Set<UUID> topicIds = Set.of(higherUpvotes.getId(), lowerUpvotes.getId());
+        when(topicUpvoteService.countsFor(topicIds))
+                .thenReturn(Mono.just(Map.of(higherUpvotes.getId(), 3, lowerUpvotes.getId(), 1)));
+        when(topicUpvoteService.viewerUpvotedTopicIds(eq(topicIds), any())).thenReturn(Mono.just(Set.of()));
+
+        StepVerifier.create(
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
+                .assertNext(rows -> {
+                    assertThat(rows).hasSize(2);
+                    assertThat(rows.get(0).topic().getId()).isEqualTo(higherUpvotes.getId());
+                    assertThat(rows.get(0).upvoteCount()).isEqualTo(3);
+                    assertThat(rows.get(1).topic().getId()).isEqualTo(lowerUpvotes.getId());
+                    assertThat(rows.get(1).upvoteCount()).isEqualTo(1);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findOpenTopicsForHomePageIgnoresUpvoteCountsAndNeverCallsTopicUpvoteServiceWhenUpvotingIsDisabled() {
+        Topic first = topicOf(TopicApprovalStatus.APPROVED);
+        Topic second = topicOf(TopicApprovalStatus.APPROVED);
+        when(topicRepository.findAll()).thenReturn(Flux.just(first, second));
+        // settingsOf(...) leaves topicUpvotingEnabled at its Java default (false) — the
+        // disabled-feature case under test.
+        when(organiserSettingsService.current())
+                .thenReturn(Mono.just(settingsOf(5, SkillDisplayMode.STILL_NEEDED_ONLY)));
+        when(groupService.findActiveGroupForTopic(first.getId())).thenReturn(Mono.empty());
+        when(groupService.findActiveGroupForTopic(second.getId())).thenReturn(Mono.empty());
+        stubEmptySkillsAndParticipantSkills();
+
+        StepVerifier.create(
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
+                .assertNext(rows -> {
+                    assertThat(rows).hasSize(2);
+                    assertThat(rows).allMatch(row -> row.upvoteCount() == 0 && !row.viewerHasUpvoted());
+                })
+                .verifyComplete();
+
+        verifyNoInteractions(topicUpvoteService);
+    }
+
+    @Test
+    void findTopicOverviewRowsCarryTheViewersOwnUpvoteState() {
+        Topic topic = topicOf(TopicApprovalStatus.APPROVED);
+        UUID viewerUserId = UUID.randomUUID();
+        when(topicRepository.findAll()).thenReturn(Flux.just(topic));
+        OrganiserSettings settings = settingsOf(5, SkillDisplayMode.ALL_ASSOCIATED);
+        settings.setTopicUpvotingEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        stubAuthorDisplayName(topic.getCreatedByUserId(), "Author");
+        when(groupService.findActiveGroupForTopic(topic.getId())).thenReturn(Mono.empty());
+        stubTopicSkillIds(topic.getId(), List.of());
+        Set<UUID> topicIds = Set.of(topic.getId());
+        when(topicUpvoteService.countsFor(topicIds)).thenReturn(Mono.just(Map.of(topic.getId(), 5)));
+        when(topicUpvoteService.viewerUpvotedTopicIds(topicIds, viewerUserId))
+                .thenReturn(Mono.just(Set.of(topic.getId())));
+
+        StepVerifier.create(topicDiscoveryService.findTopicOverview(viewerUserId, true).collectList())
+                .assertNext(rows -> {
+                    assertThat(rows).hasSize(1);
+                    assertThat(rows.get(0).upvoteCount()).isEqualTo(5);
+                    assertThat(rows.get(0).viewerHasUpvoted()).isTrue();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void findTopicDetailCarriesTheAuthorDisplayNameAndUpvoteState() {
+        Topic topic = topicOf(TopicApprovalStatus.APPROVED);
+        UUID viewerUserId = UUID.randomUUID();
+        when(topicRepository.findById(topic.getId())).thenReturn(Mono.just(topic));
+        OrganiserSettings settings = settingsOf(5, SkillDisplayMode.ALL_ASSOCIATED);
+        settings.setTopicUpvotingEnabled(true);
+        when(organiserSettingsService.current()).thenReturn(Mono.just(settings));
+        stubAuthorDisplayName(topic.getCreatedByUserId(), "Topic Author");
+        when(groupService.findActiveGroupForTopic(topic.getId())).thenReturn(Mono.empty());
+        stubTopicSkillIds(topic.getId(), List.of());
+        Set<UUID> topicIds = Set.of(topic.getId());
+        when(topicUpvoteService.countsFor(topicIds)).thenReturn(Mono.just(Map.of(topic.getId(), 2)));
+        when(topicUpvoteService.viewerUpvotedTopicIds(topicIds, viewerUserId)).thenReturn(Mono.just(Set.of()));
+
+        StepVerifier.create(topicDiscoveryService.findTopicDetail(topic.getId(), viewerUserId, false))
+                .assertNext(detail -> {
+                    assertThat(detail.authorDisplayName()).isEqualTo("Topic Author");
+                    assertThat(detail.upvoteCount()).isEqualTo(2);
+                    assertThat(detail.viewerHasUpvoted()).isFalse();
                 })
                 .verifyComplete();
     }

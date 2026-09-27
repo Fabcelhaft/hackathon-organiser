@@ -485,3 +485,62 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- Covers both list views in one index: every query filters on done and orders by created_at
 -- descending (FR-022, FR-028).
 CREATE INDEX IF NOT EXISTS tasks_done_created_idx ON tasks (done, created_at DESC);
+
+-- Feature 012: Topic Upvotes (data-model.md "New Entity: Topic Upvote"; FR-001-FR-004). A
+-- composite-key pure association table — no independent UUID, TopicUpvoteService-managed via
+-- DatabaseClient like topic_skills — because withdrawing an upvote deletes the row outright
+-- (research.md §2); there is no soft-delete/history requirement the way group_members.active has
+-- for Group disbandment. user_id is deliberately never joined out to a display name or listed
+-- anywhere (FR-003): only aggregate counts and "does this viewer have a row" checks ever read it.
+CREATE TABLE IF NOT EXISTS topic_upvotes (
+    topic_id uuid NOT NULL REFERENCES topics (id),
+    user_id uuid NOT NULL REFERENCES users (id),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (topic_id, user_id)
+);
+
+-- Feature 012: the instance-wide toggle gating the upvoting feature (FR-006). Defaults to enabled
+-- (research.md §7) — unlike skill_visibility_enabled/teams_links_enabled (both default off because
+-- they widen what is disclosed about a Participant), upvoting discloses nothing about any
+-- individual, so there is no privacy trade-off to opt into.
+ALTER TABLE organiser_settings ADD COLUMN IF NOT EXISTS topic_upvoting_enabled boolean NOT NULL DEFAULT true;
+
+-- Feature 012: Topic reference numbers (data-model.md "Modified Entity: Topic"; FR-009-FR-013).
+-- Nullable so a still-Pending Topic has none; the partial unique index only constrains non-null
+-- values, letting every Pending row stay NULL without colliding. TopicService#approve draws from
+-- the sequence exactly once, in the same save that flips approval_status to APPROVED.
+ALTER TABLE topics ADD COLUMN IF NOT EXISTS reference_number integer;
+
+CREATE UNIQUE INDEX IF NOT EXISTS topics_reference_number_key
+    ON topics (reference_number) WHERE reference_number IS NOT NULL;
+
+CREATE SEQUENCE IF NOT EXISTS topics_reference_number_seq;
+
+-- One-time backfill (research.md §5): every Topic that was already APPROVED before this feature's
+-- schema existed gets a reference_number, ordered by its earliest STATUS_CHANGED -> APPROVED Audit
+-- Trail entry (falling back to created_at when no such entry exists, e.g. pre-approved seed/demo
+-- data). Assigning the CTE's plain ROW_NUMBER() directly — not nextval() inside the UPDATE — is
+-- deliberate: PostgreSQL does not guarantee an UPDATE ... FROM visits rows in the CTE's ORDER BY
+-- sequence, so nextval() calls would not reliably respect approval order. The WHERE
+-- reference_number IS NULL guard makes this a no-op on every startup after the first, the same
+-- convention this file already uses for one-time backfills (e.g. the feature-008 is_homepage ->
+-- context migration above). The trailing setval advances the sequence past whatever this backfill
+-- just assigned so the very next live approve() call continues cleanly from there; it is cheap and
+-- safe to run unconditionally on every startup.
+WITH ordered AS (
+    SELECT t.id,
+           ROW_NUMBER() OVER (
+               ORDER BY COALESCE(
+                   (SELECT MIN(a.occurred_at) FROM audit_entries a
+                    WHERE a.subject_type = 'TOPIC' AND a.subject_id = t.id
+                      AND a.event_type = 'STATUS_CHANGED' AND a.new_value = 'APPROVED'),
+                   t.created_at
+               )
+           ) AS rn
+    FROM topics t
+    WHERE t.approval_status = 'APPROVED' AND t.reference_number IS NULL
+)
+UPDATE topics t SET reference_number = ordered.rn
+FROM ordered WHERE t.id = ordered.id;
+
+SELECT setval('topics_reference_number_seq', COALESCE((SELECT MAX(reference_number) FROM topics), 0) + 1, false);

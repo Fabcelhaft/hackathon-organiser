@@ -2,6 +2,7 @@ package net.fabcelhaft.hackathonorganiser.topic;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -43,6 +44,7 @@ public class TopicDiscoveryService {
     private final UserRepository userRepository;
     private final ParticipantService participantService;
     private final DatabaseClient databaseClient;
+    private final TopicUpvoteService topicUpvoteService;
 
     public TopicDiscoveryService(
             TopicRepository topicRepository,
@@ -52,7 +54,8 @@ public class TopicDiscoveryService {
             SkillRepository skillRepository,
             UserRepository userRepository,
             ParticipantService participantService,
-            DatabaseClient databaseClient) {
+            DatabaseClient databaseClient,
+            TopicUpvoteService topicUpvoteService) {
         this.topicRepository = topicRepository;
         this.groupService = groupService;
         this.organiserSettingsService = organiserSettingsService;
@@ -61,6 +64,7 @@ public class TopicDiscoveryService {
         this.userRepository = userRepository;
         this.participantService = participantService;
         this.databaseClient = databaseClient;
+        this.topicUpvoteService = topicUpvoteService;
     }
 
     /**
@@ -90,20 +94,26 @@ public class TopicDiscoveryService {
                                 || topic.getCreatedByUserId().equals(viewerUserId))
                         .concatMap(this::withActiveGroupAndCount)
                         .collectList()
-                        .flatMapMany(all -> Flux.fromIterable(selectHomePageRows(all, viewerUserId, settings, limit)))
-                        .concatMap(selection -> displayedNeededSkillIds(
-                                        selection.tg().topic().getId(),
-                                        selection.tg().group(),
-                                        settings.getSkillDisplayMode())
-                                .flatMap(displayedIds -> viewerOfferedSkillIds(viewerParticipantIdOrNull, displayedIds))
-                                .flatMap(this::loadSkills)
-                                .map(skills -> new OpenTopicRow(
-                                        selection.tg().topic(),
-                                        selection.tg().memberCount(),
-                                        skills,
-                                        selection.pinned(),
-                                        isJoinable(selection.tg().topic(), selection.tg().memberCount(),
-                                                selection.tg().group(), settings)))));
+                        .flatMapMany(all -> loadUpvoteData(topicIdsOf(all), viewerUserId, settings)
+                                .flatMapMany(upvoteData -> Flux.fromIterable(
+                                                selectHomePageRows(all, viewerUserId, settings, limit, upvoteData.counts()))
+                                        .concatMap(selection -> displayedNeededSkillIds(
+                                                        selection.tg().topic().getId(),
+                                                        selection.tg().group(),
+                                                        settings.getSkillDisplayMode())
+                                                .flatMap(displayedIds ->
+                                                        viewerOfferedSkillIds(viewerParticipantIdOrNull, displayedIds))
+                                                .flatMap(this::loadSkills)
+                                                .map(skills -> new OpenTopicRow(
+                                                        selection.tg().topic(),
+                                                        selection.tg().memberCount(),
+                                                        skills,
+                                                        selection.pinned(),
+                                                        isJoinable(selection.tg().topic(), selection.tg().memberCount(),
+                                                                selection.tg().group(), settings),
+                                                        upvoteData.countFor(selection.tg().topic().getId()),
+                                                        upvoteData.viewerHasUpvoted(
+                                                                selection.tg().topic().getId())))))));
     }
 
     /**
@@ -122,8 +132,12 @@ public class TopicDiscoveryService {
                         .findAll()
                         .filter(topic -> TopicService.isVisibleTo(topic, viewerUserId, viewerIsOrganiser))
                         .collectList()
-                        .flatMapMany(visible -> Flux.fromIterable(pinOwnTopicsFirst(visible, viewerUserId)))
-                        .concatMap(p -> buildOverviewRow(p.topic(), settings, p.pinned())));
+                        .flatMapMany(visible -> loadUpvoteData(
+                                        visible.stream().map(Topic::getId).collect(Collectors.toSet()),
+                                        viewerUserId,
+                                        settings)
+                                .flatMapMany(upvoteData -> Flux.fromIterable(pinOwnTopicsFirst(visible, viewerUserId))
+                                        .concatMap(p -> buildOverviewRow(p.topic(), settings, p.pinned(), upvoteData)))));
     }
 
     /**
@@ -144,38 +158,53 @@ public class TopicDiscoveryService {
         return topicRepository
                 .findById(topicId)
                 .filter(topic -> TopicService.isVisibleTo(topic, viewerUserId, viewerIsOrganiser))
-                .flatMap(topic -> organiserSettingsService.current().flatMap(settings -> groupService
-                        .findActiveGroupForTopic(topicId)
-                        .flatMap(group -> Mono.zip(
-                                        groupService.activeMemberCount(group.getId()),
-                                        groupService.activeMemberParticipantIds(group.getId()))
-                                .flatMap(tuple -> complianceService
-                                        .evaluate(group, tuple.getT2())
-                                        .flatMap(status -> displayedNeededSkillIds(
-                                                        topicId, group, settings.getSkillDisplayMode())
-                                                .flatMap(this::loadSkills)
-                                                .flatMap(skills -> membersFor(
-                                                                tuple.getT2(), viewerUserId, viewerIsOrganiser)
-                                                        .flatMap(members -> isMemberOf(tuple.getT2(), viewerUserId)
-                                                                .map(isMember -> new TopicDetailView(
-                                                                        topic,
-                                                                        skills,
-                                                                        tuple.getT1(),
-                                                                        Optional.of(status),
-                                                                        members,
-                                                                        isAuthor(topic, viewerUserId),
-                                                                        isMember)))))))
-                        .switchIfEmpty(Mono.defer(() -> displayedNeededSkillIds(
-                                        topicId, null, settings.getSkillDisplayMode())
-                                .flatMap(this::loadSkills)
-                                .map(skills -> new TopicDetailView(
-                                        topic,
-                                        skills,
-                                        0,
-                                        Optional.empty(),
-                                        List.of(),
-                                        isAuthor(topic, viewerUserId),
-                                        false))))));
+                .flatMap(topic -> Mono.zip(
+                                organiserSettingsService.current(), authorDisplayName(topic.getCreatedByUserId()))
+                        .flatMap(settingsAndAuthor -> {
+                            OrganiserSettings settings = settingsAndAuthor.getT1();
+                            String authorName = settingsAndAuthor.getT2();
+                            return loadUpvoteData(Set.of(topicId), viewerUserId, settings)
+                                    .flatMap(upvoteData -> groupService
+                                            .findActiveGroupForTopic(topicId)
+                                            .flatMap(group -> Mono.zip(
+                                                            groupService.activeMemberCount(group.getId()),
+                                                            groupService.activeMemberParticipantIds(group.getId()))
+                                                    .flatMap(tuple -> complianceService
+                                                            .evaluate(group, tuple.getT2())
+                                                            .flatMap(status -> displayedNeededSkillIds(
+                                                                            topicId, group, settings.getSkillDisplayMode())
+                                                                    .flatMap(this::loadSkills)
+                                                                    .flatMap(skills -> membersFor(
+                                                                                    tuple.getT2(), viewerUserId, viewerIsOrganiser)
+                                                                            .flatMap(members -> isMemberOf(
+                                                                                            tuple.getT2(), viewerUserId)
+                                                                                    .map(isMember -> new TopicDetailView(
+                                                                                            topic,
+                                                                                            authorName,
+                                                                                            skills,
+                                                                                            tuple.getT1(),
+                                                                                            Optional.of(status),
+                                                                                            members,
+                                                                                            isAuthor(topic, viewerUserId),
+                                                                                            isMember,
+                                                                                            upvoteData.countFor(topicId),
+                                                                                            upvoteData.viewerHasUpvoted(
+                                                                                                    topicId))))))))
+                                            .switchIfEmpty(Mono.defer(() -> displayedNeededSkillIds(
+                                                            topicId, null, settings.getSkillDisplayMode())
+                                                    .flatMap(this::loadSkills)
+                                                    .map(skills -> new TopicDetailView(
+                                                            topic,
+                                                            authorName,
+                                                            skills,
+                                                            0,
+                                                            Optional.empty(),
+                                                            List.of(),
+                                                            isAuthor(topic, viewerUserId),
+                                                            false,
+                                                            upvoteData.countFor(topicId),
+                                                            upvoteData.viewerHasUpvoted(topicId))))));
+                        }));
     }
 
     private Mono<Boolean> isMemberOf(List<UUID> activeMemberParticipantIds, UUID viewerUserId) {
@@ -203,17 +232,23 @@ public class TopicDiscoveryService {
      * research.md §11.
      */
     private List<PinnedTopicAndGroup> selectHomePageRows(
-            List<TopicAndGroup> all, UUID viewerUserId, OrganiserSettings settings, int limit) {
+            List<TopicAndGroup> all,
+            UUID viewerUserId,
+            OrganiserSettings settings,
+            int limit,
+            Map<UUID, Integer> upvoteCounts) {
+        Comparator<TopicAndGroup> comparator =
+                fullnessComparator(upvoteCounts, settings.isTopicUpvotingEnabled());
         List<TopicAndGroup> own = all.stream()
                 .filter(tg -> tg.topic().getCreatedByUserId().equals(viewerUserId))
-                .sorted(Comparator.comparingInt(TopicAndGroup::memberCount).reversed())
+                .sorted(comparator)
                 .toList();
         Set<UUID> ownIds = own.stream().map(tg -> tg.topic().getId()).collect(Collectors.toSet());
         List<TopicAndGroup> others = all.stream()
                 .filter(tg -> tg.topic().getApprovalStatus() == TopicApprovalStatus.APPROVED)
                 .filter(tg -> !ownIds.contains(tg.topic().getId()))
                 .filter(tg -> tg.memberCount() < settings.getMaxGroupMembers())
-                .sorted(Comparator.comparingInt(TopicAndGroup::memberCount).reversed())
+                .sorted(comparator)
                 .toList();
         int remaining = Math.max(0, limit - own.size());
         List<TopicAndGroup> trimmedOthers = others.size() > remaining ? others.subList(0, remaining) : others;
@@ -221,6 +256,44 @@ public class TopicDiscoveryService {
                         own.stream().map(tg -> new PinnedTopicAndGroup(tg, true)),
                         trimmedOthers.stream().map(tg -> new PinnedTopicAndGroup(tg, false)))
                 .toList();
+    }
+
+    /**
+     * The Home Page's fullness-first ordering (feature 005), extended with an upvote-count
+     * tiebreak (FR-005a, research.md §6): only while {@code upvotingEnabled} — when it is
+     * {@code false}, {@code upvoteCounts} is never even consulted, so a disabled feature has zero
+     * influence on ordering.
+     */
+    private static Comparator<TopicAndGroup> fullnessComparator(
+            Map<UUID, Integer> upvoteCounts, boolean upvotingEnabled) {
+        Comparator<TopicAndGroup> byMemberCount =
+                Comparator.comparingInt(TopicAndGroup::memberCount).reversed();
+        if (!upvotingEnabled) {
+            return byMemberCount;
+        }
+        return byMemberCount.thenComparing(
+                (TopicAndGroup tg) -> upvoteCounts.getOrDefault(tg.topic().getId(), 0),
+                Comparator.reverseOrder());
+    }
+
+    private static Set<UUID> topicIdsOf(List<TopicAndGroup> all) {
+        return all.stream().map(tg -> tg.topic().getId()).collect(Collectors.toSet());
+    }
+
+    /**
+     * Bulk-loads upvote counts and the viewer's own upvoted-id subset for the given Topics — but
+     * only while the upvoting feature is enabled (FR-007): when disabled, {@link
+     * TopicUpvoteService} is never called at all, and every row's count/viewer-state is {@code 0}/
+     * {@code false} (data-model.md "Read-Model Extensions").
+     */
+    private Mono<UpvoteData> loadUpvoteData(Set<UUID> topicIds, UUID viewerUserId, OrganiserSettings settings) {
+        if (!settings.isTopicUpvotingEnabled()) {
+            return Mono.just(UpvoteData.EMPTY);
+        }
+        return Mono.zip(
+                        topicUpvoteService.countsFor(topicIds),
+                        topicUpvoteService.viewerUpvotedTopicIds(topicIds, viewerUserId))
+                .map(tuple -> new UpvoteData(tuple.getT1(), tuple.getT2()));
     }
 
     /** Pins the viewer's own visible Topics above the rest, with no truncation (FR-034, research.md §11). */
@@ -255,7 +328,8 @@ public class TopicDiscoveryService {
         return topic.getCreatedByUserId().equals(viewerUserId);
     }
 
-    private Mono<OverviewRow> buildOverviewRow(Topic topic, OrganiserSettings settings, boolean pinned) {
+    private Mono<OverviewRow> buildOverviewRow(
+            Topic topic, OrganiserSettings settings, boolean pinned, UpvoteData upvoteData) {
         return authorDisplayName(topic.getCreatedByUserId())
                 .flatMap(authorName -> groupService
                         .findActiveGroupForTopic(topic.getId())
@@ -274,7 +348,9 @@ public class TopicDiscoveryService {
                                                         skills,
                                                         Optional.of(status),
                                                         pinned,
-                                                        isJoinable(topic, tuple.getT1(), group, settings))))))
+                                                        isJoinable(topic, tuple.getT1(), group, settings),
+                                                        upvoteData.countFor(topic.getId()),
+                                                        upvoteData.viewerHasUpvoted(topic.getId()))))))
                         .switchIfEmpty(Mono.defer(() -> displayedNeededSkillIds(
                                         topic.getId(), null, settings.getSkillDisplayMode())
                                 .flatMap(this::loadSkills)
@@ -285,7 +361,9 @@ public class TopicDiscoveryService {
                                         skills,
                                         Optional.empty(),
                                         pinned,
-                                        isJoinable(topic, 0, null, settings))))));
+                                        isJoinable(topic, 0, null, settings),
+                                        upvoteData.countFor(topic.getId()),
+                                        upvoteData.viewerHasUpvoted(topic.getId()))))));
     }
 
     private Mono<List<ParticipantService.ParticipantViewerDetail>> membersFor(
@@ -373,11 +451,34 @@ public class TopicDiscoveryService {
 
     private record PinnedTopic(Topic topic, boolean pinned) {}
 
+    /**
+     * Bulk upvote read data for a set of Topics (US1, FR-004, FR-005): counts keyed by Topic id
+     * (absent means zero) and the subset the viewer currently has an active upvote on. {@link
+     * #EMPTY} is used whenever the upvoting feature is disabled, so no row ever needs a null check.
+     */
+    private record UpvoteData(Map<UUID, Integer> counts, Set<UUID> viewerUpvotedIds) {
+        private static final UpvoteData EMPTY = new UpvoteData(Map.of(), Set.of());
+
+        int countFor(UUID topicId) {
+            return counts.getOrDefault(topicId, 0);
+        }
+
+        boolean viewerHasUpvoted(UUID topicId) {
+            return viewerUpvotedIds.contains(topicId);
+        }
+    }
+
     // --- read-model view types -------------------------------------------------------------------
 
-    /** One Home Page row (FR-004, FR-033, FR-035). */
+    /** One Home Page row (FR-004, FR-033, FR-035, FR-005a). */
     public record OpenTopicRow(
-            Topic topic, int memberCount, List<Skill> viewerOfferedSkills, boolean pinned, boolean joinable) {}
+            Topic topic,
+            int memberCount,
+            List<Skill> viewerOfferedSkills,
+            boolean pinned,
+            boolean joinable,
+            int upvoteCount,
+            boolean viewerHasUpvoted) {}
 
     /**
      * One Topic Overview row (FR-006, FR-034, FR-035); an empty {@code complianceStatus} renders as
@@ -390,18 +491,25 @@ public class TopicDiscoveryService {
             List<Skill> neededSkills,
             Optional<ComplianceStatus> complianceStatus,
             boolean pinned,
-            boolean joinable) {}
+            boolean joinable,
+            int upvoteCount,
+            boolean viewerHasUpvoted) {}
 
     /**
-     * The Topic Details view's read model (FR-030, FR-031, FR-032); an empty {@code
+     * The Topic Details view's read model (FR-030, FR-031, FR-032, FR-014); an empty {@code
      * complianceStatus} renders as a blank cell (FR-014a), same convention as {@link OverviewRow}.
+     * {@code authorDisplayName} (FR-014) is a field this view lacked before feature 012 — the
+     * Topic Overview's {@link OverviewRow} already carried the equivalent since feature 005.
      */
     public record TopicDetailView(
             Topic topic,
+            String authorDisplayName,
             List<Skill> neededSkills,
             int memberCount,
             Optional<ComplianceStatus> complianceStatus,
             List<ParticipantService.ParticipantViewerDetail> members,
             boolean author,
-            boolean isMember) {}
+            boolean isMember,
+            int upvoteCount,
+            boolean viewerHasUpvoted) {}
 }

@@ -75,7 +75,7 @@ public class ComplianceController {
             return complianceChangeEventHook
                     .wrapRulesetChange(organiserSettingsService.update(
                             null, null, null, null, null, null, null, maxGroupMembers, minGroupMembers, null, null,
-                            null, null))
+                            null, null, null))
                     .<Rendering>map(settings ->
                             redirectWithFlash("Compliance settings updated."))
                     .onErrorResume(

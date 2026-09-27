@@ -249,6 +249,49 @@ class SettingsManagementIT {
                 .isFalse();
     }
 
+    // --- Topic upvoting enabled toggle (US1, FR-006) ----------------------------------------------
+
+    @Test
+    void topicUpvotingEnabledDefaultsToOnAndCanBeToggledOffAndBackOn() {
+        User organiser = persistUser(true);
+
+        String body = webTestClient
+                .mutateWith(loginAs(organiser))
+                .get()
+                .uri("/organiser/settings")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+        assertThat(body).contains("for=\"topic_upvoting_enabled\"");
+
+        webTestClient
+                .mutateWith(loginAs(organiser))
+                .post()
+                .uri("/organiser/settings")
+                .body(BodyInserters.fromFormData("topic_upvoting_enabled", "false"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(organiserSettingsRepository.findBySingletonTrue().block().isTopicUpvotingEnabled())
+                .isFalse();
+
+        webTestClient
+                .mutateWith(loginAs(organiser))
+                .post()
+                .uri("/organiser/settings")
+                .body(BodyInserters.fromFormData("topic_upvoting_enabled", "true"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(organiserSettingsRepository.findBySingletonTrue().block().isTopicUpvotingEnabled())
+                .isTrue();
+    }
+
     // --- Skill Display Mode toggle (Story 8, FR-017, FR-018) --------------------------------------
 
     @Test
