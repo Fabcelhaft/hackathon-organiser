@@ -44,6 +44,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -87,6 +88,9 @@ class TopicOverviewAccessibilityIT {
 
     @Autowired
     GroupService groupService;
+
+    @Autowired
+    DatabaseClient databaseClient;
 
     static Playwright playwright;
     static Browser browser;
@@ -170,7 +174,33 @@ class TopicOverviewAccessibilityIT {
         assertNoSeriousViolations(page, "/topics/overview (pinned own Topic + Join + View Details)");
     }
 
+    @Test
+    void topicOverviewWithUpvoteControlsAndAReferenceNumberHasNoCriticalOrSeriousViolations() {
+        // Feature 012 (US1, US2): the toggling Upvote/Withdraw-upvote control and a Topic's
+        // reference number badge, both rendered on the same row.
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), "Overview Upvoted Topic");
+        topic.setReferenceNumber(1);
+        topicRepository.save(topic).block();
+        User voter = persistUser(false);
+        castUpvote(topic.getId(), voter.getId());
+        loginAs(voter);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/topics/overview");
+        assertNoSeriousViolations(page, "/topics/overview (upvote control + reference number)");
+    }
+
     // --- Test support --------------------------------------------------------------------------
+
+    private void castUpvote(UUID topicId, UUID userId) {
+        databaseClient
+                .sql("INSERT INTO topic_upvotes (topic_id, user_id) VALUES (:tid, :uid)")
+                .bind("tid", topicId)
+                .bind("uid", userId)
+                .then()
+                .block();
+    }
 
     private void assertNoSeriousViolations(Page page, String label) {
         AxeResults results = new AxeBuilder(page).analyze();

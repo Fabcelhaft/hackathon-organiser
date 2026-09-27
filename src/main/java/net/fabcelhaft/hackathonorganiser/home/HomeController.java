@@ -125,6 +125,7 @@ public class HomeController {
                                         .modelAttribute("canProposeTopic", true)
                                         .modelAttribute(
                                                 "homepageContent", results.getT3().orElse(null))
+                                        .modelAttribute("upvotingEnabled", settings.isTopicUpvotingEnabled())
                                         .build();
                             });
                 });

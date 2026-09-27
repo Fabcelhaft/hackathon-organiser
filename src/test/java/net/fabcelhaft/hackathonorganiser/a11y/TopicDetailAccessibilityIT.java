@@ -44,6 +44,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -87,6 +88,9 @@ class TopicDetailAccessibilityIT {
 
     @Autowired
     GroupService groupService;
+
+    @Autowired
+    DatabaseClient databaseClient;
 
     static Playwright playwright;
     static Browser browser;
@@ -203,7 +207,36 @@ class TopicDetailAccessibilityIT {
         assertThat(page.locator("label[for='file']").count()).isEqualTo(1);
     }
 
+    @Test
+    void topicDetailsWithTheAuthorRowUpvoteControlAndAReferenceNumberHasNoCriticalOrSeriousViolations() {
+        // Feature 012 (US1, US2, US3): the new leading Author row, the toggling Upvote/Withdraw-
+        // upvote control, and the Reference # row, all on the same page.
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), "Detail Upvoted Topic");
+        topic.setReferenceNumber(1);
+        topicRepository.save(topic).block();
+        User voter = persistUser(false);
+        castUpvote(topic.getId(), voter.getId());
+        loginAs(voter);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/topics/" + topic.getId());
+
+        assertNoSeriousViolations(page, "/topics/{id} (author row + upvote control + reference number)");
+        assertThat(page.locator("th:text('Author')").count()).isEqualTo(1);
+        assertThat(page.locator("th:text('Reference #')").count()).isEqualTo(1);
+    }
+
     // --- Test support --------------------------------------------------------------------------
+
+    private void castUpvote(UUID topicId, UUID userId) {
+        databaseClient
+                .sql("INSERT INTO topic_upvotes (topic_id, user_id) VALUES (:tid, :uid)")
+                .bind("tid", topicId)
+                .bind("uid", userId)
+                .then()
+                .block();
+    }
 
     private void assertNoSeriousViolations(Page page, String label) {
         AxeResults results = new AxeBuilder(page).analyze();

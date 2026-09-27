@@ -3,9 +3,11 @@ package net.fabcelhaft.hackathonorganiser.topic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -32,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.r2dbc.core.RowsFetchSpec;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -598,6 +601,7 @@ class TopicServiceTest {
         pending.setId(id);
         when(topicRepository.findById(id)).thenReturn(Mono.just(pending));
         when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubNextReferenceNumber(1L);
 
         topicService.approve(id, ACTOR).block();
 
@@ -624,6 +628,62 @@ class TopicServiceTest {
         topicService.approve(id, ACTOR).block();
 
         verify(auditService, never()).record(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // --- approve: reference number assignment (US2, FR-009-FR-011) -------------------------------
+
+    @Test
+    void approveAssignsANonNullReferenceNumberToAPendingTopic() {
+        UUID id = UUID.randomUUID();
+        Topic pending =
+                approvalTopicOf("Name", UUID.randomUUID(), TopicApprovalStatus.PENDING, Instant.now());
+        pending.setId(id);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(pending));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubNextReferenceNumber(7L);
+
+        Topic approved = topicService.approve(id, ACTOR).block();
+
+        assertThat(approved.getReferenceNumber()).isEqualTo(7);
+    }
+
+    @Test
+    void approveOfAnAlreadyApprovedTopicDoesNotReassignItsReferenceNumber() {
+        UUID id = UUID.randomUUID();
+        Topic approved =
+                approvalTopicOf("Name", UUID.randomUUID(), TopicApprovalStatus.APPROVED, Instant.now());
+        approved.setId(id);
+        approved.setReferenceNumber(3);
+        when(topicRepository.findById(id)).thenReturn(Mono.just(approved));
+
+        Topic result = topicService.approve(id, ACTOR).block();
+
+        assertThat(result.getReferenceNumber()).isEqualTo(3);
+        verify(topicRepository, never()).save(any());
+        verify(databaseClient, never()).sql(contains("nextval"));
+    }
+
+    @Test
+    void approveAssignsDifferentIncreasingReferenceNumbersToTwoDifferentTopics() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        Topic pending1 =
+                approvalTopicOf("First", UUID.randomUUID(), TopicApprovalStatus.PENDING, Instant.now());
+        pending1.setId(id1);
+        Topic pending2 =
+                approvalTopicOf("Second", UUID.randomUUID(), TopicApprovalStatus.PENDING, Instant.now());
+        pending2.setId(id2);
+        when(topicRepository.findById(id1)).thenReturn(Mono.just(pending1));
+        when(topicRepository.findById(id2)).thenReturn(Mono.just(pending2));
+        when(topicRepository.save(any(Topic.class))).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        stubNextReferenceNumber(1L, 2L);
+
+        Topic firstApproved = topicService.approve(id1, ACTOR).block();
+        Topic secondApproved = topicService.approve(id2, ACTOR).block();
+
+        assertThat(firstApproved.getReferenceNumber()).isEqualTo(1);
+        assertThat(secondApproved.getReferenceNumber()).isEqualTo(2);
+        assertThat(secondApproved.getReferenceNumber()).isGreaterThan(firstApproved.getReferenceNumber());
     }
 
     @Test
@@ -699,5 +759,18 @@ class TopicServiceTest {
         when(databaseClient.sql(anyString())).thenReturn(executeSpec);
         when(executeSpec.bind(anyString(), any())).thenReturn(executeSpec);
         when(executeSpec.then()).thenReturn(Mono.empty());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubNextReferenceNumber(Long first, Long... rest) {
+        DatabaseClient.GenericExecuteSpec spec = mock(DatabaseClient.GenericExecuteSpec.class);
+        RowsFetchSpec<Long> fetch = mock(RowsFetchSpec.class);
+        when(databaseClient.sql(contains("nextval"))).thenReturn(spec);
+        when(spec.mapValue(Long.class)).thenReturn(fetch);
+        Mono<Long>[] subsequent = new Mono[rest.length];
+        for (int i = 0; i < rest.length; i++) {
+            subsequent[i] = Mono.just(rest[i]);
+        }
+        when(fetch.one()).thenReturn(Mono.just(first), subsequent);
     }
 }

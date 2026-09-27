@@ -108,6 +108,7 @@ public class TopicSelfServiceController {
                                 "complianceVisible",
                                 isOrganiser || tuple.getT2().isComplianceVisibleToParticipants())
                         .modelAttribute("teamsLinksEnabled", tuple.getT2().isTeamsLinksEnabled())
+                        .modelAttribute("upvotingEnabled", tuple.getT2().isTopicUpvotingEnabled())
                         .build())
                 .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)));
     }

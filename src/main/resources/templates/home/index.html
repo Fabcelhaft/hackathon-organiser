@@ -86,6 +86,7 @@
                     <th>Name</th>
                     <th>Participants</th>
                     <th>Your Skills</th>
+                    <th th:if="${upvotingEnabled}">Upvotes</th>
                     <th th:if="${canJoinTopics}"></th>
                     <th></th>
                 </tr>
@@ -98,6 +99,8 @@
                     <td>
                         <span class="name-with-badge">
                             <span th:text="${row.topic().name}">Name</span>
+                            <span th:if="${row.topic().referenceNumber} != null" class="badge badge-sm"
+                                  th:text="'#' + ${row.topic().referenceNumber}">#1</span>
                             <span th:if="${row.topic().approvalStatus.name()} == 'PENDING'"
                                   class="badge badge-sm badge-pending">Pending approval</span>
                         </span>
@@ -107,6 +110,23 @@
                         <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
                             <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
                         </span>
+                    </td>
+                    <!--/* US1, FR-001-FR-005, FR-005a: a single toggling control per row —
+                         "Upvote" when the viewer has none, "Withdraw upvote" when they do — plus
+                         the total count. redirect carries this page's own path so the controller
+                         returns here (contracts/topic-upvote-action.md); it is validated
+                         server-side against an allow-list, so a tampered value can never turn this
+                         into an open redirect. */-->
+                    <td class="actions" th:if="${upvotingEnabled}">
+                        <span th:text="${row.upvoteCount()}">0</span>
+                        <form th:if="${!row.viewerHasUpvoted()}" th:action="@{/topics/{id}/upvote(id=${row.topic().id})}" method="post">
+                            <input type="hidden" name="redirect" value="/"/>
+                            <button type="submit" class="outline secondary" th:aria-label="|Upvote ${row.topic().name}|">Upvote</button>
+                        </form>
+                        <form th:if="${row.viewerHasUpvoted()}" th:action="@{/topics/{id}/unupvote(id=${row.topic().id})}" method="post">
+                            <input type="hidden" name="redirect" value="/"/>
+                            <button type="submit" class="outline secondary" th:aria-label="|Withdraw upvote for ${row.topic().name}|">Withdraw</button>
+                        </form>
                     </td>
                     <td class="actions" th:if="${canJoinTopics}">
                         <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
@@ -133,18 +153,36 @@
                 <th>Name</th>
                 <th>Participants</th>
                 <th>Your Skills</th>
+                <th th:if="${upvotingEnabled}">Upvotes</th>
                 <th th:if="${canJoinTopics}"></th>
                 <th></th>
             </tr>
             </thead>
             <tbody>
             <tr th:each="row : ${openTopics.?[!pinned]}">
-                <td th:text="${row.topic().name}">Name</td>
+                <td>
+                    <span class="name-with-badge">
+                        <span th:text="${row.topic().name}">Name</span>
+                        <span th:if="${row.topic().referenceNumber} != null" class="badge badge-sm"
+                              th:text="'#' + ${row.topic().referenceNumber}">#1</span>
+                    </span>
+                </td>
                 <td th:text="${row.memberCount()}">0</td>
                 <td>
                     <span th:each="skill, iter : ${row.viewerOfferedSkills()}">
                         <span th:text="${skill.name}">Skill</span><span th:unless="${iter.last}">, </span>
                     </span>
+                </td>
+                <td class="actions" th:if="${upvotingEnabled}">
+                    <span th:text="${row.upvoteCount()}">0</span>
+                    <form th:if="${!row.viewerHasUpvoted()}" th:action="@{/topics/{id}/upvote(id=${row.topic().id})}" method="post">
+                        <input type="hidden" name="redirect" value="/"/>
+                        <button type="submit" class="outline secondary" th:aria-label="|Upvote ${row.topic().name}|">Upvote</button>
+                    </form>
+                    <form th:if="${row.viewerHasUpvoted()}" th:action="@{/topics/{id}/unupvote(id=${row.topic().id})}" method="post">
+                        <input type="hidden" name="redirect" value="/"/>
+                        <button type="submit" class="outline secondary" th:aria-label="|Withdraw upvote for ${row.topic().name}|">Withdraw</button>
+                    </form>
                 </td>
                 <td class="actions" th:if="${canJoinTopics}">
                     <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
@@ -152,11 +190,12 @@
                     </form>
                 </td>
                 <td class="actions">
-                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary">View Details</a>
+                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary"
+                       th:aria-label="|View details for ${row.topic().name}|">View</a>
                 </td>
             </tr>
             <tr th:if="${openTopics.?[!pinned].isEmpty()}">
-                <td colspan="5">No open Topics right now.</td>
+                <td th:attr="colspan=${4 + (upvotingEnabled ? 1 : 0) + (canJoinTopics ? 1 : 0)}">No open Topics right now.</td>
             </tr>
             </tbody>
         </table>

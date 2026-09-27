@@ -103,6 +103,7 @@ class TopicOverviewManagementIT {
      */
     @BeforeEach
     void resetTopicsAndGroupsBetweenTests() {
+        databaseClient.sql("DELETE FROM topic_upvotes").then().block();
         databaseClient.sql("DELETE FROM group_members").then().block();
         databaseClient.sql("DELETE FROM groups").then().block();
         databaseClient.sql("DELETE FROM topic_skills").then().block();
@@ -118,6 +119,7 @@ class TopicOverviewManagementIT {
                     settings.setMinGroupMembers(null);
                     settings.setSkillDisplayMode(
                             net.fabcelhaft.hackathonorganiser.organisersettings.SkillDisplayMode.STILL_NEEDED_ONLY);
+                    settings.setTopicUpvotingEnabled(true);
                     settings.setUpdatedAt(Instant.now());
                     return organiserSettingsRepository.save(settings);
                 })
@@ -244,6 +246,78 @@ class TopicOverviewManagementIT {
         String allAssociatedBody = overviewBody(viewer);
         assertThat(allAssociatedBody).contains(stillNeeded.getName());
         assertThat(allAssociatedBody).contains(covered.getName());
+    }
+
+    // --- Upvotes: count/control, admin toggle (US1, FR-001-FR-008) ---------------------------------
+
+    @Test
+    void overviewShowsTheUpvoteCountAndTheViewersOwnUpvoteState() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        String beforeBody = overviewBody(voter);
+        assertThat(beforeBody).contains("Upvote");
+        assertThat(beforeBody).doesNotContain("Withdraw upvote");
+
+        castUpvote(topic.getId(), voter.getId());
+
+        String afterBody = overviewBody(voter);
+        assertThat(afterBody).contains("Withdraw upvote");
+    }
+
+    @Test
+    void overviewHidesTheUpvoteControlAndCountWhenTheFeatureIsDisabled() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+        castUpvote(topic.getId(), voter.getId());
+
+        setUpvotingEnabled(false);
+
+        String body = overviewBody(voter);
+        assertThat(body).doesNotContain("Upvote");
+        assertThat(body).doesNotContain("Withdraw upvote");
+    }
+
+    // --- Reference numbers (US2, FR-009, FR-010, FR-012) --------------------------------------------
+
+    @Test
+    void aPendingTopicShowsNoReferenceNumberButAnApprovedOneDoesAndTwoNeverMatch() {
+        User author = persistUser(false);
+        Topic pending = persistTopic(author.getId(), TopicApprovalStatus.PENDING);
+        Topic secondPending = persistTopic(author.getId(), TopicApprovalStatus.PENDING);
+        Topic firstApproved = topicService.approve(pending.getId(), new AuditActor(author.getId(), true)).block();
+        Topic secondApproved =
+                topicService.approve(secondPending.getId(), new AuditActor(author.getId(), true)).block();
+
+        String body = overviewBody(author);
+
+        assertThat(firstApproved.getReferenceNumber()).isNotNull();
+        assertThat(secondApproved.getReferenceNumber()).isNotNull();
+        assertThat(firstApproved.getReferenceNumber()).isNotEqualTo(secondApproved.getReferenceNumber());
+        assertThat(body).contains("#" + firstApproved.getReferenceNumber());
+        assertThat(body).contains("#" + secondApproved.getReferenceNumber());
+    }
+
+    private void castUpvote(UUID topicId, UUID userId) {
+        databaseClient
+                .sql("INSERT INTO topic_upvotes (topic_id, user_id) VALUES (:tid, :uid)")
+                .bind("tid", topicId)
+                .bind("uid", userId)
+                .then()
+                .block();
+    }
+
+    private void setUpvotingEnabled(boolean enabled) {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setTopicUpvotingEnabled(enabled);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
     }
 
     private void setSkillDisplayMode(String mode) {

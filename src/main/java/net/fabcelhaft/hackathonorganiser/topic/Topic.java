@@ -34,6 +34,8 @@ public class Topic {
 
     private TopicApprovalStatus approvalStatus;
 
+    private Integer referenceNumber;
+
     private Instant createdAt;
 
     private Instant updatedAt;
@@ -76,6 +78,14 @@ public class Topic {
 
     public void setApprovalStatus(TopicApprovalStatus approvalStatus) {
         this.approvalStatus = approvalStatus;
+    }
+
+    public Integer getReferenceNumber() {
+        return referenceNumber;
+    }
+
+    public void setReferenceNumber(Integer referenceNumber) {
+        this.referenceNumber = referenceNumber;
     }
 
     public Instant getCreatedAt() {

@@ -106,6 +106,7 @@ class HomeControllerIT {
      */
     @BeforeEach
     void resetTopicsAndGroupsBetweenTests() {
+        databaseClient.sql("DELETE FROM topic_upvotes").then().block();
         databaseClient.sql("DELETE FROM group_members").then().block();
         databaseClient.sql("DELETE FROM groups").then().block();
         databaseClient.sql("DELETE FROM topic_skills").then().block();
@@ -123,6 +124,7 @@ class HomeControllerIT {
                     settings.setMaxGroupMembers(5);
                     settings.setSkillDisplayMode(
                             net.fabcelhaft.hackathonorganiser.organisersettings.SkillDisplayMode.STILL_NEEDED_ONLY);
+                    settings.setTopicUpvotingEnabled(true);
                     settings.setUpdatedAt(Instant.now());
                     return organiserSettingsRepository.save(settings);
                 })
@@ -423,6 +425,89 @@ class HomeControllerIT {
         String body = homeBody(user);
 
         assertThat(body).doesNotContainIgnoringCase("group");
+    }
+
+    // --- Upvotes: count/control, Home Page tiebreak, admin toggle (US1, FR-005a, SC-008) ----------
+
+    @Test
+    void homeShowsTheUpvoteCountAndTheViewersOwnUpvoteState() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User voter = persistUser();
+
+        String beforeBody = homeBody(voter);
+        assertThat(beforeBody).contains("Upvote");
+        assertThat(beforeBody).doesNotContain("Withdraw upvote");
+
+        castUpvote(topic.getId(), voter.getId());
+
+        String afterBody = homeBody(voter);
+        assertThat(afterBody).contains("Withdraw upvote");
+    }
+
+    @Test
+    void homeBreaksAMemberCountTieByUpvoteCountWhenUpvotingIsEnabled() {
+        User author = persistUser();
+        Topic lessUpvoted = persistTopic(author.getId());
+        Topic moreUpvoted = persistTopic(author.getId());
+        User voter1 = persistUser();
+        User voter2 = persistUser();
+        castUpvote(moreUpvoted.getId(), voter1.getId());
+        castUpvote(moreUpvoted.getId(), voter2.getId());
+        castUpvote(lessUpvoted.getId(), voter1.getId());
+        User viewer = persistUser();
+
+        String body = homeBody(viewer);
+
+        assertThat(body.indexOf(moreUpvoted.getName())).isLessThan(body.indexOf(lessUpvoted.getName()));
+    }
+
+    @Test
+    void homeHidesTheUpvoteControlAndCountAndDropsTheTiebreakWhenTheFeatureIsDisabled() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User voter = persistUser();
+        castUpvote(topic.getId(), voter.getId());
+        setUpvotingEnabled(false);
+
+        String body = homeBody(voter);
+
+        assertThat(body).doesNotContain("Upvote");
+        assertThat(body).doesNotContain("Withdraw upvote");
+    }
+
+    // --- Reference numbers (US2, FR-009, FR-010, FR-012) --------------------------------------------
+
+    @Test
+    void homeShowsTheReferenceNumberOfAnApprovedTopic() {
+        User author = persistUser();
+        Topic pending = persistTopicWithStatus(author.getId(), TopicApprovalStatus.PENDING);
+        Topic approved = topicService.approve(pending.getId(), new AuditActor(author.getId(), true)).block();
+        User viewer = persistUser();
+
+        String body = homeBody(viewer);
+
+        assertThat(body).contains("#" + approved.getReferenceNumber());
+    }
+
+    private void castUpvote(UUID topicId, UUID userId) {
+        databaseClient
+                .sql("INSERT INTO topic_upvotes (topic_id, user_id) VALUES (:tid, :uid)")
+                .bind("tid", topicId)
+                .bind("uid", userId)
+                .then()
+                .block();
+    }
+
+    private void setUpvotingEnabled(boolean enabled) {
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setTopicUpvotingEnabled(enabled);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
     }
 
     private void setSkillDisplayMode(String mode) {

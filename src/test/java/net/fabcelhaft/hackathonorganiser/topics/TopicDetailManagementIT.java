@@ -29,6 +29,7 @@ import net.fabcelhaft.hackathonorganiser.security.HackathonOidcUser;
 import net.fabcelhaft.hackathonorganiser.topic.Topic;
 import net.fabcelhaft.hackathonorganiser.topic.TopicApprovalStatus;
 import net.fabcelhaft.hackathonorganiser.topic.TopicRepository;
+import net.fabcelhaft.hackathonorganiser.topic.TopicService;
 import net.fabcelhaft.hackathonorganiser.user.User;
 import net.fabcelhaft.hackathonorganiser.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,6 +97,9 @@ class TopicDetailManagementIT {
     OrganiserSettingsRepository organiserSettingsRepository;
 
     @Autowired
+    TopicService topicService;
+
+    @Autowired
     DatabaseClient databaseClient;
 
     @BeforeEach
@@ -113,6 +117,7 @@ class TopicDetailManagementIT {
                 .flatMap(settings -> {
                     settings.setParticipantsDirectoryAudience(DirectoryAudience.ALL_AUTHENTICATED);
                     settings.setSkillVisibilityEnabled(false);
+                    settings.setTopicUpvotingEnabled(true);
                     settings.setUpdatedAt(Instant.now());
                     return organiserSettingsRepository.save(settings);
                 })
@@ -464,6 +469,87 @@ class TopicDetailManagementIT {
         var disbanded = groupRepository.findById(group.getId()).block();
         assertThat(disbanded.getStatus()).isEqualTo(GroupStatus.DISBANDED);
         assertThat(groupService.activeMemberCount(group.getId()).block()).isEqualTo(0);
+    }
+
+    // --- Author display (US3, FR-014, SC-007) -------------------------------------------------------
+
+    @Test
+    void theAuthorIsShownAsTheFirstRowOfTheTopicInfoTable() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User viewer = persistUser(false);
+
+        String body = detailBody(viewer, topic.getId());
+
+        assertThat(body).contains(author.getDisplayName());
+        int authorRowIndex = body.indexOf(author.getDisplayName());
+        int neededSkillsIndex = body.indexOf("Needed Skills");
+        assertThat(authorRowIndex).isGreaterThan(0);
+        assertThat(neededSkillsIndex).isGreaterThan(0);
+        assertThat(authorRowIndex).isLessThan(neededSkillsIndex);
+    }
+
+    // --- Upvotes: count/control, admin toggle (US1, FR-001-FR-008) ---------------------------------
+
+    @Test
+    void detailShowsTheUpvoteCountAndTheViewersOwnUpvoteState() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        String beforeBody = detailBody(voter, topic.getId());
+        assertThat(beforeBody).contains("Upvote");
+        assertThat(beforeBody).doesNotContain("Withdraw upvote");
+
+        castUpvote(topic.getId(), voter.getId());
+
+        String afterBody = detailBody(voter, topic.getId());
+        assertThat(afterBody).contains("Withdraw upvote");
+    }
+
+    @Test
+    void detailHidesTheUpvoteControlAndCountWhenTheFeatureIsDisabled() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+        castUpvote(topic.getId(), voter.getId());
+
+        organiserSettingsRepository
+                .findBySingletonTrue()
+                .flatMap(settings -> {
+                    settings.setTopicUpvotingEnabled(false);
+                    settings.setUpdatedAt(Instant.now());
+                    return organiserSettingsRepository.save(settings);
+                })
+                .block();
+
+        String body = detailBody(voter, topic.getId());
+        assertThat(body).doesNotContain("Upvote");
+        assertThat(body).doesNotContain("Withdraw upvote");
+    }
+
+    // --- Reference numbers (US2, FR-009, FR-010, FR-012) --------------------------------------------
+
+    @Test
+    void detailShowsTheReferenceNumberOnlyOnceApprovedNeverWhilePending() {
+        User author = persistUser(false);
+        Topic pending = persistTopic(author.getId(), TopicApprovalStatus.PENDING);
+
+        String pendingBody = detailBody(author, pending.getId());
+        assertThat(pendingBody).doesNotContain("Reference #");
+
+        Topic approved = topicService.approve(pending.getId(), new AuditActor(author.getId(), true)).block();
+        String approvedBody = detailBody(author, pending.getId());
+        assertThat(approvedBody).contains("#" + approved.getReferenceNumber());
+    }
+
+    private void castUpvote(UUID topicId, UUID userId) {
+        databaseClient
+                .sql("INSERT INTO topic_upvotes (topic_id, user_id) VALUES (:tid, :uid)")
+                .bind("tid", topicId)
+                .bind("uid", userId)
+                .then()
+                .block();
     }
 
     // --- Test helpers ------------------------------------------------------------------------------

@@ -46,6 +46,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -114,6 +115,9 @@ class HomepageAccessibilityIT {
 
     @Autowired
     OrganiserSettingsRepository organiserSettingsRepository;
+
+    @Autowired
+    DatabaseClient databaseClient;
 
     static Playwright playwright;
     static Browser browser;
@@ -208,6 +212,23 @@ class HomepageAccessibilityIT {
         Page page = context.newPage();
         page.navigate(baseUrl() + "/");
         assertNoSeriousViolations(page, "/ (pinned own Topics + View Details)");
+    }
+
+    @Test
+    void homepageWithUpvoteControlsAndAReferenceNumberHasNoCriticalOrSeriousViolations() {
+        // Feature 012 (US1, US2): both the toggling Upvote/Withdraw-upvote control (in each of its
+        // two states) and a Topic's reference number badge appear in the same row.
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), "Upvoted Topic", TopicApprovalStatus.APPROVED);
+        topic.setReferenceNumber(1);
+        topicRepository.save(topic).block();
+        User voter = persistUser(false);
+        castUpvote(topic.getId(), voter.getId());
+        loginAs(voter);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/");
+        assertNoSeriousViolations(page, "/ (upvote control + reference number)");
     }
 
     // --- Topic propose/edit forms (User Story 3) --------------------------------------------------
@@ -365,6 +386,15 @@ class HomepageAccessibilityIT {
         topic.setCreatedAt(now);
         topic.setUpdatedAt(now);
         return topicRepository.save(topic).block();
+    }
+
+    private void castUpvote(UUID topicId, UUID userId) {
+        databaseClient
+                .sql("INSERT INTO topic_upvotes (topic_id, user_id) VALUES (:tid, :uid)")
+                .bind("tid", topicId)
+                .bind("uid", userId)
+                .then()
+                .block();
     }
 
     private ContentPage persistContentPage() {

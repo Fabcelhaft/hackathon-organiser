@@ -53,7 +53,8 @@ public class OrganiserSettingsService {
             Boolean topicJoiningEnabled,
             SkillDisplayMode skillDisplayMode,
             Boolean complianceVisibleToParticipants,
-            Boolean teamsLinksEnabled) {
+            Boolean teamsLinksEnabled,
+            Boolean topicUpvotingEnabled) {
         if (maxRegistrations != null && maxRegistrations < 1) {
             return Mono.error(new OrganiserSettingsConflictException(
                     "Maximum registrations must be blank (unlimited) or at least 1"));
@@ -103,6 +104,9 @@ public class OrganiserSettingsService {
             }
             if (teamsLinksEnabled != null) {
                 settings.setTeamsLinksEnabled(teamsLinksEnabled);
+            }
+            if (topicUpvotingEnabled != null) {
+                settings.setTopicUpvotingEnabled(topicUpvotingEnabled);
             }
             settings.setUpdatedAt(Instant.now());
             return organiserSettingsRepository.save(settings);
