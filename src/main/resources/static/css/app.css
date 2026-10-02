@@ -3,6 +3,17 @@
  * undoes Pico's form-oriented `button[type=submit]{width:100%}` outside a form column, a badge
  * vocabulary, message banners, a `<caption>` rule Pico does not ship at all, and the homepage grid.
  *
+ * Feature 013 adds four more, all scoped to the two participant Topic lists:
+ *   .actions-nowrap  — opt-in non-wrapping row action cell, so controls never stack (FR-013).
+ *                      A MODIFIER, never an edit to the shared .actions rule, which organiser
+ *                      tables also use and FR-021 requires unchanged.
+ *   .vote-control    — the compact count-plus-action chip, with .vote-glyph carrying the voted
+ *                      state by shape as well as colour (FR-007).
+ *   .vote-notice     — the row-anchored failure message, absolutely positioned inside .vote-cell
+ *                      so it overlays rather than reflows the row (FR-006c2).
+ *   .join-control /  — scaled to sit beside the chip without dominating it, and the quieter
+ *   .card-actions      treatment for the Topics card's own two buttons (FR-011c, FR-020).
+ *
  * FR-034 / FR-025: state is always carried by text, never colour alone.
  * FR-021 / FR-027 / FR-030: every colour pair below is >= 4.5:1 in BOTH light and dark. */
 
@@ -114,6 +125,16 @@ div.actions {
     margin-bottom: var(--pico-block-spacing-vertical);
 }
 
+/* Feature 013: a row's controls now sit in a <div class="actions"> INSIDE the cell rather than on
+   the <td> itself. That is what the note on form.actions below has always said to do — a <td> with
+   display:flex leaves the table formatting context and stops stretching to the row height, so the
+   cell shrinks to its content and the table background shows through the space beside it. Invisible
+   while every row was one line tall; obvious as soon as a wrapped Topic name made rows tall.
+   The div must not reintroduce the page-level bar's bottom margin inside a cell. */
+td > .actions {
+    margin-bottom: 0;
+}
+
 .actions form {
     display: inline;
     margin: 0;
@@ -144,6 +165,20 @@ form.actions {
 
 /* Deliberately no width constraint on a table's action cell: shrink-to-fit (width:1%) sizes the
    cell to min-content, which makes this flex row wrap its buttons into a vertical stack. */
+
+/* Feature 013 (FR-012, FR-013): the opt-in counterpart to the note above. On the two participant
+   Topic lists a wrapped action cell is exactly the defect being fixed — the cell is too narrow to
+   hold its controls side by side, so they stack and the row grows to three or four lines.
+   `nowrap` converts that shortage into horizontal pressure, which the `.table-scroll` wrapper then
+   absorbs; the row stays one line at every width.
+
+   This is deliberately a MODIFIER and not a change to `.actions` itself. `.actions` is shared with
+   every organiser-space table (participants, groups, tasks, skills, custom fields, event
+   destinations, content pages), all of which are out of scope for feature 013 (FR-021) and are
+   verified unchanged by SC-008. Editing the base rule would silently restyle all of them. */
+.actions-nowrap {
+    flex-wrap: nowrap;
+}
 
 /* ---------------------------------------------------------------- tables */
 
@@ -192,19 +227,42 @@ nav ul {
     padding: 0.1rem 0.5rem;
 }
 
-/* Keeps a topic name and its trailing badge (e.g. "Pending approval") on one line instead of the
-   badge wrapping onto its own line in a narrow table cell, which otherwise makes that row taller
-   than its badge-less siblings. white-space: nowrap is the important part: a flex item shrinks
-   below its content width by default, and without it the browser "solves" the space shortage by
-   word-wrapping the topic name itself (e.g. "pizza" / "backen") rather than keeping the badge on
-   its own line — worse than the problem being fixed. Pairs with .table-scroll below, which gives
-   the row somewhere to go if the name+badge still don't fit the column. */
+/* Keeps a topic name and its trailing badge (e.g. "Pending approval") together, with the badge
+   beside the name rather than stranded on a line of its own.
+
+   Feature 013 reversed the original `white-space: nowrap` here. That rule kept the pair on one line
+   by refusing to wrap the name at all, which meant a long Topic name simply made its column wider
+   than the viewport; the table then scrolled sideways and the right-hand columns (Compliance,
+   Upvotes, Join) disappeared off the edge where they are easy to miss entirely. Hiding whole
+   columns is a worse outcome than a two-line name, so the name is now allowed to wrap and the
+   table is sized by the viewport instead of by its longest title.
+
+   Used by the two participant Topic lists only (home/index.html, topics/overview.html) — no
+   organiser table references it, so widening the wrap here cannot alter organiser-space rendering
+   (FR-021). Note this governs TEXT only: row controls still never wrap, which is .actions-nowrap's
+   job and what FR-013 actually requires. */
 .name-with-badge {
     display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-    white-space: nowrap;
+    align-items: baseline;
+    flex-wrap: wrap;
     gap: calc(var(--pico-spacing) * 0.5);
+}
+
+/* The badge is short and reads as one token, so it never breaks internally even though the name
+   beside it now may. */
+.name-with-badge .badge {
+    white-space: nowrap;
+}
+
+/* Wrapping between words is not enough on its own. A table cell can never be narrower than its
+   longest unbreakable token, so a single long "word" in a Topic title — an address like
+   organiser@example.dev, or a URL — still sets a floor under the column and pushes the table past
+   the viewport, which is the overflow FR-012a forbids. `anywhere` lets such a token break mid-word
+   as a last resort, so the column has no floor and the table always fits.
+   It applies to the title only: breaking a person's name or a skill mid-word would read as a typo,
+   and those are short enough never to be the constraint. */
+.name-with-badge a {
+    overflow-wrap: anywhere;
 }
 
 /* A table whose natural (unwrapped) width may exceed a narrow card column scrolls horizontally
@@ -459,4 +517,106 @@ nav ul {
 
 .task-table td {
     vertical-align: middle;
+}
+
+/* ------------------------------------------------------- topic vote control */
+
+/* Feature 013 (FR-005, FR-007): the count and the vote action as one compact control. Pre-013 the
+   count sat in the cell beside a full-size "Upvote" button; in a half-width Dashboard card the two
+   could not fit on one line, so they stacked and the row grew. Folding the count INSIDE the button
+   removes the pairing problem rather than trying to squeeze it.
+
+   FR-007 (state not by colour alone) is carried by the glyph itself — outlined triangle when
+   unvoted, filled when voted (see fragments/topic-vote.html) — so the distinction survives a
+   greyscale render. The colour shift below only reinforces it. */
+.vote-control {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--pico-spacing) * 0.35);
+    padding: calc(var(--pico-spacing) * 0.25) calc(var(--pico-spacing) * 0.6);
+    /* Pico sizes buttons for a form column; a table row needs the compact end of that scale, but
+       not smaller than a comfortable touch target. */
+    min-height: 2rem;
+    font-size: 0.9rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.vote-control.is-voted {
+    --pico-border-color: var(--pico-primary);
+    --pico-color: var(--pico-primary);
+}
+
+.vote-glyph {
+    font-size: 0.85em;
+}
+
+/* Feature 013 (FR-006c1, FR-006c2): a failed vote is explained beside the control that failed, not
+   in the page-level banner — on a long list that banner is off-screen, so a participant would see
+   only the count snapping back and read it as the page glitching.
+
+   `position: absolute` is the whole point: the notice must not participate in layout. Inserting it
+   into the flow would change the row's height and reflow the table, which is precisely the density
+   problem this feature exists to fix (FR-006c2). Anchored left rather than right so it is not
+   clipped by .table-scroll's overflow at the right-hand edge, and placed BELOW the control so it
+   never covers the button a participant needs in order to retry (FR-006c3). */
+.vote-cell {
+    position: relative;
+}
+
+.vote-notice {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    width: max-content;
+    max-width: 16rem;
+    margin-top: calc(var(--pico-spacing) * 0.25);
+    padding: calc(var(--pico-spacing) * 0.3) calc(var(--pico-spacing) * 0.6);
+    border: 1px solid var(--app-danger-color);
+    border-radius: var(--pico-border-radius);
+    background-color: var(--pico-card-background-color);
+    color: var(--app-danger-color);
+    font-size: 0.8rem;
+    white-space: normal;
+}
+
+/* The dismiss affordance is a plain button so it is reachable by keyboard; it must not inherit
+   Pico's full-width submit sizing. */
+.vote-notice button {
+    width: auto;
+    margin: 0 0 0 calc(var(--pico-spacing) * 0.4);
+    padding: 0 calc(var(--pico-spacing) * 0.3);
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+/* Feature 013 (FR-011c): Join sits in the same row as the compact vote control, so it is brought
+   down to the same scale — otherwise one full-size button next to a chip re-creates in miniature
+   the imbalance this feature set out to remove.
+   It deliberately keeps its text label rather than becoming a glyph (FR-011): joining changes state
+   in a way a participant cannot undo in one step, so it should say what it does. min-height holds
+   it at a comfortable touch target despite the smaller type. */
+.join-control {
+    min-height: 2rem;
+    padding: calc(var(--pico-spacing) * 0.25) calc(var(--pico-spacing) * 0.7);
+    font-size: 0.9rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* Feature 013 (FR-020): the Topics card's own actions. Pico sizes buttons for a form column, which
+   made this pair the heaviest thing on the Dashboard — two full-width-ish blocks above a list they
+   are merely the entry points to. Scaled down to card-control weight, not removed and not demoted
+   to text links: FR-018 keeps them buttons and FR-019 keeps the primary/secondary distinction, so
+   the intended next action is still obvious.
+   min-height holds the 2.25rem touch target FR-020 asks for despite the smaller type. */
+.card-actions :is(a[role="button"], button) {
+    min-height: 2.25rem;
+    padding: calc(var(--pico-spacing) * 0.35) calc(var(--pico-spacing) * 0.9);
+    font-size: 0.9rem;
+    line-height: 1.3;
 }

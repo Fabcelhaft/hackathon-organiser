@@ -85,6 +85,139 @@ class TopicUpvoteManagementIT {
         setUpvotingEnabled(true);
     }
 
+    // --- Feature 013: the fragment branch (contracts/vote-control-fragment.md) -------------------
+
+    // FR-006a: with the header, the response is the re-rendered control carrying the four values
+    // topic-vote.js reconciles against — not a redirect.
+    @Test
+    void theFragmentHeaderReturnsTheRerenderedVoteControlInsteadOfARedirect() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        String body = webTestClient
+                .mutateWith(loginAs(voter))
+                .post()
+                .uri("/topics/{id}/upvote", topic.getId())
+                .header("X-Vote-Fragment", "true")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("data-vote-form");
+        assertThat(body).contains("data-vote-count");
+        assertThat(body).contains("data-vote-button");
+        assertThat(body)
+                .withFailMessage("the fragment must carry the post-action state, not the pre-action one")
+                .contains("aria-pressed=\"true\"")
+                .contains("aria-label=\"Withdraw upvote for " + topic.getName() + "\"")
+                .contains("/topics/" + topic.getId() + "/unupvote");
+        assertThat(upvoteCount(topic.getId())).isEqualTo(1);
+    }
+
+    @Test
+    void theFragmentBranchReflectsTheWithdrawnStateAfterUnupvoting() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+        webTestClient.mutateWith(loginAs(voter)).post().uri("/topics/{id}/upvote", topic.getId()).exchange();
+
+        String body = webTestClient
+                .mutateWith(loginAs(voter))
+                .post()
+                .uri("/topics/{id}/unupvote", topic.getId())
+                .header("X-Vote-Fragment", "true")
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).contains("aria-pressed=\"false\"");
+        assertThat(body).contains("aria-label=\"Upvote " + topic.getName() + "\"");
+        assertThat(body).contains("/topics/" + topic.getId() + "/upvote");
+        assertThat(upvoteCount(topic.getId())).isZero();
+    }
+
+    // FR-006b: the fallback is the whole safety net for users without scripting, so the absence of
+    // the header must still produce exactly the 303 that shipped before feature 013.
+    @Test
+    void withoutTheFragmentHeaderTheRouteStillRedirectsExactlyAsBefore() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        webTestClient
+                .mutateWith(loginAs(voter))
+                .post()
+                .uri("/topics/{id}/upvote", topic.getId())
+                .body(BodyInserters.fromFormData("redirect", "/topics/overview"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .valueEquals("Location", "/topics/overview");
+    }
+
+    // The allow-list still governs the value echoed back into the re-rendered form, so a tampered
+    // redirect cannot ride along into the fragment and become the next submission's target.
+    @Test
+    void theFragmentBranchNeverEchoesBackATamperedRedirectTarget() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        String body = webTestClient
+                .mutateWith(loginAs(voter))
+                .post()
+                .uri("/topics/{id}/upvote", topic.getId())
+                .header("X-Vote-Fragment", "true")
+                .body(BodyInserters.fromFormData("redirect", "https://example.com/evil"))
+                .exchange()
+                .expectStatus()
+                .isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(body).doesNotContain("example.com");
+        assertThat(body).contains("name=\"redirect\" value=\"/\"");
+    }
+
+    // FR-009 / the gate: the fragment branch must not become a way around the feature toggle or
+    // the Topic-visibility rule.
+    @Test
+    void theFragmentBranchIsGatedExactlyLikeTheRedirectBranch() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+        setUpvotingEnabled(false);
+
+        webTestClient
+                .mutateWith(loginAs(voter))
+                .post()
+                .uri("/topics/{id}/upvote", topic.getId())
+                .header("X-Vote-Fragment", "true")
+                .exchange()
+                .expectStatus()
+                .isNotFound();
+
+        setUpvotingEnabled(true);
+
+        webTestClient
+                .mutateWith(loginAs(voter))
+                .post()
+                .uri("/topics/{id}/upvote", UUID.randomUUID())
+                .header("X-Vote-Fragment", "true")
+                .exchange()
+                .expectStatus()
+                .isNotFound();
+    }
+
     @Test
     void upvotingIncreasesTheCountAndWithdrawingDecreasesItAgain() {
         User author = persistUser(false);

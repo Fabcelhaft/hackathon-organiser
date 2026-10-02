@@ -92,16 +92,13 @@ public class HomeController {
                             && participantOpt
                                     .map(p -> p.getStatus() == ParticipantStatus.ACTIVE)
                                     .orElse(false);
-                    UUID viewerParticipantId =
-                            participantOpt.map(Participant::getId).orElse(null);
                     boolean viewerIsActiveParticipant = participantOpt
                             .map(p -> p.getStatus() == ParticipantStatus.ACTIVE)
                             .orElse(false);
                     return Mono.zip(
                                     assignedGroupAndTopic(participantOpt),
                                     topicDiscoveryService
-                                            .findOpenTopicsForHomePage(
-                                                    userId, viewerParticipantId, HOME_PAGE_TOPIC_LIMIT)
+                                            .findOpenTopicsForHomePage(userId, HOME_PAGE_TOPIC_LIMIT)
                                             .collectList(),
                                     contentPageService
                                             .findRenderedByContext(ContentPageContext.HOMEPAGE)

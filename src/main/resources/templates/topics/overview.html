@@ -21,15 +21,20 @@
                     <th th:if="${complianceVisible}">Compliance</th>
                     <th th:if="${upvotingEnabled}">Upvotes</th>
                     <th th:if="${canJoinTopics}"></th>
-                    <th></th>
                 </tr>
                 </thead>
                 <tbody>
                 <tr th:each="row : ${rows.?[pinned]}">
+                    <!--/* Feature 013 (FR-001, FR-004): the name is the link; the badge sits beside it,
+                         outside the link target. The name wraps rather than widening the table
+                         past the viewport, which would push the right-hand columns out of sight. */-->
                     <td>
-                        <span th:text="${row.topic().name}">Name</span>
-                        <span th:if="${row.topic().referenceNumber} != null" class="badge badge-sm"
-                              th:text="'#' + ${row.topic().referenceNumber}">#1</span>
+                        <span class="name-with-badge">
+                            <a th:href="@{/topics/{id}(id=${row.topic().id})}"
+                               th:text="${row.topic().name}">Name</a>
+                            <span th:if="${row.topic().referenceNumber} != null" class="badge badge-sm"
+                                  th:text="'#' + ${row.topic().referenceNumber}">#1</span>
+                        </span>
                     </td>
                     <td th:text="${row.authorDisplayName()}">Author</td>
                     <td th:text="${row.memberCount()}">0</td>
@@ -52,30 +57,30 @@
                             <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
                         </span>
                     </td>
-                    <!--/* US1, FR-001-FR-005, FR-005a: a single toggling control per row — "Upvote"
-                         when the viewer has none, "Withdraw upvote" when they do — plus the total
-                         count. redirect returns the controller to this page
-                         (contracts/topic-upvote-action.md), validated server-side against an
-                         allow-list so a tampered value can never turn this into an open redirect. */-->
-                    <td class="actions" th:if="${upvotingEnabled}">
-                        <span th:text="${row.upvoteCount()}">0</span>
-                        <form th:if="${!row.viewerHasUpvoted()}" th:action="@{/topics/{id}/upvote(id=${row.topic().id})}" method="post">
-                            <input type="hidden" name="redirect" value="/topics/overview"/>
-                            <button type="submit" class="outline secondary" th:aria-label="|Upvote ${row.topic().name}|">Upvote</button>
-                        </form>
-                        <form th:if="${row.viewerHasUpvoted()}" th:action="@{/topics/{id}/unupvote(id=${row.topic().id})}" method="post">
-                            <input type="hidden" name="redirect" value="/topics/overview"/>
-                            <button type="submit" class="outline secondary" th:aria-label="|Withdraw upvote for ${row.topic().name}|">Withdraw</button>
-                        </form>
+                    <!--/* Feature 013 (FR-005): count and action collapse into one compact control,
+                         rendered from the single shared fragment so the two screens cannot drift. */-->
+                    <td th:if="${upvotingEnabled}">
+                        <div class="actions actions-nowrap vote-cell">
+                            <th:block th:replace="~{fragments/topic-vote :: control(
+                                topicId=${row.topic().id},
+                                topicName=${row.topic().name},
+                                upvoteCount=${row.upvoteCount()},
+                                viewerHasUpvoted=${row.viewerHasUpvoted()},
+                                redirect='/topics/overview')}"/>
+                        </div>
                     </td>
-                    <td class="actions" th:if="${canJoinTopics}">
-                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                            <button type="submit" class="outline secondary">Join</button>
-                        </form>
-                    </td>
-                    <td class="actions">
-                        <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary"
-                           th:aria-label="|View details for ${row.topic().name}|">View</a>
+                    <td th:if="${canJoinTopics}">
+                        <div class="actions actions-nowrap">
+                            <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                            <input type="hidden" name="redirect" value="/topics/overview"/>
+                                <!--/* FR-011a: name the screen we are on, so joining returns here instead
+                                     of always bouncing to the Home Page. Validated server-side against
+                                     an allow-list (SelfServiceRedirects), so a tampered value cannot
+                                     turn joining into an open redirect (FR-011b). */-->
+                                <input type="hidden" name="redirect" value="/topics/overview"/>
+                                <button type="submit" class="join-control outline secondary">Join</button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 </tbody>
@@ -93,15 +98,17 @@
                 <th th:if="${complianceVisible}">Compliance</th>
                 <th th:if="${upvotingEnabled}">Upvotes</th>
                 <th th:if="${canJoinTopics}"></th>
-                <th></th>
             </tr>
             </thead>
             <tbody>
             <tr th:each="row : ${rows.?[!pinned]}">
                 <td>
-                    <span th:text="${row.topic().name}">Name</span>
-                    <span th:if="${row.topic().referenceNumber} != null" class="badge badge-sm"
-                          th:text="'#' + ${row.topic().referenceNumber}">#1</span>
+                    <span class="name-with-badge">
+                        <a th:href="@{/topics/{id}(id=${row.topic().id})}"
+                           th:text="${row.topic().name}">Name</a>
+                        <span th:if="${row.topic().referenceNumber} != null" class="badge badge-sm"
+                              th:text="'#' + ${row.topic().referenceNumber}">#1</span>
+                    </span>
                 </td>
                 <td th:text="${row.authorDisplayName()}">Author</td>
                 <td th:text="${row.memberCount()}">0</td>
@@ -124,33 +131,44 @@
                         <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
                     </span>
                 </td>
-                <td class="actions" th:if="${upvotingEnabled}">
-                    <span th:text="${row.upvoteCount()}">0</span>
-                    <form th:if="${!row.viewerHasUpvoted()}" th:action="@{/topics/{id}/upvote(id=${row.topic().id})}" method="post">
-                        <input type="hidden" name="redirect" value="/topics/overview"/>
-                        <button type="submit" class="outline secondary" th:aria-label="|Upvote ${row.topic().name}|">Upvote</button>
-                    </form>
-                    <form th:if="${row.viewerHasUpvoted()}" th:action="@{/topics/{id}/unupvote(id=${row.topic().id})}" method="post">
-                        <input type="hidden" name="redirect" value="/topics/overview"/>
-                        <button type="submit" class="outline secondary" th:aria-label="|Withdraw upvote for ${row.topic().name}|">Withdraw</button>
-                    </form>
+                <td th:if="${upvotingEnabled}">
+                    <div class="actions actions-nowrap vote-cell">
+                        <th:block th:replace="~{fragments/topic-vote :: control(
+                            topicId=${row.topic().id},
+                            topicName=${row.topic().name},
+                            upvoteCount=${row.upvoteCount()},
+                            viewerHasUpvoted=${row.viewerHasUpvoted()},
+                            redirect='/topics/overview')}"/>
+                    </div>
                 </td>
-                <td class="actions" th:if="${canJoinTopics}">
-                    <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                        <button type="submit" class="outline secondary">Join</button>
-                    </form>
-                </td>
-                <td class="actions">
-                    <a th:href="@{/topics/{id}(id=${row.topic().id})}" role="button" class="outline secondary"
-                       th:aria-label="|View details for ${row.topic().name}|">View</a>
+                <td th:if="${canJoinTopics}">
+                    <div class="actions actions-nowrap">
+                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                            <button type="submit" class="join-control outline secondary">Join</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             <tr th:if="${rows.isEmpty()}">
-                <td th:attr="colspan=${5 + (complianceVisible ? 1 : 0) + (upvotingEnabled ? 1 : 0) + (canJoinTopics ? 1 : 0)}">No Topics to show yet.</td>
+                <td th:attr="colspan=${4 + (complianceVisible ? 1 : 0) + (upvotingEnabled ? 1 : 0) + (canJoinTopics ? 1 : 0)}">No Topics to show yet.</td>
             </tr>
             </tbody>
         </table>
+        <!--/* FR-008b: one polite live region per screen (see home/index.html). */-->
+        <th:block th:if="${upvotingEnabled}">
+            <!--/* The th:if MUST sit on a separate, outer element. Thymeleaf processes fragment
+                 inclusion (th:replace, precedence 100) BEFORE conditionals (th:if, precedence 300), so
+                 putting both on one element silently ignores the condition and the region renders even
+                 with upvoting switched off. */-->
+            <th:block th:replace="~{fragments/topic-vote :: liveRegion}"/>
+        </th:block>
     </div>
 </th:block>
+<!--/* Feature 013 (FR-006a): the in-place vote enhancement. This tag MUST stay outside the
+     </th:block> above — a <script> placed inside the layout fragment block is discarded by
+     Thymeleaf, and the failure is silent: the page renders perfectly and the enhancement simply
+     never runs (research.md §8.1). The existing revoke-dialog script below sits here for the same
+     reason. */-->
+<script th:if="${upvotingEnabled}" th:src="@{/js/topic-vote.js}" defer></script>
 </body>
 </html>

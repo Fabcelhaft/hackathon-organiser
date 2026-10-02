@@ -81,7 +81,7 @@ public class TopicDiscoveryService {
      * {@code true} only for an Approved Topic below the Maximum or carrying a compliance override,
      * so a pinned Pending or full Topic never claims to be joinable.
      */
-    public Flux<OpenTopicRow> findOpenTopicsForHomePage(UUID viewerUserId, UUID viewerParticipantIdOrNull, int limit) {
+    public Flux<OpenTopicRow> findOpenTopicsForHomePage(UUID viewerUserId, int limit) {
         return organiserSettingsService
                 .current()
                 .flatMapMany(settings -> topicRepository
@@ -97,23 +97,20 @@ public class TopicDiscoveryService {
                         .flatMapMany(all -> loadUpvoteData(topicIdsOf(all), viewerUserId, settings)
                                 .flatMapMany(upvoteData -> Flux.fromIterable(
                                                 selectHomePageRows(all, viewerUserId, settings, limit, upvoteData.counts()))
-                                        .concatMap(selection -> displayedNeededSkillIds(
-                                                        selection.tg().topic().getId(),
-                                                        selection.tg().group(),
-                                                        settings.getSkillDisplayMode())
-                                                .flatMap(displayedIds ->
-                                                        viewerOfferedSkillIds(viewerParticipantIdOrNull, displayedIds))
-                                                .flatMap(this::loadSkills)
-                                                .map(skills -> new OpenTopicRow(
-                                                        selection.tg().topic(),
-                                                        selection.tg().memberCount(),
-                                                        skills,
-                                                        selection.pinned(),
-                                                        isJoinable(selection.tg().topic(), selection.tg().memberCount(),
-                                                                selection.tg().group(), settings),
-                                                        upvoteData.countFor(selection.tg().topic().getId()),
-                                                        upvoteData.viewerHasUpvoted(
-                                                                selection.tg().topic().getId())))))));
+                                        // Feature 013 (FR-015a): this used to be a concatMap running
+                                        // displayedNeededSkillIds -> viewerOfferedSkillIds -> loadSkills
+                                        // per row, purely to fill the Home Page's "Your Skills" column.
+                                        // That column is gone, so the three per-row database round trips
+                                        // go with it and the chain collapses to a plain map (SC-011).
+                                        .map(selection -> new OpenTopicRow(
+                                                selection.tg().topic(),
+                                                selection.tg().memberCount(),
+                                                selection.pinned(),
+                                                isJoinable(selection.tg().topic(), selection.tg().memberCount(),
+                                                        selection.tg().group(), settings),
+                                                upvoteData.countFor(selection.tg().topic().getId()),
+                                                upvoteData.viewerHasUpvoted(
+                                                        selection.tg().topic().getId()))))));
     }
 
     /**
@@ -408,16 +405,6 @@ public class TopicDiscoveryService {
                 .collect(Collectors.toSet());
     }
 
-    private Mono<List<UUID>> viewerOfferedSkillIds(UUID viewerParticipantIdOrNull, List<UUID> displayedIds) {
-        if (viewerParticipantIdOrNull == null || displayedIds.isEmpty()) {
-            return Mono.just(List.of());
-        }
-        return participantSkillIds(viewerParticipantIdOrNull)
-                .map(viewerSkillIds -> displayedIds.stream()
-                        .filter(viewerSkillIds::contains)
-                        .toList());
-    }
-
     private Mono<List<UUID>> topicSkillIds(UUID topicId) {
         return databaseClient
                 .sql("SELECT skill_id FROM topic_skills WHERE topic_id = :tid")
@@ -470,11 +457,17 @@ public class TopicDiscoveryService {
 
     // --- read-model view types -------------------------------------------------------------------
 
-    /** One Home Page row (FR-004, FR-033, FR-035, FR-005a). */
+    /**
+     * One Home Page row (FR-004, FR-033, FR-035, FR-005a).
+     *
+     * <p>Feature 013 (FR-015a) removed {@code viewerOfferedSkills}: the Home Page no longer shows a
+     * skills column, so the value had no reader. The Topic Overview's {@link OverviewRow} keeps its
+     * own {@code neededSkills}, which is a different thing — a property of the Topic rather than an
+     * intersection with the viewer.
+     */
     public record OpenTopicRow(
             Topic topic,
             int memberCount,
-            List<Skill> viewerOfferedSkills,
             boolean pinned,
             boolean joinable,
             int upvoteCount,

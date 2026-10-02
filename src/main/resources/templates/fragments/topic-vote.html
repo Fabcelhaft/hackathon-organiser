@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  Feature 013 — the compact vote control (FR-005 to FR-008c; contracts/vote-control-fragment.md).
+
+  ONE form per row, not two. The pre-013 templates rendered two mutually exclusive forms via th:if,
+  which cannot work for a toggle: the enhancement has to flip an element that is already present,
+  and in the two-form shape the other branch does not exist yet. So the action is swapped instead,
+  and `aria-pressed` carries the state — which is also the correct accessible shape for "a button
+  with an on/off state" (FR-008a).
+
+  The four data- hooks below are a contract with static/js/topic-vote.js. Renaming any of them
+  breaks the enhancement silently (the form still submits, so the no-JS path keeps working and
+  nothing fails loudly). See contracts/vote-control-fragment.md.
+
+  The aria-label wording is load-bearing in a second way: the visible label is now an icon plus a
+  count, so these strings are the only place the words "Upvote" and "Withdraw upvote" appear in the
+  rendered page, and existing integration assertions match on exactly them (research.md §3).
+*/-->
+<th:block th:fragment="control(topicId, topicName, upvoteCount, viewerHasUpvoted, redirect)">
+    <form data-vote-form method="post"
+          th:action="${viewerHasUpvoted}
+                     ? @{/topics/{id}/unupvote(id=${topicId})}
+                     : @{/topics/{id}/upvote(id=${topicId})}">
+        <input type="hidden" name="redirect" th:value="${redirect}"/>
+        <button type="submit" data-vote-button
+                class="vote-control outline secondary"
+                th:classappend="${viewerHasUpvoted} ? ' is-voted' : ''"
+                th:aria-pressed="${viewerHasUpvoted} ? 'true' : 'false'"
+                th:aria-label="${viewerHasUpvoted}
+                               ? |Withdraw upvote for ${topicName}|
+                               : |Upvote ${topicName}|">
+            <!--/* FR-007: the state is carried by the glyph (filled vs outlined triangle) as well as
+                 by colour, so it survives a greyscale render and colour-vision differences. */-->
+            <span class="vote-glyph" aria-hidden="true" th:text="${viewerHasUpvoted} ? '▲' : '△'">△</span>
+            <span data-vote-count th:text="${upvoteCount}">0</span>
+        </button>
+    </form>
+</th:block>
+
+<!--/*
+  The model-driven entry point used by TopicUpvoteController's fragment branch
+  (contracts/vote-control-fragment.md). The parameterised `control` fragment above is what the two
+  page templates call; a view name cannot supply those arguments, so this wrapper reads them from
+  the model instead and delegates. Two fragments rather than one keeps the markup in exactly one
+  place — a second copy would be free to drift from the page templates, which is the whole failure
+  mode the shared fragment exists to prevent.
+
+  The outer th:block carries the fragment definition and the inner one does the delegation: an
+  element cannot both define a fragment and be replaced by another, since th:replace wins and the
+  definition would be lost.
+*/-->
+<th:block th:fragment="controlFromModel">
+    <th:block th:replace="~{fragments/topic-vote :: control(
+        topicId=${topicId},
+        topicName=${topicName},
+        upvoteCount=${upvoteCount},
+        viewerHasUpvoted=${viewerHasUpvoted},
+        redirect=${redirect})}"/>
+</th:block>
+
+<!--/*
+  FR-008b: one polite live region per screen, not one per row — multiple simultaneous live regions
+  are announced unreliably across screen readers. topic-vote.js writes the confirmed outcome here
+  AFTER the server answers, never on the optimistic change (FR-008d).
+*/-->
+<th:block th:fragment="liveRegion">
+    <p id="vote-live-region" class="visually-hidden" role="status" aria-live="polite"></p>
+</th:block>
+</body>
+</html>

@@ -97,7 +97,8 @@ class TopicDiscoveryServiceTest {
         lenient().when(userRepository.findById(any(UUID.class))).thenReturn(Mono.empty());
     }
 
-    // --- findOpenTopicsForHomePage: cap, fullness filter/order, viewer-Skill intersection --------
+    // --- findOpenTopicsForHomePage: cap, fullness filter/order (feature 013 removed the
+    //     viewer-Skill intersection along with the Home Page column it fed) --------------------
 
     @Test
     void findOpenTopicsForHomePageExcludesPendingTopics() {
@@ -106,7 +107,7 @@ class TopicDiscoveryServiceTest {
         when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(5, SkillDisplayMode.STILL_NEEDED_ONLY)));
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), 10).collectList())
                 .assertNext(rows -> assertThat(rows).isEmpty())
                 .verifyComplete();
     }
@@ -124,7 +125,7 @@ class TopicDiscoveryServiceTest {
         stubEmptySkillsAndParticipantSkills();
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), 10).collectList())
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(1);
                     assertThat(rows.get(0).topic().getId()).isEqualTo(noGroupTopic.getId());
@@ -150,7 +151,7 @@ class TopicDiscoveryServiceTest {
         stubEmptySkillsAndParticipantSkills();
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 2).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), 2).collectList())
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(2);
                     assertThat(rows.get(0).topic().getId()).isEqualTo(t2.getId());
@@ -159,49 +160,6 @@ class TopicDiscoveryServiceTest {
                 })
                 .verifyComplete();
     }
-
-    @Test
-    void findOpenTopicsForHomePageIntersectsNeededSkillsWithTheViewersOwnSkills() {
-        UUID viewerParticipantId = UUID.randomUUID();
-        Topic topic = topicOf(TopicApprovalStatus.APPROVED);
-        when(topicRepository.findAll()).thenReturn(Flux.just(topic));
-        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(5, SkillDisplayMode.ALL_ASSOCIATED)));
-        when(groupService.findActiveGroupForTopic(topic.getId())).thenReturn(Mono.empty());
-        UUID sharedSkillId = UUID.randomUUID();
-        UUID onlyNeededSkillId = UUID.randomUUID();
-        Skill sharedSkill = skillOf(sharedSkillId, "Shared");
-        stubTopicSkillIds(topic.getId(), List.of(sharedSkillId, onlyNeededSkillId));
-        stubParticipantSkillIds(viewerParticipantId, List.of(sharedSkillId));
-        when(skillRepository.findAllById(List.of(sharedSkillId))).thenReturn(Flux.just(sharedSkill));
-
-        StepVerifier.create(topicDiscoveryService
-                        .findOpenTopicsForHomePage(UUID.randomUUID(), viewerParticipantId, 10)
-                        .collectList())
-                .assertNext(rows -> {
-                    assertThat(rows).hasSize(1);
-                    assertThat(rows.get(0).viewerOfferedSkills()).containsExactly(sharedSkill);
-                })
-                .verifyComplete();
-    }
-
-    @Test
-    void findOpenTopicsForHomePageGivesAViewerWithNoParticipantRecordAnEmptySkillsListNeverAnError() {
-        Topic topic = topicOf(TopicApprovalStatus.APPROVED);
-        when(topicRepository.findAll()).thenReturn(Flux.just(topic));
-        when(organiserSettingsService.current()).thenReturn(Mono.just(settingsOf(5, SkillDisplayMode.ALL_ASSOCIATED)));
-        when(groupService.findActiveGroupForTopic(topic.getId())).thenReturn(Mono.empty());
-        stubTopicSkillIds(topic.getId(), List.of(UUID.randomUUID()));
-
-        StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
-                .assertNext(rows -> {
-                    assertThat(rows).hasSize(1);
-                    assertThat(rows.get(0).viewerOfferedSkills()).isEmpty();
-                })
-                .verifyComplete();
-    }
-
-    // --- Own-Topic pinning + joinable flag (FR-033, FR-035, research.md §11) ----------------------
 
     @Test
     void findOpenTopicsForHomePagePinsTheViewersOwnTopicsAboveTheRestAndNeverTruncatesThemAway() {
@@ -221,7 +179,7 @@ class TopicDiscoveryServiceTest {
         stubEmptySkillsAndParticipantSkills();
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(viewerUserId, null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(viewerUserId, 10).collectList())
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(3);
                     // Own Topics (Pending, full) come first, pinned, even though neither would
@@ -250,7 +208,7 @@ class TopicDiscoveryServiceTest {
         stubEmptySkillsAndParticipantSkills();
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(viewerUserId, null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(viewerUserId, 10).collectList())
                 .assertNext(rows -> {
                     var pendingRow = rows.stream()
                             .filter(r -> r.topic().getId().equals(ownPending.getId()))
@@ -280,7 +238,7 @@ class TopicDiscoveryServiceTest {
         stubEmptySkillsAndParticipantSkills();
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(viewerUserId, null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(viewerUserId, 10).collectList())
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(1);
                     assertThat(rows.get(0).joinable()).isTrue();
@@ -307,7 +265,7 @@ class TopicDiscoveryServiceTest {
         when(topicUpvoteService.viewerUpvotedTopicIds(eq(topicIds), any())).thenReturn(Mono.just(Set.of()));
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), 10).collectList())
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(2);
                     assertThat(rows.get(0).topic().getId()).isEqualTo(higherUpvotes.getId());
@@ -332,7 +290,7 @@ class TopicDiscoveryServiceTest {
         stubEmptySkillsAndParticipantSkills();
 
         StepVerifier.create(
-                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), null, 10).collectList())
+                        topicDiscoveryService.findOpenTopicsForHomePage(UUID.randomUUID(), 10).collectList())
                 .assertNext(rows -> {
                     assertThat(rows).hasSize(2);
                     assertThat(rows).allMatch(row -> row.upvoteCount() == 0 && !row.viewerHasUpvoted());
