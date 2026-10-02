@@ -41,6 +41,7 @@ import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.test.web.reactive.server.SecurityMockServerConfigurers.OidcLoginMutator;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -105,6 +106,99 @@ class TopicJoinManagementIT {
                     return organiserSettingsRepository.save(settings);
                 })
                 .block();
+    }
+
+    // --- Feature 013 (US2a): joining returns the participant to the screen they acted from -------
+
+    // FR-011a: before 013 this always redirected to "/", so joining from the Topic Overview moved
+    // the participant to a different page. Voting now preserves their place exactly, which made the
+    // inconsistency conspicuous.
+    @Test
+    void joiningFromTheTopicOverviewReturnsToTheTopicOverview() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User joiner = persistUser();
+        persistParticipant(joiner.getId(), ParticipantStatus.ACTIVE);
+
+        webTestClient
+                .mutateWith(loginAs(joiner))
+                .post()
+                .uri("/topics/{id}/join", topic.getId())
+                .body(BodyInserters.fromFormData("redirect", "/topics/overview"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> {
+                    assertThat(location).startsWith("/topics/overview?");
+                    assertThat(location).contains("flash=");
+                });
+    }
+
+    @Test
+    void joiningFromTheHomePageReturnsToTheHomePage() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User joiner = persistUser();
+        persistParticipant(joiner.getId(), ParticipantStatus.ACTIVE);
+
+        webTestClient
+                .mutateWith(loginAs(joiner))
+                .post()
+                .uri("/topics/{id}/join", topic.getId())
+                .body(BodyInserters.fromFormData("redirect", "/"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> assertThat(location).startsWith("/?flash="));
+    }
+
+    // FR-011b: the return target is attacker-controlled input, so joining must not become an open
+    // redirect. Anything outside the allow-list falls back to the Home Page.
+    @Test
+    void joiningWithATamperedReturnTargetFallsBackToTheHomePage() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User joiner = persistUser();
+        persistParticipant(joiner.getId(), ParticipantStatus.ACTIVE);
+
+        webTestClient
+                .mutateWith(loginAs(joiner))
+                .post()
+                .uri("/topics/{id}/join", topic.getId())
+                .body(BodyInserters.fromFormData("redirect", "https://example.com/evil"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> {
+                    assertThat(location).doesNotContain("example.com");
+                    assertThat(location).startsWith("/?flash=");
+                });
+    }
+
+    // A join that cannot be completed is exactly when being moved to another page is most
+    // disorienting, so the failure path honours the return target too.
+    @Test
+    void aRejectedJoinStillReturnsToTheScreenTheParticipantActedFrom() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User firstJoiner = persistUser();
+        persistParticipant(firstJoiner.getId(), ParticipantStatus.ACTIVE);
+        webTestClient.mutateWith(loginAs(firstJoiner)).post().uri("/topics/{id}/join", topic.getId()).exchange();
+
+        // The same participant joining again is a conflict the service rejects.
+        webTestClient
+                .mutateWith(loginAs(firstJoiner))
+                .post()
+                .uri("/topics/{id}/join", topic.getId())
+                .body(BodyInserters.fromFormData("redirect", "/topics/overview"))
+                .exchange()
+                .expectStatus()
+                .isEqualTo(HttpStatus.SEE_OTHER)
+                .expectHeader()
+                .value("Location", location -> assertThat(location).startsWith("/topics/overview?flash="));
     }
 
     @Test

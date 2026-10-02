@@ -179,7 +179,8 @@ class TopicOverviewManagementIT {
         assertThat(homeBody(organiser)).contains("/topics/overview");
     }
 
-    // --- Join action, View Details link, own-Topic pinning (Stories 9, 10; FR-006a, FR-006b, FR-034) --
+    // --- Join action, name-as-link navigation, own-Topic pinning (Stories 9, 10; FR-006a, FR-034;
+    //     feature 013 FR-001/FR-002) ---------------------------------------------------------------
 
     @Test
     void anEligibleViewerCanUseTheSameJoinActionOnTheOverviewAsOnTheHomePage() {
@@ -193,8 +194,10 @@ class TopicOverviewManagementIT {
         assertThat(body).contains("/topics/" + topic.getId() + "/join");
     }
 
+    // Feature 013 (FR-001, FR-002): navigation moves onto the Topic name, and the separate View
+    // control that used to end every row is removed.
     @Test
-    void everyOverviewRowOffersAViewDetailsLink() {
+    void everyOverviewRowLinksToTheTopicDetailsViewFromTheTopicNameItself() {
         User author = persistUser(false);
         Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
         User viewer = persistUser(false);
@@ -202,6 +205,25 @@ class TopicOverviewManagementIT {
         String body = overviewBody(viewer);
 
         assertThat(body).contains("/topics/" + topic.getId());
+        assertThat(body)
+                .withFailMessage("the Topic name must be the link to its detail page (FR-001)")
+                .containsPattern("<a[^>]*href=\"/topics/" + topic.getId() + "\"[^>]*>\\s*"
+                        + java.util.regex.Pattern.quote(topic.getName()));
+    }
+
+    @Test
+    void noOverviewRowRendersASeparateViewDetailsControl() {
+        User author = persistUser(false);
+        persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User viewer = persistUser(false);
+
+        String body = overviewBody(viewer);
+
+        assertThat(body)
+                .withFailMessage("FR-002: the separate per-row View control must not be rendered")
+                .doesNotContain("View details for")
+                .doesNotContain(">View<")
+                .doesNotContain(">View Details<");
     }
 
     @Test
@@ -264,6 +286,35 @@ class TopicOverviewManagementIT {
 
         String afterBody = overviewBody(voter);
         assertThat(afterBody).contains("Withdraw upvote");
+    }
+
+    // Feature 013 (FR-005, FR-008, FR-008a): ONE toggling control per row, not two mutually
+    // exclusive forms. The visible label is now a glyph plus a count, so the aria-label is the only
+    // place the words "Upvote"/"Withdraw upvote" survive — which is what the assertions above match.
+    @Test
+    void eachOverviewRowRendersOneToggleVoteControlCarryingItsPressedState() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        String before = overviewBody(voter);
+
+        assertThat(before).contains("aria-pressed=\"false\"");
+        assertThat(before).contains("aria-label=\"Upvote " + topic.getName() + "\"");
+        assertThat(before)
+                .withFailMessage("exactly one vote form per row (FR-005)")
+                .containsOnlyOnce("data-vote-form");
+        assertThat(before).containsOnlyOnce("data-vote-count");
+
+        castUpvote(topic.getId(), voter.getId());
+        String after = overviewBody(voter);
+
+        assertThat(after).contains("aria-pressed=\"true\"");
+        assertThat(after).contains("aria-label=\"Withdraw upvote for " + topic.getName() + "\"");
+        assertThat(after)
+                .withFailMessage("the voted state must post to the withdraw action (FR-006)")
+                .contains("/topics/" + topic.getId() + "/unupvote");
+        assertThat(after).containsOnlyOnce("data-vote-form");
     }
 
     @Test

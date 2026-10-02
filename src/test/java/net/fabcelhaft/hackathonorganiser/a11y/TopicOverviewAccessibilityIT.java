@@ -191,6 +191,86 @@ class TopicOverviewAccessibilityIT {
         assertNoSeriousViolations(page, "/topics/overview (upvote control + reference number)");
     }
 
+    // Feature 013 (FR-001, FR-003, FR-004, FR-013): navigation moved onto the Topic name, so the
+    // name now has to behave like the control it became — focusable, visibly focused, and with its
+    // badges beside it rather than swallowed into the link text.
+    @Test
+    void theTopicNameLinkIsKeyboardReachableAndItsBadgesStayOutsideTheLink() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), "Overview Name Link Topic");
+        topic.setReferenceNumber(7);
+        topicRepository.save(topic).block();
+        loginAs(author);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/topics/overview");
+
+        var link = page.locator("a[href='/topics/" + topic.getId() + "']").first();
+        assertThat(link.count()).isEqualTo(1);
+        assertThat(link.textContent().trim())
+                .withFailMessage("FR-004: the badge must not be part of the link text")
+                .isEqualTo(topic.getName());
+
+        link.focus();
+        assertThat(page.evaluate("() => document.activeElement.tagName")).isEqualTo("A");
+        // Pico draws focus with an outline/box-shadow; either satisfies FR-003's "visible
+        // indicator", and asserting neither is absent is what catches an outline:none regression.
+        Object focusStyle = page.evaluate(
+                "() => { const s = getComputedStyle(document.activeElement);"
+                        + " return s.outlineStyle + '|' + s.boxShadow; }");
+        assertThat(String.valueOf(focusStyle))
+                .withFailMessage("FR-003: the focused name link must show a visible focus indicator")
+                .doesNotStartWith("none|none");
+
+        RowLayoutAssertions.assertNoStackedRowControls(page, "/topics/overview (name link)");
+        assertNoSeriousViolations(page, "/topics/overview (name as link)");
+    }
+
+    // Feature 013 (FR-012a, SC-001a): the first cut of this feature kept Topic names on one line
+    // and let the table scroll sideways. Running it showed the cost — Compliance, Upvotes and Join
+    // slid off the right-hand edge, where a reader has no cue they exist. A two-line title is the
+    // cheaper trade. This asserts the table is never wider than the viewport that contains it, at
+    // the width where a long title would previously have forced the overflow.
+    @Test
+    void theOverviewNeverScrollsSidewaysEvenWithAVeryLongTopicName() {
+        User author = persistUser(false);
+        persistTopic(author.getId(),
+                "Open Mic Pitch make sure that the organiser@example.dev user from dex also has organiser rightsNight");
+        loginAs(author);
+
+        Page page = context.newPage();
+        page.setViewportSize(1024, 800);
+        page.navigate(baseUrl() + "/topics/overview");
+
+        Object overflow = page.evaluate(
+                "() => { const t = document.querySelector('table');"
+                        + " const widest = [...t.querySelectorAll('thead th')].map((th, i) =>"
+                        + "   th.textContent.trim() + '=' + Math.round(th.getBoundingClientRect().width))"
+                        + "   .join(', ');"
+                        + " return { scrollW: t.scrollWidth, clientW: t.clientWidth,"
+                        + "          docScroll: document.documentElement.scrollWidth,"
+                        + "          docClient: document.documentElement.clientWidth,"
+                        + "          columns: widest }; }");
+        var m = (java.util.Map<String, Object>) overflow;
+        int tableScroll = ((Number) m.get("scrollW")).intValue();
+        int tableClient = ((Number) m.get("clientW")).intValue();
+        int docScroll = ((Number) m.get("docScroll")).intValue();
+        int docClient = ((Number) m.get("docClient")).intValue();
+
+        assertThat(tableScroll)
+                .withFailMessage("FR-012a: the overview table must fit its container, not scroll"
+                        + " sideways (scrollWidth=%d, clientWidth=%d)", tableScroll, tableClient)
+                .isLessThanOrEqualTo(tableClient);
+        assertThat(docScroll)
+                .withFailMessage("FR-012a: the page itself must not overflow sideways either"
+                        + " (scrollWidth=%d, clientWidth=%d). Column widths: %s",
+                        docScroll, docClient, m.get("columns"))
+                .isLessThanOrEqualTo(docClient);
+
+        // FR-012b: wrapping is for text. The controls must still share one line.
+        RowLayoutAssertions.assertNoStackedRowControls(page, "/topics/overview (long name, wrapped)");
+    }
+
     // --- Test support --------------------------------------------------------------------------
 
     private void castUpvote(UUID topicId, UUID userId) {

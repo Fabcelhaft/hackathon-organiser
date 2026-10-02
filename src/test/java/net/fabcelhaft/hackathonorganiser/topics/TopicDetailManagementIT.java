@@ -507,6 +507,32 @@ class TopicDetailManagementIT {
         assertThat(afterBody).contains("Withdraw upvote");
     }
 
+    // Feature 013 (FR-021a): the two Topic LIST screens move to a compact glyph control; this
+    // single-Topic page deliberately keeps its full text-labelled buttons. A list has a density
+    // problem that a detail page does not, so the same action is allowed to look different here.
+    // This guards the scope boundary — if the fragment ever gets reused here by accident, the
+    // visible labels disappear and this fails.
+    @Test
+    void theTopicDetailPageKeepsItsTextLabelledUpvoteButtonUnlikeTheListScreens() {
+        User author = persistUser(false);
+        Topic topic = persistTopic(author.getId(), TopicApprovalStatus.APPROVED);
+        User voter = persistUser(false);
+
+        String before = detailBody(voter, topic.getId());
+        assertThat(before)
+                .withFailMessage("FR-021a: the detail page keeps a visible 'Upvote' label")
+                .contains(">Upvote<");
+        assertThat(before)
+                .withFailMessage("FR-021a: the detail page must not adopt the list screens' compact control")
+                .doesNotContain("data-vote-button");
+
+        castUpvote(topic.getId(), voter.getId());
+
+        assertThat(detailBody(voter, topic.getId()))
+                .withFailMessage("FR-021a: the detail page keeps a visible 'Withdraw upvote' label")
+                .contains(">Withdraw upvote<");
+    }
+
     @Test
     void detailHidesTheUpvoteControlAndCountWhenTheFeatureIsDisabled() {
         User author = persistUser(false);

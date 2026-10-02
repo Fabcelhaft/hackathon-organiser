@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 import net.fabcelhaft.hackathonorganiser.content.ContentPage;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageContext;
 import net.fabcelhaft.hackathonorganiser.content.ContentPageRepository;
+import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettings;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsRepository;
 import net.fabcelhaft.hackathonorganiser.participant.Participant;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantRepository;
@@ -168,6 +169,135 @@ class HomepageAccessibilityIT {
         Page page = context.newPage();
         page.navigate(baseUrl() + "/");
         assertNoSeriousViolations(page, "/ (unregistered)");
+    }
+
+    // --- Feature 013: the compact vote control and its announcement machinery -------------------
+
+    // FR-008a/FR-008b: a count that changes without a page load is invisible to a screen reader
+    // unless something announces it. The toggle state covers "did my vote register"; the polite
+    // live region covers "what is the count now". One region per screen, not one per row — several
+    // live regions at once are announced unreliably.
+    @Test
+    void theHomepageCarriesOneLiveRegionAndTogglableVoteControls() {
+        User user = persistUser(false);
+        persistTopic(user.getId(), "Own Approved Topic", TopicApprovalStatus.APPROVED);
+        loginAs(user);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/");
+
+        assertThat(page.locator("#vote-live-region").count())
+                .withFailMessage("exactly one polite live region per screen (FR-008b)")
+                .isEqualTo(1);
+        assertThat(page.locator("#vote-live-region").getAttribute("aria-live")).isEqualTo("polite");
+        assertThat(page.locator("[data-vote-button]").first().getAttribute("aria-pressed"))
+                .withFailMessage("the vote control must expose its state as a toggle (FR-008a)")
+                .isEqualTo("false");
+
+        RowLayoutAssertions.assertNoStackedRowControls(page, "/ (vote control)");
+        assertNoSeriousViolations(page, "/ (compact vote control)");
+    }
+
+    // FR-006a, SC-009: the point of the whole asynchronous branch. Voting on a row must not reload
+    // the page and must not move the participant — before feature 013 every vote returned them to
+    // the top of the page.
+    @Test
+    void votingUpdatesInPlaceWithoutReloadingThePageOrMovingFocus() {
+        User user = persistUser(false);
+        Topic topic = persistTopic(user.getId(), "Async Vote Topic", TopicApprovalStatus.APPROVED);
+        loginAs(user);
+
+        Page page = context.newPage();
+        page.navigate(baseUrl() + "/");
+
+        // A marker on the live document: if the page reloads, it is gone.
+        page.evaluate("() => { window.__notReloaded = true; }");
+
+        var button = page.locator("[data-vote-button]").first();
+        button.focus();
+        button.click();
+
+        // The live region is written ONLY after the server confirms (FR-008d), so waiting on it
+        // proves the round trip completed. Waiting on aria-pressed would prove nothing — the
+        // optimistic update sets that before any request is sent.
+        page.waitForFunction("() => document.getElementById('vote-live-region').textContent.trim() !== ''");
+
+        assertThat(page.evaluate("() => window.__notReloaded === true"))
+                .withFailMessage("FR-006a: voting must not reload the page")
+                .isEqualTo(Boolean.TRUE);
+        assertThat(button.getAttribute("aria-label")).isEqualTo("Withdraw upvote for " + topic.getName());
+        assertThat(page.evaluate("() => document.activeElement.hasAttribute('data-vote-button')"))
+                .withFailMessage("FR-006a: the focused control must survive the update")
+                .isEqualTo(Boolean.TRUE);
+        assertThat(page.locator("#vote-live-region").textContent())
+                .withFailMessage("FR-008b: the confirmed count must be announced")
+                .contains("1 upvotes");
+
+        // Toggling back must reverse it, in place, just the same.
+        page.evaluate("() => { document.getElementById('vote-live-region').textContent = ''; }");
+        button.click();
+        page.waitForFunction("() => document.getElementById('vote-live-region').textContent.trim() !== ''");
+        assertThat(button.getAttribute("aria-pressed")).isEqualTo("false");
+        assertThat(page.locator("[data-vote-count]").first().textContent().trim()).isEqualTo("0");
+    }
+
+    // FR-006c, FR-006c1, FR-006c2, SC-009a: when the vote cannot be saved the optimistic count must
+    // not stand, the explanation must be beside the control, and the row must not change size —
+    // the notice overlays rather than reflows.
+    @Test
+    void aFailedVoteRevertsAndExplainsItselfBesideTheControlWithoutResizingTheRow() {
+        User user = persistUser(false);
+        persistTopic(user.getId(), "Failing Vote Topic", TopicApprovalStatus.APPROVED);
+        loginAs(user);
+
+        Page page = context.newPage();
+        page.route("**/upvote", route -> route.abort());
+        page.navigate(baseUrl() + "/");
+
+        var row = page.locator("tbody tr").first();
+        double heightBefore = row.boundingBox().height;
+        var button = page.locator("[data-vote-button]").first();
+
+        button.click();
+        page.waitForSelector(".vote-notice");
+
+        assertThat(button.getAttribute("aria-pressed"))
+                .withFailMessage("FR-006c: a failed vote must revert the optimistic state")
+                .isEqualTo("false");
+        assertThat(page.locator("[data-vote-count]").first().textContent().trim()).isEqualTo("0");
+        assertThat(page.locator(".vote-notice").getAttribute("role"))
+                .withFailMessage("FR-008e: the failure must reach assistive technology too")
+                .isEqualTo("alert");
+        assertThat(row.boundingBox().height)
+                .withFailMessage("FR-006c2: the notice must overlay, never reflow the row")
+                .isEqualTo(heightBefore);
+        assertThat(page.locator("#vote-live-region").textContent())
+                .withFailMessage("FR-008d: a failed vote must never be announced as a success")
+                .doesNotContain("Upvoted");
+    }
+
+    // FR-006b, SC-010: the enhancement is a convenience; without it the form must still work.
+    @Test
+    void votingStillWorksWithJavaScriptDisabled() {
+        User user = persistUser(false);
+        persistTopic(user.getId(), "No Script Topic", TopicApprovalStatus.APPROVED);
+        loginAs(user);
+
+        BrowserContext noScript =
+                browser.newContext(new Browser.NewContextOptions().setJavaScriptEnabled(false));
+        Page loginPage = noScript.newPage();
+        loginPage.navigate(baseUrl() + "/__test-login?userId=" + user.getId());
+        loginPage.close();
+        Page page = noScript.newPage();
+        page.navigate(baseUrl() + "/");
+
+        page.locator("[data-vote-button]").first().click();
+        page.waitForLoadState();
+
+        assertThat(page.locator("[data-vote-button]").first().getAttribute("aria-pressed"))
+                .withFailMessage("FR-006b: the plain form submission must still record the vote")
+                .isEqualTo("true");
+        noScript.close();
     }
 
     @Test

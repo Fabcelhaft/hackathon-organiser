@@ -325,67 +325,6 @@ class HomeControllerIT {
     }
 
     @Test
-    void homeIntersectsNeededSkillsWithTheViewersOwnSkillsAndShowsEmptyCellOtherwise() {
-        User viewer = persistUser();
-        Participant viewerParticipant = persistParticipant(viewer.getId(), ParticipantStatus.ACTIVE);
-        User author = persistUser();
-        persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
-        Skill matching = persistSkill("Rust " + UUID.randomUUID());
-        Skill nonMatching = persistSkill("Python " + UUID.randomUUID());
-        participantService
-                .replaceSkills(viewerParticipant.getId(), List.of(matching.getId()), new AuditActor(viewer.getId(), false))
-                .block();
-        topicService
-                .propose(author.getId(), "Topic With Skills " + UUID.randomUUID(), "Desc",
-                        List.of(matching.getId(), nonMatching.getId()), new AuditActor(author.getId(), false))
-                .block();
-
-        String body = homeBody(viewer);
-
-        assertThat(body).contains(matching.getName());
-        assertThat(body).doesNotContain(nonMatching.getName());
-    }
-
-    @Test
-    void skillDisplayModeChangesTheSkillsColumnOnTheVeryNextView() {
-        User viewer = persistUser();
-        Participant viewerParticipant = persistParticipant(viewer.getId(), ParticipantStatus.ACTIVE);
-        User author = persistUser();
-        Participant authorParticipant = persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
-        Skill covered = persistSkill("Covered " + UUID.randomUUID());
-        Skill stillNeeded = persistSkill("StillNeeded " + UUID.randomUUID());
-        participantService
-                .replaceSkills(
-                        viewerParticipant.getId(),
-                        List.of(covered.getId(), stillNeeded.getId()),
-                        new AuditActor(viewer.getId(), false))
-                .block();
-        participantService
-                .replaceSkills(authorParticipant.getId(), List.of(covered.getId()), new AuditActor(author.getId(), false))
-                .block();
-        Topic topic = topicService
-                .propose(author.getId(), "Mode Topic " + UUID.randomUUID(), "Desc",
-                        List.of(covered.getId(), stillNeeded.getId()), new AuditActor(author.getId(), false))
-                .block();
-        groupService
-                .create(topic.getId(), List.of(authorParticipant.getId()), new AuditActor(author.getId(), false))
-                .block();
-
-        setSkillDisplayMode("STILL_NEEDED_ONLY");
-        String stillNeededOnlyBody = homeBody(viewer);
-        assertThat(stillNeededOnlyBody).contains(stillNeeded.getName());
-        assertThat(stillNeededOnlyBody).doesNotContain(covered.getName());
-
-        setSkillDisplayMode("ALL_ASSOCIATED");
-        String allAssociatedBody = homeBody(viewer);
-        assertThat(allAssociatedBody).contains(stillNeeded.getName());
-        assertThat(allAssociatedBody).contains(covered.getName());
-    }
-
-    // --- Own-Topic pinning, View Details, and dropped "Group" wording (Stories 9, 10, FR-004a, --
-    // --- FR-033, FR-035, FR-036) --------------------------------------------------------------
-
-    @Test
     void homePinsTheViewersOwnPendingAndFullTopicsAboveTheFullnessSortedRowsWithNoJoinActionOnEither() {
         setMaxGroupMembers(1);
         User viewer = persistUser();
@@ -404,8 +343,72 @@ class HomeControllerIT {
         assertThat(body).doesNotContain("/topics/" + ownFull.getId() + "/join");
     }
 
+    // Feature 013 (FR-001, FR-002): the per-row "View" button is gone and the Topic name carries the
+    // link instead, so a row no longer spends a whole control on navigation it can imply.
+    // Feature 013 (FR-015): the Dashboard card is half the page wide and the "Your Skills" column
+    // was empty for most rows while squeezing the Topic name. Equivalent coverage of skill display
+    // lives in TopicOverviewManagementIT, which keeps its "Needed Skills" column (FR-016), so this
+    // removes a duplicated assertion rather than real coverage.
+    // Feature 013 (FR-018, FR-019, FR-020): quieting these two must not cost either of them, nor
+    // blur which is the primary action.
     @Test
-    void everyHomePageRowOffersAViewDetailsLinkToTheTopicDetailsView() {
+    void theTopicsCardKeepsBothActionsWithProposeTopicAsThePrimaryOne() {
+        User viewer = persistUser();
+
+        String body = homeBody(viewer);
+
+        assertThat(body).contains("Propose Topic");
+        assertThat(body).contains("All Topics");
+        assertThat(body).contains("href=\"/topics/new\"");
+        assertThat(body).contains("href=\"/topics/overview\"");
+        assertThat(body)
+                .withFailMessage("FR-020: the pair must carry the quieter card-action treatment")
+                .contains("card-actions");
+        assertThat(body)
+                .withFailMessage("FR-019: All Topics stays the secondary of the two")
+                .containsPattern("href=\"/topics/overview\"[^>]*class=\"outline secondary\"");
+    }
+
+    @Test
+    void theHomePageNoLongerShowsASkillsColumnForTheViewer() {
+        User viewer = persistUser();
+        Participant viewerParticipant = persistParticipant(viewer.getId(), ParticipantStatus.ACTIVE);
+        User author = persistUser();
+        persistParticipant(author.getId(), ParticipantStatus.ACTIVE);
+        Skill matching = persistSkill("Rust " + UUID.randomUUID());
+        participantService
+                .replaceSkills(viewerParticipant.getId(), List.of(matching.getId()), new AuditActor(viewer.getId(), false))
+                .block();
+        topicService
+                .propose(author.getId(), "Topic With Skills " + UUID.randomUUID(), "Desc",
+                        List.of(matching.getId()), new AuditActor(author.getId(), false))
+                .block();
+
+        String body = homeBody(viewer);
+
+        assertThat(body)
+                .withFailMessage("FR-015: the Dashboard must not render a skills column")
+                .doesNotContain("Your Skills")
+                .doesNotContain(matching.getName());
+    }
+
+    // FR-017: the empty-state row has to span the table's ACTUAL column count. Feature 013 removed
+    // two columns from this table (the View action and Your Skills), and a stale colspan is the
+    // kind of thing that renders fine until the day the table is empty.
+    @Test
+    void theHomePageEmptyStateRowStillSpansTheWholeTable() {
+        User viewer = persistUser();
+
+        String body = homeBody(viewer);
+
+        assertThat(body).contains("No open Topics right now.");
+        assertThat(body)
+                .withFailMessage("Name + Participants + Upvotes = 3 columns for a viewer who cannot join")
+                .contains("colspan=\"3\"");
+    }
+
+    @Test
+    void everyHomePageRowLinksToTheTopicDetailsViewFromTheTopicNameItself() {
         User author = persistUser();
         Topic topic = persistTopic(author.getId());
         User viewer = persistUser();
@@ -413,6 +416,25 @@ class HomeControllerIT {
         String body = homeBody(viewer);
 
         assertThat(body).contains("/topics/" + topic.getId());
+        assertThat(body)
+                .withFailMessage("the Topic name must be the link to its detail page (FR-001)")
+                .containsPattern("<a[^>]*href=\"/topics/" + topic.getId() + "\"[^>]*>\\s*"
+                        + java.util.regex.Pattern.quote(topic.getName()));
+    }
+
+    @Test
+    void noHomePageRowRendersASeparateViewDetailsControl() {
+        User author = persistUser();
+        persistTopic(author.getId());
+        User viewer = persistUser();
+
+        String body = homeBody(viewer);
+
+        assertThat(body)
+                .withFailMessage("FR-002: the separate per-row View control must not be rendered")
+                .doesNotContain("View details for")
+                .doesNotContain(">View<")
+                .doesNotContain(">View Details<");
     }
 
     @Test
@@ -445,6 +467,30 @@ class HomeControllerIT {
         assertThat(afterBody).contains("Withdraw upvote");
     }
 
+    // Feature 013 (FR-005, FR-008, FR-008a): same single toggle control as the overview, from the
+    // same shared fragment, so the two screens cannot drift apart.
+    @Test
+    void eachHomePageRowRendersOneToggleVoteControlCarryingItsPressedState() {
+        User author = persistUser();
+        Topic topic = persistTopic(author.getId());
+        User voter = persistUser();
+
+        String before = homeBody(voter);
+
+        assertThat(before).contains("aria-pressed=\"false\"");
+        assertThat(before).contains("aria-label=\"Upvote " + topic.getName() + "\"");
+        assertThat(before)
+                .withFailMessage("exactly one vote form per row (FR-005)")
+                .containsOnlyOnce("data-vote-form");
+
+        castUpvote(topic.getId(), voter.getId());
+        String after = homeBody(voter);
+
+        assertThat(after).contains("aria-pressed=\"true\"");
+        assertThat(after).contains("aria-label=\"Withdraw upvote for " + topic.getName() + "\"");
+        assertThat(after).contains("/topics/" + topic.getId() + "/unupvote");
+    }
+
     @Test
     void homeBreaksAMemberCountTieByUpvoteCountWhenUpvotingIsEnabled() {
         User author = persistUser();
@@ -474,6 +520,10 @@ class HomeControllerIT {
 
         assertThat(body).doesNotContain("Upvote");
         assertThat(body).doesNotContain("Withdraw upvote");
+        // Feature 013 (FR-009): the announcement region exists only to narrate vote changes, so it
+        // has no reason to be in the document when voting is switched off.
+        assertThat(body).doesNotContain("vote-live-region");
+        assertThat(body).doesNotContain("data-vote-button");
     }
 
     // --- Reference numbers (US2, FR-009, FR-010, FR-012) --------------------------------------------
