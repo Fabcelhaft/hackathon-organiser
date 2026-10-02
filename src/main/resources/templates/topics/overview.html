@@ -59,24 +59,28 @@
                     </td>
                     <!--/* Feature 013 (FR-005): count and action collapse into one compact control,
                          rendered from the single shared fragment so the two screens cannot drift. */-->
-                    <td class="actions actions-nowrap vote-cell" th:if="${upvotingEnabled}">
-                        <th:block th:replace="~{fragments/topic-vote :: control(
-                            topicId=${row.topic().id},
-                            topicName=${row.topic().name},
-                            upvoteCount=${row.upvoteCount()},
-                            viewerHasUpvoted=${row.viewerHasUpvoted()},
-                            redirect='/topics/overview')}"/>
+                    <td th:if="${upvotingEnabled}">
+                        <div class="actions actions-nowrap vote-cell">
+                            <th:block th:replace="~{fragments/topic-vote :: control(
+                                topicId=${row.topic().id},
+                                topicName=${row.topic().name},
+                                upvoteCount=${row.upvoteCount()},
+                                viewerHasUpvoted=${row.viewerHasUpvoted()},
+                                redirect='/topics/overview')}"/>
+                        </div>
                     </td>
-                    <td class="actions actions-nowrap" th:if="${canJoinTopics}">
-                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                        <input type="hidden" name="redirect" value="/topics/overview"/>
-                            <!--/* FR-011a: name the screen we are on, so joining returns here instead
-                                 of always bouncing to the Home Page. Validated server-side against
-                                 an allow-list (SelfServiceRedirects), so a tampered value cannot
-                                 turn joining into an open redirect (FR-011b). */-->
+                    <td th:if="${canJoinTopics}">
+                        <div class="actions actions-nowrap">
+                            <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
                             <input type="hidden" name="redirect" value="/topics/overview"/>
-                            <button type="submit" class="join-control outline secondary">Join</button>
-                        </form>
+                                <!--/* FR-011a: name the screen we are on, so joining returns here instead
+                                     of always bouncing to the Home Page. Validated server-side against
+                                     an allow-list (SelfServiceRedirects), so a tampered value cannot
+                                     turn joining into an open redirect (FR-011b). */-->
+                                <input type="hidden" name="redirect" value="/topics/overview"/>
+                                <button type="submit" class="join-control outline secondary">Join</button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 </tbody>
@@ -127,18 +131,22 @@
                         <svg th:replace="~{fragments/icons :: xCircle('Not Compliant')}"/>
                     </span>
                 </td>
-                <td class="actions actions-nowrap vote-cell" th:if="${upvotingEnabled}">
-                    <th:block th:replace="~{fragments/topic-vote :: control(
-                        topicId=${row.topic().id},
-                        topicName=${row.topic().name},
-                        upvoteCount=${row.upvoteCount()},
-                        viewerHasUpvoted=${row.viewerHasUpvoted()},
-                        redirect='/topics/overview')}"/>
+                <td th:if="${upvotingEnabled}">
+                    <div class="actions actions-nowrap vote-cell">
+                        <th:block th:replace="~{fragments/topic-vote :: control(
+                            topicId=${row.topic().id},
+                            topicName=${row.topic().name},
+                            upvoteCount=${row.upvoteCount()},
+                            viewerHasUpvoted=${row.viewerHasUpvoted()},
+                            redirect='/topics/overview')}"/>
+                    </div>
                 </td>
-                <td class="actions actions-nowrap" th:if="${canJoinTopics}">
-                    <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
-                        <button type="submit" class="join-control outline secondary">Join</button>
-                    </form>
+                <td th:if="${canJoinTopics}">
+                    <div class="actions actions-nowrap">
+                        <form th:if="${row.joinable()}" th:action="@{/topics/{id}/join(id=${row.topic().id})}" method="post">
+                            <button type="submit" class="join-control outline secondary">Join</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             <tr th:if="${rows.isEmpty()}">

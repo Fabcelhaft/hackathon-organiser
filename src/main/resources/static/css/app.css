@@ -125,6 +125,16 @@ div.actions {
     margin-bottom: var(--pico-block-spacing-vertical);
 }
 
+/* Feature 013: a row's controls now sit in a <div class="actions"> INSIDE the cell rather than on
+   the <td> itself. That is what the note on form.actions below has always said to do — a <td> with
+   display:flex leaves the table formatting context and stops stretching to the row height, so the
+   cell shrinks to its content and the table background shows through the space beside it. Invisible
+   while every row was one line tall; obvious as soon as a wrapped Topic name made rows tall.
+   The div must not reintroduce the page-level bar's bottom margin inside a cell. */
+td > .actions {
+    margin-bottom: 0;
+}
+
 .actions form {
     display: inline;
     margin: 0;

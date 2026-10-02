@@ -33,7 +33,10 @@ final class RowLayoutAssertions {
     static void assertNoStackedRowControls(Page page, String label) {
         List<String> offenders = new ArrayList<>();
 
-        for (ElementHandle cell : page.querySelectorAll("td.actions")) {
+        // The flex row lives in a div inside the cell, not on the <td> — a flex <td> stops
+        // stretching to the row height. Both spellings are matched so this keeps working if a
+        // cell is ever restructured again.
+        for (ElementHandle cell : page.querySelectorAll("td .actions, td.actions")) {
             List<ElementHandle> controls =
                     cell.querySelectorAll("button, a[role=\"button\"], [data-vote-button]");
             if (controls.size() < 2) {

@@ -44,6 +44,8 @@ performable afterwards.
 
 - Q: Should the Topics overview scroll horizontally when its content does not fit? (FR-012, FR-013) → A: No. Long Topic names wrap instead, so every column stays visible. Horizontal scrolling hid the right-hand columns, which is worse than a two-line name. Raised after seeing the deployed build.
 
+- Q: The table background showed through beside the row controls once rows grew taller — what fixes it? (FR-014) → A: The flex row moves off the `<td>` onto an inner element. A `<td>` with `display:flex` leaves the table formatting context and stops stretching to the row height, so the cell shrank to its content. Raised after seeing the deployed build.
+
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -369,6 +371,10 @@ less vertical and horizontal weight.
   (FR-012a); its controls still MUST NOT stack.
 - **FR-014**: Column boundaries MUST remain visually distinguishable, so the vote count is not read
   as belonging to the action column.
+- **FR-014a**: Every cell in a Topic row MUST fill the full height of that row, so the row reads as
+  one continuous band whatever its tallest cell contains. No cell may shrink to its content and let
+  the surrounding background show through beside its controls, and row separators MUST run the full
+  width of the table.
 
 **Dashboard skills**
 

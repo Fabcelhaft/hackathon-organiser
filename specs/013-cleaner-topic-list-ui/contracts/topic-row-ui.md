@@ -37,6 +37,7 @@ drops by one.
 | R5 | At ≥1024px, no row renders any control on a line below another control | FR-013 |
 | R6 | The Topics overview never scrolls horizontally; a long Topic name wraps instead, so every column stays visible | FR-012a |
 | R6a | Wrapping applies to text only — a row's controls never wrap onto their own line | FR-012b, FR-013 |
+| R6b | Every cell fills the full row height; row separators span the whole table | FR-014a |
 | R7 | Voted and unvoted differ by more than colour | FR-007 |
 | R8 | Every control's accessible name identifies its Topic and its action | FR-008 |
 | R9 | The vote control exposes `aria-pressed` reflecting the viewer's state | FR-008a |
@@ -54,7 +55,7 @@ drops by one.
 
 | Class | Scope | Must not |
 |---|---|---|
-| `.actions` | shared, app-wide | **be modified** — organiser tables depend on its current wrapping behaviour (FR-021) |
+| `.actions` | shared, app-wide | **be modified**, and **never be placed on a `<td>`** — `display:flex` takes the cell out of the table formatting context so it stops filling the row (FR-014a). Put it on an element inside the cell |
 | `.actions-nowrap` | new; these two screens only | apply to any organiser template |
 | `.table-scroll` | existing; Dashboard card only | be added to the overview — it must not scroll sideways (FR-012a) |
 | `.name-with-badge` | these two screens only | re-introduce `white-space: nowrap`, which is what forced the overview to scroll |
