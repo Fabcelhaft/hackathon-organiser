@@ -59,6 +59,30 @@
                 <button type="submit">Save</button>
             </form>
 
+            <form th:if="${cfv.definition.fieldType.name()} == 'COUNTRY'"
+                  th:action="@{/organiser/participants/{id}/custom-fields/{fieldId}(id=${detail.participant.id}, fieldId=${cfv.definition.id})}"
+                  method="post">
+                <select name="value" th:attr="aria-label=${cfv.definition.label}">
+                    <option value="">—</option>
+                    <option th:each="country : ${countries}" th:value="${country.code}" th:text="${country.name}"
+                            th:selected="${country.code == cfv.freeTextValue}">Country</option>
+                </select>
+                <button type="submit">Save</button>
+            </form>
+
+            <form th:if="${cfv.definition.fieldType.name()} == 'SINGLE_SELECT'"
+                  th:action="@{/organiser/participants/{id}/custom-fields/{fieldId}(id=${detail.participant.id}, fieldId=${cfv.definition.id})}"
+                  method="post">
+                <div th:each="option : ${cfv.options}">
+                    <label>
+                        <input type="radio" name="option_ids" th:value="${option.id}"
+                               th:checked="${#lists.contains(cfv.selectedOptionIds, option.id)}"/>
+                        <span th:text="${option.label}">Option</span>
+                    </label>
+                </div>
+                <button type="submit">Save</button>
+            </form>
+
             <form th:if="${cfv.definition.fieldType.name()} == 'MULTI_SELECT'"
                   th:action="@{/organiser/participants/{id}/custom-fields/{fieldId}(id=${detail.participant.id}, fieldId=${cfv.definition.id})}"
                   method="post">

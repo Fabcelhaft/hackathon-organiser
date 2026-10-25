@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 import net.fabcelhaft.hackathonorganiser.audit.AuditActor;
 import net.fabcelhaft.hackathonorganiser.audit.AuditService;
+import net.fabcelhaft.hackathonorganiser.customfield.IsoCountryCatalog;
 import net.fabcelhaft.hackathonorganiser.organisersettings.OrganiserSettingsService;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantConflictException;
 import net.fabcelhaft.hackathonorganiser.participant.ParticipantService;
@@ -175,6 +176,7 @@ public class ParticipantController {
                             .modelAttribute("detail", tuple.getT1())
                             .modelAttribute("allSkills", participantService.allSkills())
                             .modelAttribute("statuses", ParticipantStatus.values())
+                            .modelAttribute("countries", IsoCountryCatalog.all())
                             .modelAttribute("teamsLinksEnabled", tuple.getT2().isTeamsLinksEnabled());
                     if (error != null) {
                         builder = builder.modelAttribute("error", error);

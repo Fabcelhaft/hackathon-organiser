@@ -628,21 +628,32 @@ public class ParticipantService {
     private Mono<Void> validateAndPersistValue(
             UUID participantId, CustomFieldDefinition definition, String freeTextValue, List<UUID> optionIds) {
         List<UUID> ids = optionIds == null ? List.of() : optionIds;
-        if (definition.getFieldType() == CustomFieldType.FREE_TEXT) {
+        if (definition.getFieldType() == CustomFieldType.FREE_TEXT
+                || definition.getFieldType() == CustomFieldType.COUNTRY) {
             if (!ids.isEmpty()) {
                 return Mono.error(new ParticipantConflictException(
-                        "This custom field expects a free-text value, not selected options"));
+                        "This custom field expects a single value, not selected options"));
             }
-            return upsertFreeTextValue(participantId, definition.getId(), freeTextValue)
+            boolean blank = freeTextValue == null || freeTextValue.isBlank();
+            if (definition.getFieldType() == CustomFieldType.COUNTRY
+                    && !blank
+                    && IsoCountryCatalog.all().stream().noneMatch(country -> country.code().equals(freeTextValue))) {
+                return Mono.error(new ParticipantConflictException("Invalid country: " + freeTextValue));
+            }
+            return upsertFreeTextValue(participantId, definition.getId(), blank ? null : freeTextValue)
                     .then(Mono.defer(() -> clearSelectedOptions(participantId, definition.getId())));
         }
 
-        // MULTI_SELECT
+        // SINGLE_SELECT / MULTI_SELECT
         if (freeTextValue != null && !freeTextValue.isBlank()) {
             return Mono.error(new ParticipantConflictException(
                     "This custom field expects selected options, not a free-text value"));
         }
         Set<UUID> distinctIds = new LinkedHashSet<>(ids);
+        if (definition.getFieldType() == CustomFieldType.SINGLE_SELECT && distinctIds.size() > 1) {
+            return Mono.error(
+                    new ParticipantConflictException(definition.getLabel() + " allows only one selection"));
+        }
         // Each subsequent write is wrapped in Mono.defer so its DatabaseClient call is only ever
         // constructed after the previous step in the chain actually completes — otherwise Java's
         // eager method-argument evaluation would call databaseClient.sql(...) to build every one

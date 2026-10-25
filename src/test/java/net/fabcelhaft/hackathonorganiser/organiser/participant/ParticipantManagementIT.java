@@ -415,6 +415,56 @@ class ParticipantManagementIT {
     }
 
     @Test
+    void organiserCanSetASingleSelectCustomFieldValueButNotTwoOptions() {
+        User user = persistUser("Single Select Target " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        CustomFieldDefinition field =
+                persistDefinition("Diet " + UUID.randomUUID(), CustomFieldType.SINGLE_SELECT, false);
+        CustomFieldOption first = persistOption(field.getId(), "Vegan " + UUID.randomUUID());
+        CustomFieldOption second = persistOption(field.getId(), "Vegetarian " + UUID.randomUUID());
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/custom-fields/{fieldId}", participant.getId(), field.getId())
+                .body(BodyInserters.fromFormData("option_ids", first.getId().toString()))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(checkboxTag(detailBody(participant.getId()), first.getId())).contains("checked");
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/custom-fields/{fieldId}", participant.getId(), field.getId())
+                .body(BodyInserters.fromFormData("option_ids", first.getId().toString())
+                        .with("option_ids", second.getId().toString()))
+                .exchange()
+                .expectStatus().isOk(); // rejected: a single-select allows one option
+    }
+
+    @Test
+    void organiserCanSetACountryCustomFieldValueAndInvalidCodesAreRejected() {
+        User user = persistUser("Country Target " + UUID.randomUUID());
+        Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
+        // The COUNTRY definition is seeded once (unique constraint), so use the existing row.
+        CustomFieldDefinition field = customFieldDefinitionRepository.findAll()
+                .filter(definition -> definition.getFieldType() == CustomFieldType.COUNTRY)
+                .next()
+                .block();
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/custom-fields/{fieldId}", participant.getId(), field.getId())
+                .body(BodyInserters.fromFormData("value", "DE"))
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.SEE_OTHER);
+
+        assertThat(detailBody(participant.getId())).containsPattern("value=\"DE\"[^>]*selected");
+
+        webTestClient.mutateWith(organiser())
+                .post().uri("/organiser/participants/{id}/custom-fields/{fieldId}", participant.getId(), field.getId())
+                .body(BodyInserters.fromFormData("value", "XX"))
+                .exchange()
+                .expectStatus().isOk();
+    }
+
+    @Test
     void customFieldValueRejectsOptionIdsSubmittedForAFreeTextField() {
         User user = persistUser("Shape Mismatch A " + UUID.randomUUID());
         Participant participant = persistParticipant(user.getId(), ParticipantStatus.ACTIVE);
