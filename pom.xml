@@ -67,6 +67,13 @@
             <artifactId>commonmark-ext-autolink</artifactId>
             <version>0.24.0</version>
         </dependency>
+        <!-- GFM pipe tables (| a | b |), which core commonmark does not parse. The emitted
+             table elements are allowed through by the sanitizer's built-in Sanitizers.TABLES. -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>0.24.0</version>
+        </dependency>
         <dependency>
             <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
             <artifactId>owasp-java-html-sanitizer</artifactId>
@@ -108,7 +115,7 @@
         <dependency>
             <groupId>com.microsoft.playwright</groupId>
             <artifactId>playwright</artifactId>
-            <version>1.52.0</version>
+            <version>1.64.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>

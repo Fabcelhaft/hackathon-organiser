@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.commonmark.Extension;
 import org.commonmark.ext.autolink.AutolinkExtension;
+import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.node.Heading;
 import org.commonmark.node.Link;
 import org.commonmark.node.Node;
@@ -50,6 +52,10 @@ import org.springframework.stereotype.Component;
  *       every link, and the policy below forces {@code rel="nofollow noopener noreferrer"} onto it,
  *       so a destination page can never reach back through {@code window.opener} (010 FR-004).
  * </ul>
+ *
+ * <p><b>Tables:</b> GFM pipe tables are parsed and rendered by {@link TablesExtension}; the
+ * resulting {@code <table>} markup (including the {@code align} attribute that column alignment
+ * produces) is allowed through by the sanitizer's built-in {@link Sanitizers#TABLES} policy.
  */
 @Component
 public class MarkdownRenderer {
@@ -78,11 +84,15 @@ public class MarkdownRenderer {
     private static final PolicyFactory POLICY = Sanitizers.BLOCKS
             .and(Sanitizers.FORMATTING)
             .and(LINKS_IN_NEW_TAB)
-            .and(Sanitizers.IMAGES);
+            .and(Sanitizers.IMAGES)
+            .and(Sanitizers.TABLES);
 
-    private final Parser parser =
-            Parser.builder().extensions(List.of(AutolinkExtension.create())).build();
+    private static final List<Extension> EXTENSIONS =
+            List.of(AutolinkExtension.create(), TablesExtension.create());
+
+    private final Parser parser = Parser.builder().extensions(EXTENSIONS).build();
     private final HtmlRenderer renderer = HtmlRenderer.builder()
+            .extensions(EXTENSIONS)
             .nodeRendererFactory(HeadingLevelShiftingRenderer::new)
             .attributeProviderFactory(context -> new NewTabLinkAttributeProvider())
             .build();
