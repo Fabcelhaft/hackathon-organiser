@@ -192,6 +192,19 @@ table caption {
     padding-bottom: calc(var(--pico-spacing) * 0.5);
 }
 
+/* Markdown-authored tables (GFM pipe tables rendered by MarkdownRenderer) can be wider than the
+   column they sit in. Shrink-to-content up to the container width, then scroll sideways rather
+   than bleeding out of the page — the same treatment GitHub gives rendered markdown tables. */
+.wiki-body table,
+.topic-description table,
+#designated-content table,
+.homepage-content table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 /* ------------------------------------------------------------ navigation */
 
 /* The organiser nav carries 10 items; without these it breaks multi-word labels ("Custom Fields",

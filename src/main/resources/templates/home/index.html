@@ -13,7 +13,7 @@
          and no title is duplicated above the content. th:utext is deliberate — bodyHtml is
          pre-sanitized by MarkdownRenderer (research.md §1). */-->
     <article id="content-section">
-        <div th:if="${homepageContent} != null" th:utext="${homepageContent.bodyHtml()}">Body</div>
+        <div th:if="${homepageContent} != null" class="homepage-content" th:utext="${homepageContent.bodyHtml()}">Body</div>
         <p th:if="${homepageContent} == null">No homepage content has been set yet.</p>
     </article>
 

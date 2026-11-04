@@ -148,6 +148,34 @@ class MarkdownRendererTest {
         assertThat(html).contains("<code>inline code</code>");
     }
 
+    // --- GFM tables ---------------------------------------------------------------------------
+
+    @Test
+    void aPipeTableRendersAsAnHtmlTable() {
+        String html = renderer.render("| Name | Role |\n| --- | --- |\n| Ada | Lead |");
+
+        assertThat(html).contains("<table>").contains("<thead>").contains("<tbody>");
+        assertThat(html).contains("<th>Name</th>").contains("<th>Role</th>");
+        assertThat(html).contains("<td>Ada</td>").contains("<td>Lead</td>");
+    }
+
+    @Test
+    void columnAlignmentSurvivesSanitization() {
+        String html = renderer.render("| Score |\n| :---: |\n| 42 |");
+
+        assertThat(html).contains("<th align=\"center\">Score</th>");
+        assertThat(html).contains("<td align=\"center\">42</td>");
+    }
+
+    @Test
+    void scriptsAndOnAttributesInsideATableCellAreStillStripped() {
+        String html = renderer.render(
+                "| A |\n| --- |\n| <script>alert(1)</script><a href=\"https://example.com\" onclick=\"alert(2)\">x</a> |");
+
+        assertThat(html).contains("<table>");
+        assertThat(html).doesNotContain("<script").doesNotContain("alert(").doesNotContain("onclick");
+    }
+
     private static int countOccurrences(String haystack, String needle) {
         int count = 0;
         for (int i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + needle.length())) {
