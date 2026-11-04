@@ -19,7 +19,10 @@ env:
 jobs:
   compile-and-test:
     name: Compile and test
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: that label is migrating to Ubuntu 26, which the pinned
+    # Playwright (1.52) does not recognise, so every browser-driven *IT fails at
+    # Playwright.create() with "Failed to create driver". Revisit after upgrading Playwright.
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -51,7 +54,7 @@ jobs:
     name: Build and push image
     needs: compile-and-test
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
